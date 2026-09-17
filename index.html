@@ -9598,6 +9598,15 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                     Victor (17-sep-2026). Preferencia de pantalla, no dato;
                     cuáles quedaron marcados se lee del DOM al confirmar. */
                  seleccionActivos:false,
+                 /* Activos ahora arranca en un directorio por cliente, no en
+                    un listado global — pedido explícito de Victor (17-sep-
+                    2026, quinta vuelta): "primero un apartado de cliente,
+                    luego dentro de ese cliente se muestra el listado, no al
+                    revés". Vacío = directorio; '__todos__' = listado plano
+                    sin agrupar (alertas, búsquedas por sitio); '__interno__'
+                    = solo equipo propio de Forguard; cualquier otro valor es
+                    un clienteId real. */
+                 activosClienteId:'',
                  /* Qué pestaña ve un cliente dentro de SU portal (no es un
                     módulo de MODULOS — ver esCliente() en render()), y cuál
                     póliza/cotización/reporte tiene abierto en el detalle. */
@@ -9774,6 +9783,7 @@ function irAModulo(m){
   estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null; estado.visitaId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
+  estado.activosClienteId = ''; estado.seleccionActivos = false;
   animarTarjetas = true;      /* lista nueva: sí anima */
   render();                   /* UN render, no dos */
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -9811,6 +9821,7 @@ function irAInicio(){
   estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null; estado.visitaId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
+  estado.activosClienteId = ''; estado.seleccionActivos = false;
   animarTarjetas = true;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -9922,25 +9933,68 @@ function irAVisitas(){
   render();
 }
 
+/* Regresa al directorio de clientes (el "inicio" del módulo) — pedido
+   explícito de Victor (17-sep-2026, quinta vuelta): primero un apartado
+   por cliente, no un listado global de arranque. */
 function irAActivos(){
   if(estado.modulo !== 'activos'){ estado.modulo = 'activos'; guardarModulo(); }
   estado.vista = 'activos';
   estado.activoId = null;
+  estado.activosClienteId = '';
   estado.filtro = 'todos';
   estado.busca = '';
   estado.categoriaFiltroActivo = '';
+  estado.seleccionActivos = false;
   animarTarjetas = true;
   render();
 }
+/* Sale del detalle de un activo (o de Estado de resultados) de vuelta al
+   listado que se estaba viendo — a diferencia de irAActivos(), NO resetea
+   a qué cliente se había entrado, para no perder el lugar. */
+function regresarActivosListado(){
+  estado.vista = 'activos';
+  estado.activoId = null;
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+/* Entra al inventario completo de UN cliente (o a los internos, con el
+   sentinela '__interno__') desde el directorio. */
+function entrarActivosGrupo(id){
+  if(estado.modulo !== 'activos'){ estado.modulo = 'activos'; guardarModulo(); }
+  estado.vista = 'activos';
+  estado.activosClienteId = id;
+  estado.activoId = null;
+  estado.filtro = 'todos';
+  estado.busca = '';
+  estado.categoriaFiltroActivo = '';
+  estado.seleccionActivos = false;
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
 /* Mismo puente que verReportesDe(), para consultar los activos de un
-   cliente o sitio desde su ficha de Forpass. */
+   cliente o sitio desde su ficha de Forpass. Si el texto coincide con el
+   nombre de un cliente, entra directo a su apartado; si no (ej. viene de
+   un nombre de sitio), cae al listado plano sin agrupar con ese texto de
+   búsqueda — sigue encontrando lo mismo, solo que fuera de un cliente
+   puntual. */
 function verActivosDe(texto){
   if(estado.modulo !== 'activos'){ estado.modulo = 'activos'; guardarModulo(); }
+  const llave = normalizarTextoEncabezadoXlsx(texto || '');
+  const cliente = llave ? datos.clientes.find(c => normalizarTextoEncabezadoXlsx(c.nombre) === llave) : null;
   estado.vista = 'activos';
   estado.activoId = null;
   estado.filtro = 'todos';
-  estado.busca = texto || '';
   estado.categoriaFiltroActivo = '';
+  estado.seleccionActivos = false;
+  if(cliente){
+    estado.activosClienteId = cliente.id;
+    estado.busca = '';
+  }else{
+    estado.activosClienteId = '__todos__';
+    estado.busca = texto || '';
+  }
   animarTarjetas = true;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -13767,7 +13821,7 @@ function vistaReporte(){
 /* ============================ Vistas: Activos ============================ */
 function botonRegresarActivos(){
   return '<div style="margin-bottom:14px">'
-       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-activos">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="regresar-activos-listado">'
        + ICONO.atras + 'Regresar a activos</button></div>';
 }
 
@@ -13880,7 +13934,20 @@ function actualizarConteoSeleccionActivos(){
   if(btn) btn.disabled = n === 0;
 }
 
+/* Punto de entrada del módulo: primero el directorio por cliente, y solo
+   al entrar a uno se ve su listado completo — pedido explícito de Victor
+   (17-sep-2026, quinta vuelta): "primero tendrías que hacer un apartado de
+   cliente, luego dentro de ese cliente se mostraría todo el listado, no al
+   revés". '__todos__'/'__interno__' y cualquier clienteId real ya cuentan
+   como "dentro de un apartado" y van directo al listado. */
 function vistaActivos(){
+  return estado.activosClienteId ? vistaActivosListado() : vistaActivosDirectorio();
+}
+
+/* Directorio: una tarjeta por cliente con activos (más "Activos internos"
+   si hay equipo propio de Forguard). Entrar a una tarjeta muestra SU
+   inventario completo — ver entrarActivosGrupo(). */
+function vistaActivosDirectorio(){
   const r = resumirActivos(datos.activos);
   let h = '';
 
@@ -13893,7 +13960,103 @@ function vistaActivos(){
      +   (puedeGestionarActivos()
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="importar-activos-excel">' + ICONO.excel + 'Importar desde Excel</button>'
           : '')
-     +   (esAdmin() && datos.activos.length
+     +   (puedeGestionarActivos()
+          ? '<button type="button" class="btn btn-primario" data-accion="nuevo-activo">' + ICONO.mas + 'Nuevo activo</button>'
+          : '')
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Total', numero(r.total), numero(r.operacion) + ' en operación · ' + numero(r.bajaOPerdido) + ' de baja/perdidos')
+     + tarjetaKpi('Valor del inventario', dinero(r.valor), 'Suma del costo de compra')
+     + tarjetaKpi('Mantenimiento pendiente', numero(r.mantenimientoPendiente), 'Vencido o en los próximos 7 días', r.mantenimientoPendiente ? 'k-alerta' : '', r.mantenimientoPendiente ? 'mantenimiento-pendiente-activos' : '')
+     + tarjetaKpi('Garantías por vencer', numero(r.garantiasPorVencer), 'En los próximos 30 días', r.garantiasPorVencer ? 'k-alerta' : '', r.garantiasPorVencer ? 'garantias-por-vencer-activos' : '')
+     + '</div>';
+
+  if(!datos.activos.length){
+    h += vistaVacia('activo', 'Todavía no hay activos registrados',
+          'Da de alta el equipo instalado en un cliente o una herramienta, vehículo o laptop propio de Forguard — todo en el mismo catálogo.',
+          puedeGestionarActivos() ? 'nuevo-activo' : '', 'Nuevo activo');
+    return h;
+  }
+
+  const grupos = new Map();
+  const internos = [];
+  datos.activos.forEach(a=>{
+    if(a.tipo === 'interno'){ internos.push(a); return; }
+    const cli = clientePorId(a.clienteId);
+    const id = a.clienteId || '__sin_cliente__';
+    if(!grupos.has(id)) grupos.set(id, { id, nombre: cli ? cli.nombre : (a.sitioNombre || 'Sin cliente'), cliente: cli, activos: [] });
+    grupos.get(id).activos.push(a);
+  });
+
+  const q = estado.busca.trim().toLowerCase();
+  let listaGrupos = Array.from(grupos.values());
+  if(q) listaGrupos = listaGrupos.filter(g => g.nombre.toLowerCase().includes(q));
+  listaGrupos.sort((a,b)=> a.nombre.localeCompare(b.nombre, 'es'));
+  const internosVisibles = internos.length && (!q || 'activos internos'.includes(q));
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaActivo" placeholder="Buscar cliente…" value="' + esc(estado.busca) + '">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-todos-activos-sin-agrupar">Ver todo sin agrupar</button>'
+     + '</div>';
+
+  if(!listaGrupos.length && !internosVisibles){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ningún cliente coincide con la búsqueda.</p></div>';
+    return h;
+  }
+
+  const tarjetaGrupo = (idGrupo, nombre, cliente, activosGrupo, i) => {
+    const rg = resumirActivos(activosGrupo);
+    return '<div class="tarjeta tarjeta-clic" data-activos-grupo="' + esc(idGrupo) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+         +   '<div class="t-cabeza">'
+         +     (cliente ? avatarCliente(cliente) : '<div class="t-avatar">' + esc(iniciales(nombre)) + '</div>')
+         +     '<div style="flex:1; min-width:0">'
+         +       '<div class="t-nombre">' + esc(nombre) + '</div>'
+         +       '<div class="t-sub">' + numero(activosGrupo.length) + ' ' + plural(activosGrupo.length,'activo','activos') + '</div>'
+         +     '</div>'
+         +   '</div>'
+         +   '<div class="t-datos">'
+         +     '<div class="t-dato"><div class="d-label">Valor</div><div class="d-valor chico">' + dinero(rg.valor) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">En operación</div><div class="d-valor chico">' + numero(rg.operacion) + '</div></div>'
+         +   '</div>'
+         +   '<div class="t-pie"><span class="pista">Ver inventario →</span></div>'
+         + '</div>';
+  };
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">'
+     + listaGrupos.map((g,i) => tarjetaGrupo(g.id, g.nombre, g.cliente, g.activos, i)).join('')
+     + (internosVisibles ? tarjetaGrupo('__interno__', 'Activos internos', null, internos, listaGrupos.length) : '')
+     + '</div>';
+
+  return h;
+}
+
+/* Listado completo (búsqueda, filtros, tabla/tarjetas, selección múltiple)
+   ya sea de UN cliente, de los internos, o de todo sin agrupar —
+   estado.activosClienteId decide cuál. */
+function vistaActivosListado(){
+  const idGrupo = estado.activosClienteId;
+  const idsEspeciales = ['__todos__', '__interno__', '__sin_cliente__'];
+  const clienteGrupo = idGrupo && !idsEspeciales.includes(idGrupo) ? clientePorId(idGrupo) : null;
+  const base = idGrupo === '__todos__' ? datos.activos
+    : idGrupo === '__interno__' ? datos.activos.filter(a => a.tipo === 'interno')
+    : idGrupo === '__sin_cliente__' ? datos.activos.filter(a => a.tipo === 'cliente' && !a.clienteId)
+    : datos.activos.filter(a => a.tipo === 'cliente' && a.clienteId === idGrupo);
+  const r = resumirActivos(base);
+  let h = '<div style="margin-bottom:14px">'
+        + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-activos">' + ICONO.atras + 'Todos los clientes</button></div>';
+
+  const titulo = idGrupo === '__todos__' ? 'Todos los activos'
+    : idGrupo === '__interno__' ? 'Activos internos'
+    : idGrupo === '__sin_cliente__' ? 'Sin cliente asignado'
+    : (clienteGrupo ? clienteGrupo.nombre : 'Activos');
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(titulo) + '</h2>'
+     +   '<p>' + numero(r.total) + ' ' + plural(r.total,'activo','activos') + ' registrados</p>'
+     + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="excel-activos">' + ICONO.excel + 'Descargar Excel</button>'
+     +   (esAdmin() && base.length
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="alternar-seleccion-activos">' + (estado.seleccionActivos ? 'Cancelar selección' : ICONO.mas + 'Seleccionar') + '</button>'
           : '')
      +   (puedeGestionarActivos()
@@ -13916,15 +14079,15 @@ function vistaActivos(){
      + tarjetaKpi('Garantías por vencer', numero(r.garantiasPorVencer), 'En los próximos 30 días', r.garantiasPorVencer ? 'k-alerta' : '', r.garantiasPorVencer ? 'garantias-por-vencer-activos' : '')
      + '</div>';
 
-  if(!datos.activos.length){
-    h += vistaVacia('activo', 'Todavía no hay activos registrados',
-          'Da de alta el equipo instalado en un cliente o una herramienta, vehículo o laptop propio de Forguard — todo en el mismo catálogo.',
+  if(!base.length){
+    h += vistaVacia('activo', 'Todavía no hay activos aquí',
+          'Da de alta el primer activo de este apartado.',
           puedeGestionarActivos() ? 'nuevo-activo' : '', 'Nuevo activo');
     return h;
   }
 
   const vistaTabla = estado.vistaActivos === 'tabla';
-  const categoriasEnUso = Array.from(new Set(datos.activos.map(a => (a.categoria || '').trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, 'es'));
+  const categoriasEnUso = Array.from(new Set(base.map(a => (a.categoria || '').trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, 'es'));
   h += '<div class="barra-busca">'
      +   '<input type="search" id="buscaActivo" placeholder="Buscar por folio, nombre, marca, serie, sitio o cliente…" value="' + esc(estado.busca) + '">'
      +   '<select id="filtroActivo">'
@@ -13945,7 +14108,7 @@ function vistaActivos(){
      + '</div>';
 
   const q = estado.busca.trim().toLowerCase();
-  const lista = datos.activos.filter(a=>{
+  const lista = base.filter(a=>{
     if(q){
       const cli = clientePorId(a.clienteId);
       const campos = [a.folio, a.nombre, a.marca, a.modelo, a.serie, a.codigo, a.categoria, a.sitioNombre, a.ubicacion, a.asignadoA, cli ? cli.nombre : ''];
@@ -20471,9 +20634,14 @@ function render(){
   const bpA = $('buscaActivo');
   if(bpA){
     bpA.addEventListener('input', ()=>{ estado.busca = bpA.value; renderConservandoFoco(bpA, 'buscaActivo'); });
+    /* El directorio de Activos (vistaActivosDirectorio) también trae este
+       mismo buscador, pero sin el <select> de filtro ni el de categoría —
+       ahí no aplican, son del listado dentro de un cliente. */
     const fpA = $('filtroActivo');
-    fpA.value = estado.filtro;
-    fpA.addEventListener('change', ()=>{ estado.filtro = fpA.value; render(); });
+    if(fpA){
+      fpA.value = estado.filtro;
+      fpA.addEventListener('change', ()=>{ estado.filtro = fpA.value; render(); });
+    }
     const cfA = $('categoriaFiltroActivo');
     if(cfA) cfA.addEventListener('change', ()=>{ estado.categoriaFiltroActivo = cfA.value; render(); });
   }
@@ -26479,8 +26647,18 @@ $('vista').addEventListener('click', ev=>{
         });
     }
     else if(a === 'ir-activos') irAActivos();
-    else if(a === 'mantenimiento-pendiente-activos'){ estado.modulo = 'activos'; estado.vista = 'activos'; estado.filtro = 'mantenimiento_pendiente'; estado.busca = ''; render(); }
-    else if(a === 'garantias-por-vencer-activos'){ estado.modulo = 'activos'; estado.vista = 'activos'; estado.filtro = 'garantia_por_vencer'; estado.busca = ''; render(); }
+    else if(a === 'regresar-activos-listado') regresarActivosListado();
+    else if(a === 'ver-todos-activos-sin-agrupar'){ estado.activosClienteId = '__todos__'; estado.busca = ''; animarTarjetas = true; render(); }
+    else if(a === 'mantenimiento-pendiente-activos'){
+      estado.modulo = 'activos'; estado.vista = 'activos';
+      if(!estado.activosClienteId) estado.activosClienteId = '__todos__'; /* desde el directorio: alerta global */
+      estado.filtro = 'mantenimiento_pendiente'; estado.busca = ''; render();
+    }
+    else if(a === 'garantias-por-vencer-activos'){
+      estado.modulo = 'activos'; estado.vista = 'activos';
+      if(!estado.activosClienteId) estado.activosClienteId = '__todos__';
+      estado.filtro = 'garantia_por_vencer'; estado.busca = ''; render();
+    }
     else if(a === 'ver-estado-resultados-activos'){ estado.vista = 'activos-resultados'; render(); window.scrollTo({ top:0, behavior:'smooth' }); }
     else if(a === 'excel-activos') descargarExcelActivos();
     else if(a === 'importar-activos-excel'){ if(exigirGestionActivos()) iniciarImportacionActivosExcel(); }
@@ -27120,6 +27298,9 @@ $('vista').addEventListener('click', ev=>{
   const tarAc = t.closest('[data-activo]');
   if(tarAc){ entrarActivo(tarAc.dataset.activo); return; }
 
+  const tarAcg = t.closest('[data-activos-grupo]');
+  if(tarAcg){ entrarActivosGrupo(tarAcg.dataset.activosGrupo); return; }
+
   const tarGp = t.closest('[data-gasto-proveedor]');
   if(tarGp){ entrarGastoProveedor(tarGp.dataset.gastoProveedor); return; }
 
@@ -27247,6 +27428,8 @@ $('vista').addEventListener('keydown', ev=>{
   if(ev.target.closest('[data-activo-check]')) return;
   const tarAc = ev.target.closest('[data-activo]');
   if(tarAc){ ev.preventDefault(); entrarActivo(tarAc.dataset.activo); return; }
+  const tarAcg = ev.target.closest('[data-activos-grupo]');
+  if(tarAcg){ ev.preventDefault(); entrarActivosGrupo(tarAcg.dataset.activosGrupo); return; }
   const tarGp = ev.target.closest('[data-gasto-proveedor]');
   if(tarGp){ ev.preventDefault(); entrarGastoProveedor(tarGp.dataset.gastoProveedor); return; }
   const tarPv = ev.target.closest('[data-proveedor]');
