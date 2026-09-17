@@ -71,6 +71,9 @@
   .metabar .k{color:var(--label-blue);padding-bottom:3px;font-weight:600;}
   .metabar .v{color:var(--text);font-weight:600;}
 
+  .franja-equipo{margin-top:14px;padding:8px 10px;background:var(--zebra);border-radius:4px;font-size:9.5px;color:var(--text);}
+  .franja-equipo .k{color:var(--label-blue);font-weight:600;margin-right:6px;}
+
   .cuerpo{margin-top:14px;}
 
   table.grid{width:100%;border-collapse:collapse;table-layout:fixed;}
@@ -95,6 +98,9 @@
     color:var(--brand-navy);padding-top:9px;}
 
   .notas{margin-top:16px;font-size:8.5px;color:#5C6673;line-height:1.6;white-space:pre-wrap;}
+  .nota-importante{margin-top:14px;font-size:7.8px;color:#7a2c28;line-height:1.55;}
+  .nota-importante ul{margin:4px 0 0 14px;padding:0;}
+  .nota-importante li{margin-bottom:2px;}
 
   .footwrap{position:absolute;left:.72in;right:.72in;bottom:.46in;}
   .foot{width:100%;table-layout:fixed;border-collapse:collapse;}
@@ -195,12 +201,15 @@ if(!COT){
   function metaHTML(){
     const filas = [
       ['Folio', COT.folio || 'sin folio'],
-      ['Fecha', COT.fecha],
-      ['Proveedor', COT.proveedor || '—'],
+      ['Fecha de emisión', COT.fecha],
       ['Estatus', COT.estatus || '—'],
+      ['Proveedor', COT.proveedor || '—'],
+      ['Razón social', COT.proveedorRazonSocial || '—'],
+      ['Comedor', COT.comedor],
       ['Fecha de entrega', COT.fechaEntrega],
+      ['Tiempo de entrega', COT.tiempoEntrega],
       ['Lugar de entrega', COT.lugarEntrega],
-      ['Condiciones de pago', COT.condicionesPago],
+      ['Crédito / condiciones de pago', COT.condicionesPago],
       ['Solicita', COT.solicita || '—']
     ];
     let out = '<table class="metabar"><tr>';
@@ -219,7 +228,10 @@ if(!COT){
       + '</div>'
       + '<div class="cab-tit"><div class="eyebrow">' + esc(eyebrow) + '</div>'
       +   '<div class="h1">' + esc(titulo) + '</div></div>'
-      + metaHTML();
+      + metaHTML()
+      + (COT.equipoDescripcion
+          ? '<div class="franja-equipo"><span class="k">Datos del equipo</span> ' + esc(COT.equipoDescripcion) + '</div>'
+          : '');
   }
 
   function pieHTML(){
@@ -233,7 +245,8 @@ if(!COT){
 
   /* ---- Filas de la tabla, ya resueltas en orden de impresión ---- */
   function filaItem(x){
-    return '<tr><td>' + esc(x.numeroParte || '—') + '</td><td class="cpt">' + esc(x.concepto) + '</td>'
+    return '<tr><td>' + esc(x.noPartida) + '</td><td class="cpt">' + esc(x.concepto)
+      + (x.numeroParte ? '<div class="parte">N° de parte: ' + esc(x.numeroParte) + '</div>' : '') + '</td>'
       + '<td>' + esc(x.cantidad) + '</td><td>' + esc(x.um || '—') + '</td>'
       + '<td class="n">' + esc(x.precioUnitario) + '</td><td class="n">' + esc(x.importe) + '</td></tr>';
   }
@@ -242,15 +255,24 @@ if(!COT){
     filasInfo.push({ tipo:'item', html:'<tr><td colspan="6">Sin conceptos capturados.</td></tr>' });
   }
 
-  const cabezaTabla = '<table class="grid"><thead><tr><th>N° parte</th><th class="cpt">Concepto</th>'
+  const cabezaTabla = '<table class="grid"><thead><tr><th>No.</th><th class="cpt">Descripción del artículo</th>'
     + '<th>Cant.</th><th>U.M.</th><th>Precio unit.</th><th>Importe</th></tr></thead><tbody>';
 
   function totalesHTML(){
     return '<table class="totales">'
+      + '<tr><td class="lbl">Subtotal</td><td class="val">' + esc(COT.subtotal) + '</td></tr>'
+      + '<tr><td class="lbl">IVA 16%</td><td class="val">' + esc(COT.iva) + '</td></tr>'
       + '<tr class="gran"><td class="lbl">Total</td><td class="val">' + esc(COT.total) + '</td></tr>'
       + '</table>';
   }
-  const notasHTML = COT.notas ? '<div class="notas">' + esc(COT.notas) + '</div>' : '';
+  const notasHTML = (COT.notas ? '<div class="notas">' + esc(COT.notas) + '</div>' : '')
+    + '<div class="nota-importante"><b>NOTA IMPORTANTE:</b>'
+    + '<ul>'
+    +   '<li>Anexar esta orden de compra a la factura para poder hacer el cobro de dicha factura.</li>'
+    +   '<li>Requisito contener sello y firma en cada factura para hacer efectivo el cobro.</li>'
+    +   '<li>Requisito forzoso dejar copia de la orden de compra y la factura en cada punto de entrega.</li>'
+    +   '<li>Pedidos que no se entreguen conforme al horario establecido para cada unidad son factor de rechazo (revisar casos especiales).</li>'
+    + '</ul></div>';
 
   /* ---- Una página con un subconjunto de filas (índices sobre filasInfo) ---- */
   function paginaHTML(indices, esUltima){

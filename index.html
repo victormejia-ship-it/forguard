@@ -4623,7 +4623,16 @@ function exigirGestionProveedores(){
 function normalizarProveedor(p){
   return {
     id: (p && p.id) || nuevoId(),
+    /* Con quién se le conoce en el día a día — el que ya se usaba,
+       ahora explícito como "comercial" porque no siempre coincide con el
+       de la factura (ver razonSocial). */
     nombre: aOracion((p && p.nombre ? String(p.nombre) : '').trim()),
+    /* Con quién factura de verdad: el nombre legal que debe aparecer en una
+       orden de compra para que el proveedor pueda cobrarla. Vacío = se
+       imprime igual que el nombre comercial (no todo proveedor tiene
+       una razón social distinta capturada, sobre todo los que ya
+       existían antes de este campo). */
+    razonSocial: (p && p.razonSocial ? String(p.razonSocial) : '').trim(),
     contacto: aOracion((p && p.contacto ? String(p.contacto) : '').trim()),
     telefono: (p && p.telefono ? String(p.telefono) : '').trim(),
     correo: (p && p.correo ? String(p.correo) : '').trim().toLowerCase(),
@@ -4771,36 +4780,62 @@ function normalizarOrdenCompra(o){
     id: (o && o.id) || nuevoId(),
     folio: (o && o.folio ? String(o.folio) : '').trim(),
     proveedorId: (o && o.proveedorId ? String(o.proveedorId) : '').trim(),
-    /* Copiado al guardar, mismo criterio que proveedorNombre en gastos: si el
+    /* Copiados al guardar, mismo criterio que proveedorNombre en gastos: si el
        proveedor se borra o se renombra después, la OC sigue diciendo a quién
-       se le pidió. */
+       se le pidió y con qué razón social se facturó. */
     proveedorNombre: (o && o.proveedorNombre ? String(o.proveedorNombre) : '').trim(),
+    proveedorRazonSocial: (o && o.proveedorRazonSocial ? String(o.proveedorRazonSocial) : '').trim(),
+    /* El "Comedor" del formato real: el sitio de Forpass para el que es esta
+       compra — no siempre aplica (compras de oficina, por ejemplo), por eso
+       es opcional. Copiado igual que sitioNombre en pólizas. */
+    sitioId: (o && o.sitioId ? String(o.sitioId) : '').trim(),
+    sitioNombre: (o && o.sitioNombre ? String(o.sitioNombre) : '').trim(),
+    /* Qué equipo es —modelo, número de serie/activo— cuando la compra es
+       para reparar o dar mantenimiento a uno en concreto. Texto libre: no
+       toda compra parte de un equipo dado de alta en Activos. */
+    equipoDescripcion: (o && o.equipoDescripcion ? String(o.equipoDescripcion) : '').trim(),
     fecha: /^\d{4}-\d{2}-\d{2}$/.test(o && o.fecha) ? o.fecha : hoyISO(),
     fechaEntrega: /^\d{4}-\d{2}-\d{2}$/.test(o && o.fechaEntrega) ? o.fechaEntrega : '',
+    /* Plazo en palabras ("02 semanas", "15 días") — distinto de fechaEntrega:
+       esa es la fecha compromiso, esto es cómo lo puso el proveedor en su
+       cotización, para poder citarlo tal cual en la orden. */
+    tiempoEntrega: (o && o.tiempoEntrega ? String(o.tiempoEntrega) : '').trim(),
     estatus: ESTATUS_ORDEN_COMPRA.includes(o && o.estatus) ? o.estatus : 'confirmada',
     renglones,
     /* A dónde debe llegar lo que se pide — un sitio de Forpass, la oficina, o
        texto libre si no aplica ninguno de los dos. */
     lugarEntrega: (o && o.lugarEntrega ? String(o.lugarEntrega) : '').trim(),
+    /* El "Crédito" del formato real (Ej. "15 días") o cualquier condición de
+       pago acordada — texto libre a propósito, no todo proveedor maneja lo
+       mismo. */
     condicionesPago: (o && o.condicionesPago ? String(o.condicionesPago) : '').trim(),
     /* Quién la solicita internamente — se prellena de quien la captura, pero
        es editable por si la pide alguien más y solo se está capturando. */
     solicitaNombre: (o && o.solicitaNombre ? String(o.solicitaNombre) : '').trim(),
+    /* La cotización que mandó el proveedor, adjunta y anclada a ESTA orden
+       —para poder comparar después qué se pidió contra qué se cotizó—.
+       Mismo molde que respaldosCosto en Cotizaciones: fotos o PDF chicos
+       embebidos, no un archivo aparte que se pueda perder. */
+    respaldosCotizacion: (Array.isArray(o && o.respaldosCotizacion) ? o.respaldosCotizacion : []).map(normalizarRespaldoCosto),
     notas: (o && o.notas ? String(o.notas) : '').trim()
   };
 }
 
-/* Total y demás derivados — nunca se guardan, mismo criterio que
-   calcularGastoProveedor()/calcularPoliza(). */
+/* Subtotal, IVA y total — nunca se guardan, mismo criterio que
+   calcularGastoProveedor()/calcularPoliza(). Mismo 16% que ya usa
+   calcularCotizacion() (IVA_COTIZACION): una orden de compra es, en el
+   fondo, la misma cuenta que una cotización pero en sentido contrario. */
 function calcularOrdenCompra(o){
-  const total = o.renglones.reduce((t,r)=> t + r.cantidad * r.precioUnitario, 0);
+  const subtotal = o.renglones.reduce((t,r)=> t + r.cantidad * r.precioUnitario, 0);
+  const iva = Math.round(subtotal * IVA_COTIZACION);
+  const total = subtotal + iva;
   let tono, tonoInsignia;
   if(o.estatus === 'cancelada'){ tono = 'neutro'; tonoInsignia = 'neutro'; }
   else if(o.estatus === 'borrador'){ tono = 'neutro'; tonoInsignia = 'info'; }
   else if(o.estatus === 'recibida'){ tono = 'ok'; tonoInsignia = 'ok'; }
   else if(o.estatus === 'confirmada'){ tono = 'ok'; tonoInsignia = 'info'; }
   else{ tono = 'alerta'; tonoInsignia = 'alerta'; } /* enviada: esperando respuesta del proveedor */
-  return { total, tono, tonoInsignia };
+  return { subtotal, iva, total, tono, tonoInsignia };
 }
 
 function guardarOrdenCompra(o, accion, detalle){
@@ -8978,13 +9013,18 @@ function armarPayloadOrdenCompra(o){
     folio: o.folio || '',
     fecha: fechaDocumento(o.fecha),
     fechaEntrega: o.fechaEntrega ? fechaDocumento(o.fechaEntrega) : 'NA',
+    tiempoEntrega: o.tiempoEntrega || 'NA',
     proveedor: o.proveedorNombre || '',
+    proveedorRazonSocial: o.proveedorRazonSocial || '',
+    comedor: o.sitioNombre || 'NA',
+    equipoDescripcion: o.equipoDescripcion || '',
     lugarEntrega: o.lugarEntrega || 'NA',
     condicionesPago: o.condicionesPago || 'NA',
     solicita: o.solicitaNombre || '',
     estatus: ETIQUETA_ESTATUS_ORDEN_COMPRA[o.estatus] || '',
     notas: o.notas || '',
-    renglones: o.renglones.map(r => ({
+    renglones: o.renglones.map((r,i) => ({
+      noPartida: '1.' + (i + 1),
       numeroParte: r.numeroParte || '',
       cantidad: numero(r.cantidad),
       um: r.um || '',
@@ -8992,6 +9032,8 @@ function armarPayloadOrdenCompra(o){
       precioUnitario: dinero(r.precioUnitario),
       importe: dinero(r.cantidad * r.precioUnitario)
     })),
+    subtotal: dinero(c.subtotal),
+    iva: dinero(c.iva),
     total: dinero(c.total)
   };
 }
@@ -14536,7 +14578,7 @@ function vistaProveedorDetalle(){
 
   h += '<div class="titulo-zona"><div>'
      +   '<h2>' + esc(p.nombre || 'Proveedor') + '</h2>'
-     +   '<p>' + esc(p.queSurte || 'Sin especificar qué surte') + '</p>'
+     +   '<p>' + (p.razonSocial ? esc(p.razonSocial) + ' · ' : '') + esc(p.queSurte || 'Sin especificar qué surte') + '</p>'
      + '</div></div>';
 
   if(!p.activo) h += '<div class="t-chips" style="margin:-6px 0 16px"><span class="insignia i-neutro">Inactivo</span></div>';
@@ -14908,7 +14950,7 @@ function tarjetaOrdenCompra(o, i){
        +   '<div class="t-chips"><span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[o.estatus]) + '</span></div>'
        +   '<div class="t-datos">'
        +     '<div class="t-dato"><div class="d-label">Total</div><div class="d-valor">' + dinero(c.total) + '</div></div>'
-       +     '<div class="t-dato"><div class="d-label">Renglones</div><div class="d-valor">' + numero(o.renglones.length) + '</div></div>'
+       +     '<div class="t-dato"><div class="d-label">Comedor</div><div class="d-valor chico">' + esc(o.sitioNombre || 'Sin especificar') + '</div></div>'
        +   '</div>'
        +   '<div class="t-pie"><span class="pista">' + fmtFecha(o.fecha) + '</span><span class="espacio"></span>'
        +     '<button type="button" class="btn btn-suave btn-mini" data-orden-compra="' + esc(o.id) + '">Ver detalle →</button>'
@@ -14917,14 +14959,15 @@ function tarjetaOrdenCompra(o, i){
 }
 
 function tablaOrdenesCompra(lista){
-  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:900px"><thead><tr>'
-       +   '<th>Folio</th><th>Proveedor</th><th>Fecha</th><th>Estatus</th><th>Renglones</th><th>Total</th>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1000px"><thead><tr>'
+       +   '<th>Folio</th><th>Proveedor</th><th>Comedor</th><th>Fecha</th><th>Estatus</th><th>Renglones</th><th>Total</th>'
        + '</tr></thead><tbody>'
        + lista.map(o=>{
            const c = calcularOrdenCompra(o);
            return '<tr class="fila-clic" data-orden-compra="' + esc(o.id) + '" tabindex="0" role="button">'
                 +   '<td>' + esc(o.folio || '—') + '</td>'
                 +   '<td>' + esc(o.proveedorNombre || '—') + '</td>'
+                +   '<td>' + esc(o.sitioNombre || '—') + '</td>'
                 +   '<td>' + fmtFecha(o.fecha) + '</td>'
                 +   '<td><span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[o.estatus]) + '</span></td>'
                 +   '<td>' + numero(o.renglones.length) + '</td>'
@@ -15007,7 +15050,9 @@ function vistaOrdenCompra(){
 
   h += '<div class="titulo-zona"><div>'
      +   '<h2>' + esc(o.folio || 'Orden de compra') + '</h2>'
-     +   '<p>' + esc(o.proveedorNombre || 'Sin proveedor') + ' · ' + fmtFecha(o.fecha) + '</p>'
+     +   '<p>' + esc(o.proveedorNombre || 'Sin proveedor')
+     +     (o.proveedorRazonSocial ? ' (' + esc(o.proveedorRazonSocial) + ')' : '')
+     +     ' · ' + fmtFecha(o.fecha) + '</p>'
      + '</div><div class="acciones">'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-orden-compra">' + ICONO.imprimir + 'PDF para el proveedor</button>'
      + '</div></div>';
@@ -15017,19 +15062,26 @@ function vistaOrdenCompra(){
      + '</div>';
 
   h += '<div class="kpis">'
-     + tarjetaKpi('Total', dinero(c.total), numero(o.renglones.length) + ' ' + plural(o.renglones.length,'renglón','renglones'))
-     + tarjetaKpi('Fecha de entrega', o.fechaEntrega ? fmtFecha(o.fechaEntrega) : 'Sin definir', '')
+     + tarjetaKpi('Total', dinero(c.total), 'Subtotal ' + dinero(c.subtotal) + ' + IVA ' + dinero(c.iva))
+     + tarjetaKpi('Comedor / sitio', esc(o.sitioNombre || 'Sin especificar'), '', 'k-texto')
+     + tarjetaKpi('Fecha de entrega', o.fechaEntrega ? fmtFecha(o.fechaEntrega) : 'Sin definir', o.tiempoEntrega || '')
      + tarjetaKpi('Lugar de entrega', esc(o.lugarEntrega || 'Sin especificar'), '', 'k-texto')
      + '</div>';
 
+  if(o.equipoDescripcion){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Datos del equipo</h3></div></div>'
+       +   '<p class="pista" style="margin:0">' + esc(o.equipoDescripcion) + '</p>'
+       + '</div>';
+  }
+
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Conceptos</h3></div></div>'
      +   '<div class="rodillo"><table class="tabla"><thead><tr>'
-     +     '<th>N° de parte</th><th>Concepto</th><th>Cantidad</th><th>U.M.</th><th>Precio unitario</th><th>Importe</th>'
+     +     '<th>No.</th><th>Concepto</th><th>Cantidad</th><th>U.M.</th><th>Precio unitario</th><th>Importe</th>'
      +   '</tr></thead><tbody>'
      +   (o.renglones.length
-          ? o.renglones.map(r => '<tr>'
-              +   '<td>' + esc(r.numeroParte || '—') + '</td>'
-              +   '<td>' + esc(r.concepto) + '</td>'
+          ? o.renglones.map((r,i) => '<tr>'
+              +   '<td>1.' + (i+1) + '</td>'
+              +   '<td>' + esc(r.concepto) + (r.numeroParte ? ' <span class="pista">(N° de parte: ' + esc(r.numeroParte) + ')</span>' : '') + '</td>'
               +   '<td>' + numero(r.cantidad) + '</td>'
               +   '<td>' + esc(r.um || '—') + '</td>'
               +   '<td>' + dinero(r.precioUnitario) + '</td>'
@@ -15037,13 +15089,30 @@ function vistaOrdenCompra(){
               + '</tr>').join('')
           : '<tr><td colspan="6" class="vacio-chico">Sin conceptos capturados.</td></tr>')
      +   '</tbody></table></div>'
+     +   '<div class="resumen" style="margin-top:10px; max-width:280px; margin-left:auto">'
+     +     '<div class="r-fila"><span>Subtotal</span><span>' + dinero(c.subtotal) + '</span></div>'
+     +     '<div class="r-fila"><span>IVA 16%</span><span>' + dinero(c.iva) + '</span></div>'
+     +     '<div class="r-fila r-total"><span>Total</span><span>' + dinero(c.total) + '</span></div>'
+     +   '</div>'
      + '</div>';
 
   if(o.condicionesPago || o.solicitaNombre || o.notas){
     h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Otros datos</h3></div></div>'
-       +   (o.condicionesPago ? '<p class="pista" style="margin:0 0 8px"><b>Condiciones de pago:</b> ' + esc(o.condicionesPago) + '</p>' : '')
+       +   (o.condicionesPago ? '<p class="pista" style="margin:0 0 8px"><b>Crédito / condiciones de pago:</b> ' + esc(o.condicionesPago) + '</p>' : '')
        +   (o.solicitaNombre ? '<p class="pista" style="margin:0 0 8px"><b>Solicita:</b> ' + esc(o.solicitaNombre) + '</p>' : '')
        +   (o.notas ? '<p class="pista" style="white-space:pre-wrap; margin:0"><b>Notas:</b> ' + esc(o.notas) + '</p>' : '')
+       + '</div>';
+  }
+
+  if(o.respaldosCotizacion.length){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Cotización del proveedor</h3><p>Lo que mandó ' + esc(o.proveedorNombre || 'el proveedor') + ', anclado a esta orden.</p></div></div>'
+       +   '<div class="galeria-evidencia">' + o.respaldosCotizacion.map(r=>
+             '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
+             + (r.tipo === 'pdf'
+                 ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
+                 : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
+             + '</div>'
+           ).join('') + '</div>'
        + '</div>';
   }
 
@@ -15075,12 +15144,17 @@ function modalOrdenCompra(id, proveedorPresetId){
 
   const proveedoresOrd = datos.proveedores.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
   const proveedorSel = o ? o.proveedorId : (proveedorPresetId || '');
+  const sitiosOrd = datos.sitios.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
 
   /* Copia de trabajo: se toca esto y no el registro, para que Cancelar
      cancele de verdad — mismo molde que partidasTmp en modalCotizacion. Una
      orden nueva arranca con un renglón en blanco ya puesto, mismo pedido de
      Victor (14-sep-2026) que ya aplica en Pólizas y Cotizaciones. */
   let renglonesTmp = (o ? o.renglones : [normalizarRenglonOrdenCompra({})]).map(x => Object.assign({}, x));
+  /* Mismo criterio que respaldosCostoTmp en modalCotizacion: copia de
+     trabajo, para poder adjuntar la cotización del proveedor desde AQUÍ, al
+     crear, y no solo después de guardar. */
+  let respaldosCotizacionTmp = (o ? o.respaldosCotizacion : []).map(x => Object.assign({}, x));
 
   const cuerpo =
       '<div class="campo"><label>Proveedor *</label><select id="ocProveedor">'
@@ -15094,17 +15168,31 @@ function modalOrdenCompra(id, proveedorPresetId){
     +     ESTATUS_ORDEN_COMPRA.map(e => '<option value="' + e + '"' + ((o ? o.estatus : 'confirmada') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[e]) + '</option>').join('')
     +   '</select></div>'
     + '</div>'
+    + '<div class="campo"><label>Comedor / sitio (opcional)</label><select id="ocSitio">'
+    +   '<option value="">— Ninguno en particular —</option>'
+    +   sitiosOrd.map(s=>{
+          const cli = clientePorId(s.clienteId);
+          return '<option value="' + esc(s.id) + '"' + (o && o.sitioId === s.id ? ' selected' : '') + '>'
+               + esc(s.nombre) + (cli ? ' — ' + esc(cli.nombre) : '') + '</option>';
+        }).join('')
+    + '</select><div class="pista">Para qué sitio de Forpass es esta compra — se imprime como "Comedor" en la orden.</div></div>'
+    + '<div class="campo"><label>Datos del equipo (opcional)</label>'
+    +   '<input type="text" id="ocEquipoDescripcion" placeholder="Ej. Máquina de hielo Manitowoc ID1406A-261, 1120300220" value="' + esc(o ? o.equipoDescripcion : '') + '"></div>'
     + '<div class="fila2">'
-    +   '<div class="campo"><label>Fecha *</label>'
+    +   '<div class="campo"><label>Fecha de emisión *</label>'
     +     '<input type="date" id="ocFecha" value="' + esc(o ? o.fecha : hoyISO()) + '"></div>'
     +   '<div class="campo"><label>Fecha de entrega (opcional)</label>'
     +     '<input type="date" id="ocFechaEntrega" value="' + esc(o ? o.fechaEntrega : '') + '"></div>'
     + '</div>'
-    + '<div class="campo"><label>Lugar de entrega</label>'
-    +   '<input type="text" id="ocLugarEntrega" placeholder="Ej. Sitio, bodega u oficina" value="' + esc(o ? o.lugarEntrega : '') + '"></div>'
     + '<div class="fila2">'
-    +   '<div class="campo"><label>Condiciones de pago</label>'
-    +     '<input type="text" id="ocCondicionesPago" placeholder="Ej. 50% anticipo, 50% contra entrega" value="' + esc(o ? o.condicionesPago : '') + '"></div>'
+    +   '<div class="campo"><label>Lugar de entrega</label>'
+    +     '<input type="text" id="ocLugarEntrega" placeholder="Ej. Sitio, bodega u oficina" value="' + esc(o ? o.lugarEntrega : '') + '"></div>'
+    +   '<div class="campo"><label>Tiempo de entrega</label>'
+    +     '<input type="text" id="ocTiempoEntrega" placeholder="Ej. 02 semanas" value="' + esc(o ? o.tiempoEntrega : '') + '"></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Crédito / condiciones de pago</label>'
+    +     '<input type="text" id="ocCondicionesPago" placeholder="Ej. 15 días, o 50% anticipo y 50% contra entrega" value="' + esc(o ? o.condicionesPago : '') + '"></div>'
     +   '<div class="campo"><label>Solicita</label>'
     +     '<input type="text" id="ocSolicita" value="' + esc(o ? o.solicitaNombre : nombreDe(sesion)) + '"></div>'
     + '</div>'
@@ -15112,7 +15200,16 @@ function modalOrdenCompra(id, proveedorPresetId){
     +   '<div id="listaRenglonesOC"></div>'
     +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarRenglonOC" style="margin-top:8px">' + ICONO.mas + 'Agregar renglón</button>'
     + '</div>'
-    + '<div class="resumen" style="margin-top:4px"><div class="r-fila r-total"><span>Total</span><span id="ocTotal"></span></div></div>'
+    + '<div class="resumen" style="margin-top:4px">'
+    +   '<div class="r-fila"><span>Subtotal</span><span id="ocSubtotal"></span></div>'
+    +   '<div class="r-fila"><span>IVA 16%</span><span id="ocIva"></span></div>'
+    +   '<div class="r-fila r-total"><span>Total</span><span id="ocTotal"></span></div>'
+    + '</div>'
+    + '<div class="campo"><label>Cotización del proveedor (opcional)</label>'
+    +   '<div id="listaRespaldoOC"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarRespaldoOC" style="margin-top:8px">' + ICONO.subir + 'Adjuntar cotización</button>'
+    +   '<input type="file" id="ocArchivoRespaldo" accept="image/*,application/pdf" hidden>'
+    +   '<div class="pista">Foto o PDF (máx. 600 KB) de lo que mandó el proveedor, para dejarlo anclado a esta orden.</div></div>'
     + '<div class="campo"><label>Notas</label>'
     +   '<textarea id="ocNotas" placeholder="Cualquier detalle útil…">' + esc(o ? o.notas : '') + '</textarea></div>';
 
@@ -15145,9 +15242,59 @@ function modalOrdenCompra(id, proveedorPresetId){
   }
 
   function refrescarTotal(){
-    const total = renglonesTmp.reduce((t,x)=> t + x.cantidad * x.precioUnitario, 0);
-    $('ocTotal').textContent = dinero(total);
+    const subtotal = renglonesTmp.reduce((t,x)=> t + x.cantidad * x.precioUnitario, 0);
+    const iva = Math.round(subtotal * IVA_COTIZACION);
+    $('ocSubtotal').textContent = dinero(subtotal);
+    $('ocIva').textContent = dinero(iva);
+    $('ocTotal').textContent = dinero(subtotal + iva);
   }
+
+  /* Mismo molde que pintarRespaldos() en modalCotizacion, sobre
+     respaldosCotizacionTmp (copia de trabajo) en vez de un registro ya
+     guardado. */
+  function pintarRespaldoOC(){
+    $('listaRespaldoOC').innerHTML = respaldosCotizacionTmp.length
+      ? '<div class="galeria-evidencia">' + respaldosCotizacionTmp.map(r=>
+          '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
+          + (r.tipo === 'pdf'
+              ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
+              : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
+          + '<button type="button" class="evidencia-quitar" data-quitar-respaldo-oc="' + esc(r.id) + '" title="Quitar">' + ICONO.basura + '</button>'
+          + '</div>'
+        ).join('') + '</div>'
+      : '<p class="pista" style="margin:0">Todavía no hay nada adjunto.</p>';
+  }
+  pintarRespaldoOC();
+  $('btnAgregarRespaldoOC').addEventListener('click', ()=> $('ocArchivoRespaldo').click());
+  $('listaRespaldoOC').addEventListener('click', ev=>{
+    const quitar = ev.target.closest('[data-quitar-respaldo-oc]');
+    if(!quitar) return;
+    respaldosCotizacionTmp = respaldosCotizacionTmp.filter(r => r.id !== quitar.dataset.quitarRespaldoOc);
+    pintarRespaldoOC();
+  });
+  $('ocArchivoRespaldo').addEventListener('change', async ev=>{
+    const archivo = (ev.target.files || [])[0];
+    ev.target.value = '';
+    if(!archivo) return;
+    try{
+      let dataUrl, tipo;
+      if(archivo.type === 'application/pdf'){
+        if(archivo.size > RESPALDO_COSTO_PDF_MAX_ENTRADA) throw new Error('Ese PDF pesa más de 600 KB. Prueba a comprimirlo o sube solo la parte con la cotización.');
+        dataUrl = await leerArchivoComoDataURL(archivo);
+        tipo = 'pdf';
+      }else{
+        const img = await leerRespaldoImagen(archivo);
+        dataUrl = comprimirRespaldoCosto(img);
+        tipo = 'imagen';
+      }
+      if(tamanoRespaldos({ respaldosCosto: respaldosCotizacionTmp }) + dataUrl.length > RESPALDO_PRESUPUESTO_TOTAL){
+        throw new Error('Ya no hay espacio para más respaldo en esta orden. Quita alguno para agregar otro.');
+      }
+      respaldosCotizacionTmp.push(normalizarRespaldoCosto({ dataUrl, tipo, nombre: archivo.name, subioNombre: nombreDe(sesion) || '' }));
+      pintarRespaldoOC();
+      aviso('Cotización adjuntada.');
+    }catch(e){ aviso(e.message, true); }
+  });
 
   /* Listeners delegados en #listaRenglonesOC: van UNA SOLA VEZ, fuera de
      pintarRenglones(), o se acumulan y una tecla dispara N veces. */
@@ -15186,13 +15333,18 @@ function modalOrdenCompra(id, proveedorPresetId){
     const limpios = renglonesTmp.map(normalizarRenglonOrdenCompra).filter(x => x.concepto);
     if(!limpios.length){ aviso('Agrega al menos un concepto.', true); return; }
     const prov = proveedorPorId(proveedorId);
+    const sitio = $('ocSitio').value ? sitioPorId($('ocSitio').value) : null;
 
     const datosComunes = {
-      proveedorId, proveedorNombre: prov ? prov.nombre : '',
+      proveedorId, proveedorNombre: prov ? prov.nombre : '', proveedorRazonSocial: prov ? prov.razonSocial : '',
+      sitioId: sitio ? sitio.id : '', sitioNombre: sitio ? sitio.nombre : '',
+      equipoDescripcion: $('ocEquipoDescripcion').value.trim(),
       folio: $('ocFolio').value.trim(), estatus: $('ocEstatus').value,
       fecha: $('ocFecha').value || hoyISO(), fechaEntrega: $('ocFechaEntrega').value,
+      tiempoEntrega: $('ocTiempoEntrega').value.trim(),
       lugarEntrega: $('ocLugarEntrega').value.trim(), condicionesPago: $('ocCondicionesPago').value.trim(),
       solicitaNombre: $('ocSolicita').value.trim(), renglones: limpios,
+      respaldosCotizacion: respaldosCotizacionTmp,
       notas: $('ocNotas').value.trim()
     };
 
@@ -15358,8 +15510,11 @@ function modalProveedor(id){
   const p = id ? proveedorPorId(id) : null;
 
   const cuerpo =
-      '<div class="campo"><label>Nombre *</label>'
+      '<div class="campo"><label>Nombre comercial *</label>'
     +   '<input type="text" id="pvNombre" placeholder="Ej. Refaccionaria del Norte" value="' + esc(p ? p.nombre : '') + '"></div>'
+    + '<div class="campo"><label>Razón social</label>'
+    +   '<input type="text" id="pvRazonSocial" placeholder="Ej. Refaccionaria del Norte, S.A. de C.V." value="' + esc(p ? p.razonSocial : '') + '">'
+    +   '<div class="pista">Con quién factura de verdad — sale en la orden de compra junto al nombre comercial. Déjalo en blanco si son el mismo.</div></div>'
     + '<div class="campo"><label>Qué surte</label>'
     +   '<input type="text" id="pvQueSurte" placeholder="Ej. Refacciones de refrigeración" value="' + esc(p ? p.queSurte : '') + '"></div>'
     + '<div class="campo"><label>Persona de contacto</label>'
@@ -15384,7 +15539,7 @@ function modalProveedor(id){
     if(!nombre){ $('pvNombre').setAttribute('aria-invalid','true'); $('pvNombre').focus(); aviso('El proveedor necesita un nombre.', true); return; }
 
     const datosComunes = {
-      nombre, queSurte: $('pvQueSurte').value.trim(), contacto: $('pvContacto').value.trim(),
+      nombre, razonSocial: $('pvRazonSocial').value.trim(), queSurte: $('pvQueSurte').value.trim(), contacto: $('pvContacto').value.trim(),
       telefono: $('pvTelefono').value.trim(), correo: $('pvCorreo').value.trim(),
       notas: $('pvNotas').value.trim()
     };
