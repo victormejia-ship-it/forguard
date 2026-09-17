@@ -11675,13 +11675,13 @@ const TEMAS_AYUDA = [
     contenido:
       guiaSeccion('Lo básico — Gastos de proveedor', guiaPasos([
         'KPIs: Por pagar, Vencido, Por vencer en 7 días, Pagado este mes. La lista se ordena sola por prioridad: Vencido → Por vencer → Por pagar → Cotización → Pagado → Cancelado.',
-        'Usa <b>Nuevo gasto</b>: Proveedor*, Concepto*, Folio (del proveedor), Monto*, Fecha*, Fecha límite de pago, Estatus (Cotización/Por pagar/Pagado/Cancelado), Cotización de cliente ligada (opcional, para comparar costo vs. lo cotizado), Notas.',
-        'Usa <b>Catálogo de proveedores</b> para dar de alta uno (Nombre*, Qué surte, Contacto, Teléfono, Correo, Notas, Activo/Inactivo) o ver todos sus gastos juntos.'
+        'Ya no se captura un "gasto" aparte: usa <b>Nueva orden de compra</b> (Proveedor*, Conceptos, Fecha límite de pago…) y en cuanto quede Confirmada, Enviada o Recibida, ella sola ya cuenta aquí como cuenta por pagar — sin duplicar la captura.',
+        'Usa <b>Catálogo de proveedores</b> para dar de alta uno (Nombre comercial*, Razón social, Qué surte, Contacto, Teléfono, Correo, Notas, Activo/Inactivo) o ver todos sus gastos juntos.'
       ]))
       + guiaSeccion('Uso intermedio — Gastos de proveedor', guiaPasos([
-        'Un gasto nace como "Cotización" y se convierte con <b>Convertir en factura por pagar</b> — si no tiene fecha límite, se le propone automáticamente hoy + 30 días.',
-        'Usa <b>Agregar abono</b> por cada pago parcial (Monto, Fecha, Método, Referencia) — el saldo pendiente se recalcula solo; el gasto se marca "Pagado" en cuanto el saldo llega a cero.',
-        'Sube documentos por tipo: Cotización del proveedor, Factura, Comprobante de pago — cada uno con su propia etiqueta.'
+        'Para una orden de compra: entra a su detalle y usa <b>Agregar abono</b> en el bloque "Pago al proveedor" — el saldo se recalcula solo y queda "Pagado" en cuanto llega a cero.',
+        'Un gasto capturado antes de este cambio (sin orden de compra detrás) se sigue viendo, editando y abonando igual que siempre desde su propia tarjeta.',
+        'Sube documentos por tipo en un gasto viejo: Cotización del proveedor, Factura, Comprobante de pago — cada uno con su propia etiqueta.'
       ]))
       + guiaSeccion('Lo básico — Refacciones (catálogo de piezas por proveedor)', guiaPasos([
         'Desde cualquier pantalla de Proveedores, entra a <b>Refacciones</b>. KPIs: Piezas en existencia, Valor del inventario, Agotadas.',
@@ -14520,7 +14520,7 @@ function vistaGastosProveedor(){
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-refacciones">' + ICONO.codigoBarras + 'Refacciones</button>'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-ordenes-compra">' + ICONO.documento + 'Órdenes de compra</button>'
      +   (puedeGestionarProveedores()
-          ? '<button type="button" class="btn btn-primario" data-accion="nuevo-gasto-proveedor">' + ICONO.mas + 'Nuevo gasto</button>'
+          ? '<button type="button" class="btn btn-primario" data-accion="nueva-orden-compra">' + ICONO.mas + 'Nueva orden de compra</button>'
           : '')
      + '</div></div>';
 
@@ -14531,10 +14531,16 @@ function vistaGastosProveedor(){
      + tarjetaKpi('Pagado este mes', dinero(r.pagadoMes), 'Suma de abonos del mes en curso')
      + '</div>';
 
+  /* Ya no hay botón para dar de alta un "gasto" suelto: pedido explícito
+     de Victor (17-sep-2026) — "cuando se haga un gasto sea una orden de
+     compra, ya no sería necesario duplicar". Toda alta nueva pasa por
+     Órdenes de compra (que ya trae abonos y fecha de pago); un gasto viejo
+     capturado antes de este cambio se sigue viendo, editando y borrando
+     igual que siempre, solo que ya no se puede crear uno nuevo así. */
   if(!items.length){
     h += vistaVacia('reporte', 'Todavía no hay gastos de proveedores registrados',
-          'Una orden de compra confirmada ya cuenta como gasto — o registra aquí una cotización o factura suelta que no viene de una orden.',
-          puedeGestionarProveedores() ? 'nuevo-gasto-proveedor' : '', 'Nuevo gasto');
+          'Crea una orden de compra: en cuanto la confirmes, ya cuenta sola como gasto — no hace falta capturarla por separado.',
+          puedeGestionarProveedores() ? 'nueva-orden-compra' : '', 'Nueva orden de compra');
     return h;
   }
 
@@ -14811,7 +14817,7 @@ function vistaProveedorDetalle(){
   h += '<div class="bloque-cabeza" style="margin-bottom:10px"><div><h3>Gastos de este proveedor</h3>'
      +   '<p>Cotizaciones, facturas y órdenes de compra confirmadas — lo que se le debe o ya se le pagó.</p></div>'
      +   (puedeGestionarProveedores()
-          ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="nuevo-gasto-proveedor" data-proveedor-preset="' + esc(p.id) + '">' + ICONO.mas + 'Nuevo gasto</button></div>'
+          ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="nueva-orden-compra" data-proveedor-preset="' + esc(p.id) + '">' + ICONO.mas + 'Nueva orden de compra</button></div>'
           : '')
      + '</div>';
 
@@ -26217,7 +26223,11 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'registrar-salida-refaccion-rapida'){ if(exigirGestionProveedores()) modalMovimientoRefaccion(acc.dataset.refaccion, 'salida', acc.dataset.fechaSugerida); }
     else if(a === 'descargar-excel-cierre-refacciones') descargarExcelCierreRefacciones();
     else if(a === 'ir-ordenes-compra') irAOrdenesCompra(acc.dataset.proveedorPreset || 'todos');
-    else if(a === 'nueva-orden-compra'){ if(exigirGestionProveedores()) modalOrdenCompra(null, estado.filtroProveedorOrdenCompra !== 'todos' ? estado.filtroProveedorOrdenCompra : null); }
+    else if(a === 'nueva-orden-compra'){
+      if(!exigirGestionProveedores()) return;
+      const preset = acc.dataset.proveedorPreset || (estado.filtroProveedorOrdenCompra !== 'todos' ? estado.filtroProveedorOrdenCompra : null);
+      modalOrdenCompra(null, preset);
+    }
     else if(a === 'editar-orden-compra'){ if(exigirGestionProveedores()) modalOrdenCompra(estado.ordenCompraId); }
     else if(a === 'borrar-orden-compra'){
       if(!exigirAdmin('eliminar una orden de compra')) return;
