@@ -18,6 +18,9 @@ rules_version = '2';
      tecnico, reportero → de piso, acotados a Reportes/Levantamientos (y
                           Pólizas/Cotizaciones/Activos de solo lectura para
                           tecnico) — ver el bloque de cada colección
+     control_activos → de piso, acotado a /activos nada más (puede leer,
+                          crear y editar; borrar sigue siendo de Admin) —
+                          ver el bloque de /activos
      cliente  → portal externo, no es personal de Forguard: ve nada más su
                 propia póliza (sin costo interno), sus cotizaciones (ídem) y
                 sus reportes — todo acotado por clienteId. Se auto-registra
@@ -425,16 +428,20 @@ service cloud.firestore {
        /levantamientos (cualquiera con acceso). Pero sí lo puede tocar el
        rol `tecnico`, igual que un reporte o que "registrar servicio" de
        una póliza: es quien de verdad está frente al activo dándole
-       mantenimiento o registrando que se movió de sitio. Borrar, solo
-       Admin, como todo lo demás. */
+       mantenimiento o registrando que se movió de sitio. `control_activos`
+       (agregado 17-sep-2026, pedido explícito de Victor) es justo lo
+       opuesto de un rol "de piso" normal: en vez de estar acotado a TODO
+       menos Activos, está acotado a Activos y NADA más — pero dentro de
+       este módulo tiene el mismo alcance que puedeEditar() (alta, edición,
+       asignación, mantenimiento). Borrar, solo Admin, como todo lo demás. */
     match /activos/{id} {
       /* Incluye el activo INTERNO de Forguard (herramienta, vehículo,
          laptop) revuelto en el mismo catálogo que el equipo instalado en
          casa del cliente — así que cerrado por completo para ese rol, ni
          siquiera acotado a lo suyo. No es parte de lo que pidió el portal. */
       allow read:   if conAcceso() && !esCliente();
-      allow create: if puedeEditar() || (conAcceso() && rol() == 'tecnico');
-      allow update: if puedeEditar() || (conAcceso() && rol() == 'tecnico');
+      allow create: if puedeEditar() || (conAcceso() && rol() in ['tecnico', 'control_activos']);
+      allow update: if puedeEditar() || (conAcceso() && rol() in ['tecnico', 'control_activos']);
       allow delete: if esAdmin();
     }
 

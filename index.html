@@ -3014,6 +3014,13 @@ const ROLES = {
      pólizas ni cotizaciones — así que ni las ve. */
   tecnico:   { nombre:'Técnico',   desc:'Entra directo a Mi agenda: atiende los reportes que se le asignan (cambia su estatus, sube evidencia, los resuelve) y ve sus visitas y preventivos. No asigna técnicos ni ve Clientes/Forpass/Resultados/Activos/Organigrama.' },
   reportero: { nombre:'Reportero', desc:'Solo ve Reportes: levanta tickets y sigue su estatus, pero no puede editar uno ya emitido.' },
+  /* Tercer rol "de piso", igual de acotado que los dos de arriba pero al
+     revés: en vez de Reportes, lo único que ve es Activos — ni Clientes,
+     ni Resultados, ni ningún otro módulo (pedido explícito de Victor,
+     17-sep-2026). Sí puede dar de alta/editar/asignar/dar mantenimiento
+     (ver puedeGestionarActivos()); borrar sigue siendo exclusivo de
+     Admin/Owner, como en todos lados. */
+  control_activos: { nombre:'Control de activos', desc:'Solo ve el módulo de Activos: da de alta, edita, asigna y da mantenimiento a los activos. No ve ningún otro módulo.' },
   /* Portal externo: no es "de piso" como los dos de arriba (que son de
      Forguard, solo que acotados), es la cuenta de un CLIENTE — alguien que
      no trabaja aquí. Ve nada más lo suyo (`sesion.clienteId`), nunca el
@@ -5534,7 +5541,7 @@ function categoriasActivo(){
   return Array.from(usadas).sort((a,b) => a.localeCompare(b, 'es'));
 }
 
-function puedeGestionarActivos(){ return puedeEditar() || rolEfectivo() === 'tecnico'; }
+function puedeGestionarActivos(){ return puedeEditar() || rolEfectivo() === 'tecnico' || rolEfectivo() === 'control_activos'; }
 function exigirGestionActivos(){
   if(puedeGestionarActivos()) return true;
   aviso('Tu cuenta no puede dar de alta ni modificar activos. Puedes consultar el catálogo.', true);
@@ -9455,8 +9462,12 @@ function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo)
    módulos, todos ligados a atender algo. Organigrama es, además, exclusivo
    del Owner (mismo pedido, 14-sep-2026 ampliado): ni Admin, Analyst,
    Viewer, Técnico ni Reportero lo ven —se filtra aparte, abajo, en vez de
-   listarlo módulo por módulo en cada rama. El resto de los módulos sigue
-   viendo todo, como siempre. */
+   listarlo módulo por módulo en cada rama. `control_activos` es al revés
+   que `reportero`: en vez de acotado a Reportes, acotado a Activos (pedido
+   explícito de Victor, 17-sep-2026) — y por la misma razón que Organigrama,
+   Activos también se saca de la lista general de abajo, así que solo lo
+   ven el Owner y este rol nuevo. El resto de los módulos sigue viendo
+   todo, como siempre. */
 function modulosPermitidos(){
   /* Un cliente no ve NINGUNO de estos módulos — tiene su propio portal
      (portalCliente()/render(), que se bifurca ANTES de llegar a usar esta
@@ -9465,6 +9476,7 @@ function modulosPermitidos(){
   if(HAY_NUBE && haySesion() && rolEfectivo() === 'cliente') return [];
   if(HAY_NUBE && haySesion() && rolEfectivo() === 'reportero') return ['reportes', 'levantamientos', 'ayuda'];
   if(HAY_NUBE && haySesion() && rolEfectivo() === 'tecnico') return ['mi-agenda', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'ayuda'];
+  if(HAY_NUBE && haySesion() && rolEfectivo() === 'control_activos') return ['activos'];
   /* Por pedido explícito (10-sep-2026): Viewer pasa a ver TODOS los módulos,
      incluido Imagen/Aperturas —antes se le escondía entero—, porque el
      perfil que se pidió es "ve toda la funcionalidad, no edita nada", y no
@@ -9472,8 +9484,9 @@ function modulosPermitidos(){
      lectura: vistaProyectosImagen()/vistaProyectoImagen() esconden sus
      botones de crear/editar/importar detrás de puedeEditar(), igual que ya
      hacían Pólizas y Cotizaciones, y exigirPermiso() los bloquea aunque
-     alguien fuerce el clic. */
-  if(HAY_NUBE && haySesion() && rolEfectivo() !== 'owner') return MODULOS.filter(m => m !== 'organigrama');
+     alguien fuerce el clic. Activos es la excepción (ver arriba): ni
+     Admin, Analyst ni Viewer lo ven ya, solo Owner y control_activos. */
+  if(HAY_NUBE && haySesion() && rolEfectivo() !== 'owner') return MODULOS.filter(m => m !== 'organigrama' && m !== 'activos');
   return MODULOS;
 }
 
@@ -25563,6 +25576,10 @@ function modalCobranza(clienteId, tipo){
    línea; esto la desglosa en acciones para que nadie tenga que adivinar. */
 function loQuePuedeHacer(rol){
   const r = normalizarRol(rol);
+  /* control_activos no ve clientes ni pagos —solo Activos (ver
+     modulosPermitidos())—, así que se sale antes de la lista genérica de
+     abajo, que no le aplica. */
+  if(r === 'control_activos') return ['Ver el módulo de Activos: catálogo, asignaciones y mantenimiento', 'Dar de alta y editar activos, asignarlos a una persona y registrar su mantenimiento', 'Subir el respaldo de compra (factura u orden de compra) de un activo'];
   const lista = ['Ver todos los clientes, sitios y pagos', 'Descargar el Excel'];
   if(r === 'analyst' || r === 'admin' || r === 'owner') lista.push('Agregar y modificar clientes, sitios y mensualidades');
   if(r === 'admin' || r === 'owner') lista.push('Respaldar y restaurar la base completa', 'Crear cuentas y cambiar permisos del equipo');
@@ -28304,7 +28321,7 @@ function salirVistaPrevia(){
 
 /* Roles que tiene sentido previsualizar: todos menos Owner (ya es lo que se
    está viendo) — en el orden en que van a salir en la lista del modal. */
-const ROLES_VISTA_PREVIA = ['admin', 'analyst', 'viewer', 'tecnico', 'reportero', 'cliente'];
+const ROLES_VISTA_PREVIA = ['admin', 'analyst', 'viewer', 'tecnico', 'reportero', 'control_activos', 'cliente'];
 
 async function modalVistaPrevia(){
   if(!esOwnerReal()){ aviso('Solo el Owner puede usar la vista previa de roles.', true); return; }
