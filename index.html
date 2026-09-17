@@ -20582,6 +20582,16 @@ $('vista').addEventListener('click', async ev=>{
 
 /* ============================ VENTANA MODAL ============================ */
 let cerrarModalActual = null;
+/* Si el modal que está abierto está CREANDO un registro (cotización, póliza),
+   y se cierra sin pasar por "Guardar" —clic fuera, Escape, la "X"—, en vez de
+   perder toda la captura se guarda como borrador lo que ya se alcanzó a
+   llenar. Cada modal de creación decide qué cuenta como "algo que vale la
+   pena guardar" y con qué estatus (ver modalPoliza/modalCotizacion); null
+   significa que no hay nada que guardar —o que el modal abierto no es de
+   creación— y simplemente se cierra, como antes. El botón "Cancelar" del pie
+   SIGUE sin pasar por aquí a propósito: es la única salida que de verdad
+   cancela, para quien capturó algo y en verdad ya no lo quiere. */
+let guardarBorradorAlSalir = null;
 
 function abrirModal(titulo, cuerpo, pie){
   $('modalTitulo').textContent = titulo;
@@ -20603,10 +20613,19 @@ function cerrarModal(){
   $('modalPie').innerHTML = '';
   document.body.style.overflow = '';
   cerrarModalActual = null;
+  guardarBorradorAlSalir = null;
 }
-$('modalCerrar').addEventListener('click', cerrarModal);
-$('telon').addEventListener('mousedown', ev=>{ if(ev.target === $('telon')) cerrarModal(); });
-document.addEventListener('keydown', ev=>{ if(ev.key === 'Escape' && $('telon').classList.contains('abierto')) cerrarModal(); });
+/* Cerrar "por fuera": la X, el fondo oscuro o Escape. Ninguna de las tres es
+   una decisión explícita de cancelar —a diferencia del botón "Cancelar"—, así
+   que si el modal abierto dejó dicho cómo guardar un borrador, se usa eso en
+   vez de tirar la captura. */
+function cerrarModalPorFuera(){
+  if(guardarBorradorAlSalir) guardarBorradorAlSalir();
+  else cerrarModal();
+}
+$('modalCerrar').addEventListener('click', cerrarModalPorFuera);
+$('telon').addEventListener('mousedown', ev=>{ if(ev.target === $('telon')) cerrarModalPorFuera(); });
+document.addEventListener('keydown', ev=>{ if(ev.key === 'Escape' && $('telon').classList.contains('abierto')) cerrarModalPorFuera(); });
 
 /* ===================== El botón "atrás" del navegador nunca saca de la app =====================
    Esta es una sola página sin URLs internas: todo vive en `estado`, nunca en
@@ -23396,6 +23415,39 @@ function modalPoliza(id, origenLevantamiento){
       aviso(p ? 'Póliza actualizada.' : 'Cotización creada.');
     }
   };
+
+  /* Solo aplica al CREAR: una póliza existente no se toca hasta "Guardar" (es
+     la "copia de trabajo" de arriba), así que cerrar por fuera mientras se
+     EDITA ya de por sí no pierde nada del registro real. Al crear, en cambio,
+     antes de este cambio cerrar por fuera tiraba toda la captura sin dejar
+     rastro —el reporte de Victor (17-sep-2026): "se elimina el registro"—,
+     así que aquí se guarda lo que ya se alcanzó a llenar, sin las exigencias
+     de "Guardar" (sitio, al menos un equipo, que cuadren meses/frecuencia):
+     total, es un borrador, se termina de capturar después. Se fuerza el
+     estatus a 'cotizacion' (el "Borrador" de pólizas) sin importar qué
+     estuviera elegido en el selector: nunca por un clic accidental se cierra
+     de verdad una póliza como activa, que es justo lo que "Guardar" protege
+     con el candado de Admin. */
+  if(!p){
+    guardarBorradorAlSalir = ()=>{
+      const f = leerForm();
+      /* Sin cliente no hubo captura real: se abrió el modal y no se tocó
+         nada que valga la pena guardar. */
+      if(!f.clienteId){ cerrarModal(); return; }
+      const limpias = partidasTmp.map(normalizarPartida).filter(x => x.concepto);
+      const limpio = normalizarPoliza(Object.assign({}, f, {
+        estatus: 'cotizacion', partidas: limpias, id: nuevoId()
+      }));
+      datos.polizas.push(limpio);
+      guardarPoliza(limpio, 'creó',
+        limpio.partidas.length + ' ' + plural(limpio.partidas.length,'equipo','equipos') + ' · guardada como borrador al cerrar sin terminar.');
+      cerrarModal();
+      estado.modulo = 'polizas'; guardarModulo();
+      estado.vista = 'polizas'; estado.polizaId = null;
+      render();
+      aviso('Se guardó como borrador: lo que ya capturaste no se perdió.');
+    };
+  }
 }
 
 /* ------------------------- Modal: cotización de servicio ------------------------- */
@@ -23885,6 +23937,40 @@ function modalCotizacion(id, origenReporte){
     render();
     aviso(q ? 'Cotización actualizada.' : 'Cotización creada.');
   };
+
+  /* Solo aplica al CREAR — igual que en modalPoliza: una cotización que ya
+     existía es una copia de trabajo, cerrar por fuera mientras se EDITA no
+     toca el registro real. Al crear una nueva, en cambio, cerrar por fuera
+     antes tiraba toda la captura sin guardar nada; ahora se guarda como
+     borrador lo que ya se alcanzó a llenar, sin exigir el sitio (única
+     validación de "Guardar"). Se fuerza el estatus a 'borrador' sin importar
+     qué estuviera elegido en el selector, para no cerrar por accidente algo
+     que en verdad se quería dejar "Enviada" o más adelante. */
+  if(!q){
+    guardarBorradorAlSalir = ()=>{
+      const cab = leerCabecera();
+      /* Sin sitio no hubo captura real que valga la pena guardar. */
+      if(!cab.sitioId){ cerrarModal(); return; }
+      const reporteOrigenId = origenReporte ? origenReporte.id : '';
+      const limpio = normalizarCotizacion(Object.assign({}, cab, {
+        estatus: 'borrador', id: nuevoId(), partidas: partidasTmp,
+        respaldosCosto: respaldosCostoTmp, reporteOrigenId
+      }));
+      datos.cotizaciones.push(limpio);
+      guardarCotizacion(limpio, 'creó',
+        limpio.partidas.length + ' ' + plural(limpio.partidas.length,'concepto','conceptos') + ' · guardada como borrador al cerrar sin terminar.');
+      if(origenReporte && !origenReporte.cotizacionId){
+        origenReporte.cotizacionId = limpio.id;
+        anotarReporte(origenReporte, 'Se generó la cotización ' + (limpio.folio || 'sin folio') + ' a partir de este reporte.',
+                      'generó una cotización desde', origenReporte.folio);
+      }
+      cerrarModal();
+      estado.modulo = 'cotizaciones'; guardarModulo();
+      estado.vista = 'cotizacion'; estado.cotizacionId = limpio.id;
+      render();
+      aviso('Se guardó como borrador: lo que ya capturaste no se perdió.');
+    };
+  }
 }
 
 /* ==================== IMPORTAR PÓLIZAS DESDE UN JSON ====================
