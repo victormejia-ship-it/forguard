@@ -5515,13 +5515,18 @@ function autoMigrarFotosReporteSiHaceFalta(r){
      · Borrar un activo → solo Admin, igual que todo lo demás. */
 const TIPO_ACTIVO = ['cliente', 'interno'];
 const ETIQUETA_TIPO_ACTIVO = { cliente:'Equipo en cliente', interno:'Activo interno (Forguard)' };
-const ESTATUS_ACTIVO = ['activo', 'mantenimiento', 'resguardo', 'baja', 'perdido'];
+/* 'borrador' es igual que 'cotizacion' en pólizas: un activo que se quedó a
+   medio capturar porque se cerró el modal sin terminar (ver
+   guardarBorradorAlSalir en modalActivo) — sigue sin confirmarse, así que
+   no cuenta en operación ni en el valor "de verdad" del inventario hasta
+   que alguien lo revise y lo pase a un estatus real. */
+const ESTATUS_ACTIVO = ['borrador', 'activo', 'mantenimiento', 'resguardo', 'baja', 'perdido'];
 const ETIQUETA_ESTATUS_ACTIVO = {
-  activo:'En operación', mantenimiento:'En mantenimiento', resguardo:'En resguardo/bodega',
+  borrador:'Borrador', activo:'En operación', mantenimiento:'En mantenimiento', resguardo:'En resguardo/bodega',
   baja:'De baja', perdido:'Perdido o robado'
 };
 const TONO_ESTATUS_ACTIVO = {
-  activo:'ok', mantenimiento:'alerta', resguardo:'neutro', baja:'neutro', perdido:'error'
+  borrador:'neutro', activo:'ok', mantenimiento:'alerta', resguardo:'neutro', baja:'neutro', perdido:'error'
 };
 const CONDICION_ACTIVO = ['excelente', 'buena', 'regular', 'mala'];
 const ETIQUETA_CONDICION_ACTIVO = { excelente:'Excelente', buena:'Buena', regular:'Regular', mala:'Mala' };
@@ -5607,7 +5612,17 @@ function normalizarActivo(a){
     /* Igual que sitioNombre en pólizas/reportes: se copia el texto para que
        el activo siga diciendo dónde está aunque el sitio se borre después. */
     sitioNombre: tipo === 'cliente' ? (a && a.sitioNombre ? String(a.sitioNombre) : '').trim() : '',
-    ubicacion: tipo === 'interno' ? (a && a.ubicacion ? String(a.ubicacion) : '').trim() : '',
+    /* Ya no se limita a "interno": un equipo en cliente también tiene un
+       "dónde dentro del sitio" (comedor, cocina, servicio…) que el sitio
+       solo no dice — justo lo que trae la columna "UBICACIÓN" de un
+       inventario real (pedido explícito de Victor, 17-sep-2026). Para
+       interno sigue siendo la ubicación general (bodega, camioneta…). */
+    ubicacion: (a && a.ubicacion ? String(a.ubicacion) : '').trim(),
+    /* Cuántas unidades IDÉNTICAS representa este renglón — un inventario
+       capturado por lote ("6 contenedores térmicos") no siempre se separa
+       pieza por pieza. Por default 1, como cualquier equipo dado de alta a
+       mano uno por uno. */
+    cantidad: Math.max(1, Math.round(Number(a && a.cantidad) || 1)),
     /* asignadoA/asignadoAId siempre reflejan la asignación ACTIVA (la
        última de `asignaciones` sin `hasta`) — se recalculan solos en
        asignarActivo()/devolverActivo(), no se editan sueltos, para que
@@ -7186,14 +7201,27 @@ async function importarCotizacionesDesdeExcel(archivo){
    así que exportar, editar en Excel y volver a importar es un ciclo
    redondo. Los encabezados se reconocen por alias (normalizarTextoEncabezadoXlsx),
    no por posición, para que reordenar columnas a mano no rompa nada. */
+/* 'TIPO DE ACTIVO' se quita de `tipo` (cliente/interno) y se suma a
+   `categoria`: en un inventario real (ej. el que compartió Victor,
+   17-sep-2026) esa columna no dice "es de cliente o interno" — dice
+   "EQUIPO MAYOR X"/"EQUIPO A COMODATO Y", que es justo lo que categoria ya
+   guarda como texto libre. La exportación propia de la app (ver
+   ENC_ACTIVOS_XLSX) sigue usando literalmente "Tipo" para esa columna,
+   así que el ciclo exportar → reimportar no se rompe con este cambio. */
 const ALIAS_COLUMNA_ACTIVO_XLSX = {
   folio: ['FOLIO'],
-  tipo: ['TIPO', 'TIPO DE ACTIVO'],
-  categoria: ['CATEGORIA', 'CATEGORÍA'],
-  nombre: ['NOMBRE', 'ACTIVO', 'EQUIPO'],
+  tipo: ['TIPO'],
+  categoria: ['CATEGORIA', 'CATEGORÍA', 'TIPO DE ACTIVO'],
+  /* PRODUCTO/DESCRIPCION son como se le llama a "el nombre del activo" en
+     un inventario real, no en el vocabulario propio de la app. */
+  nombre: ['NOMBRE', 'ACTIVO', 'EQUIPO', 'PRODUCTO', 'DESCRIPCION', 'DESCRIPCIÓN'],
   marca: ['MARCA'],
   modelo: ['MODELO'],
   serie: ['SERIE', 'NUMERO DE SERIE', 'NÚMERO DE SERIE', 'NO. SERIE', 'NO SERIE'],
+  /* Cuántas unidades idénticas representa el renglón — ver `cantidad` en
+     normalizarActivo(). Sin esta columna, cada fila es 1 unidad, como
+     siempre. */
+  cantidad: ['CANTIDAD', 'CANT', 'CANT.'],
   cliente: ['CLIENTE'],
   sitio: ['SITIO', 'KIOSCO'],
   ubicacion: ['UBICACION', 'UBICACIÓN'],
@@ -7207,8 +7235,18 @@ const ALIAS_COLUMNA_ACTIVO_XLSX = {
   mantenimientoFrecuenciaDias: ['FRECUENCIA MANTENIMIENTO (DIAS)', 'FRECUENCIA DE MANTENIMIENTO (DÍAS)', 'FRECUENCIA DE MANTENIMIENTO', 'FRECUENCIA MANTENIMIENTO'],
   proximoMantenimiento: ['PROXIMO MANTENIMIENTO', 'PRÓXIMO MANTENIMIENTO'],
   codigo: ['CODIGO', 'CÓDIGO'],
+  /* "Placa de activo" es, físicamente, el mismo control interno que
+     `codigo` (lo que se pega en el equipo para identificarlo) — pero se
+     deja como alias APARTE (no metido en `codigo`) porque un inventario
+     real puede traer las dos columnas a la vez, una vacía y la otra con
+     el dato real (ver el que compartió Victor, 17-sep-2026): si compartieran
+     alias, la primera columna que aparezca en el archivo se quedaría con
+     el campo aunque venga vacía, y la que sí trae el dato se perdería. Se
+     usa como respaldo de `codigo` en filaXlsxAActivo, nunca al revés. */
+  placa: ['PLACA DE ACTIVO', 'PLACA'],
   tipoCodigo: ['TIPO DE CODIGO', 'TIPO DE CÓDIGO'],
-  notas: ['NOTAS']
+  numeroInventario: ['NO.INV', 'NO. INV', 'NO INV', 'INVENTARIO', 'NO. INVENTARIO', 'NUMERO DE INVENTARIO', 'NÚMERO DE INVENTARIO'],
+  notas: ['NOTAS', 'OBSERVACIONES']
 };
 
 function mapaColumnasActivoXlsx(filaEncabezado){
@@ -7230,7 +7268,12 @@ function mapaColumnasActivoXlsx(filaEncabezado){
    podría reimportar. */
 function extraerActivosXlsx(hoja){
   const filas = hoja.filas || [];
-  for(let f = 0; f < Math.min(filas.length, 5); f++){
+  /* Un inventario real casi nunca trae el encabezado en las primeras 5
+     filas: antes suele traer un título, el nombre del sitio, la fecha del
+     conteo, quién lo hizo, etc. (ver el que compartió Victor, 17-sep-2026,
+     con el encabezado hasta la fila 11) — 30 da margen de sobra sin tener
+     que leer la hoja entera fila por fila buscando "algo que se parezca". */
+  for(let f = 0; f < Math.min(filas.length, 30); f++){
     const mapa = mapaColumnasActivoXlsx(filas[f]);
     if(mapa.nombre !== undefined) return { mapa, filas: filas.slice(f + 1) };
   }
@@ -7304,12 +7347,22 @@ function filaXlsxAActivo(fila, mapa, cache){
     }
   }
 
+  /* El número de inventario suelto (columnas "No. Inv"/"Inventario") no es
+     un código de control útil por sí mismo —muchas veces es nomás el
+     consecutivo de la fila en la hoja vieja—, así que en vez de forzarlo
+     como `codigo` se deja como referencia en notas. */
+  const numeroInventario = textoDe('numeroInventario');
+  const notasBase = textoDe('notas');
+  const notas = numeroInventario
+    ? 'N° de inventario original: ' + numeroInventario + (notasBase ? ' — ' + notasBase : '')
+    : notasBase;
+
   return normalizarActivo({
     id: nuevoId(), folio: textoDe('folio'), tipo,
-    categoria: textoDe('categoria'), nombre,
+    categoria: textoDe('categoria'), nombre, cantidad: Number(val('cantidad')) || 1,
     marca: textoDe('marca'), modelo: textoDe('modelo'), serie: textoDe('serie'),
     clienteId, sitioId, sitioNombre,
-    ubicacion: tipo === 'interno' ? textoDe('ubicacion') : '',
+    ubicacion: textoDe('ubicacion'),
     asignadoA: tipo === 'interno' ? textoDe('asignadoA') : '',
     estatus: estatusDesdeTextoXlsx(textoDe('estatus')),
     condicion: condicionDesdeTextoXlsx(textoDe('condicion')),
@@ -7319,9 +7372,14 @@ function filaXlsxAActivo(fila, mapa, cache){
     garantiaHasta: fechaDesdeCeldaXlsx(val('garantiaHasta')),
     mantenimientoFrecuenciaDias: Number(val('mantenimientoFrecuenciaDias')) || 0,
     proximoMantenimiento: fechaDesdeCeldaXlsx(val('proximoMantenimiento')),
-    codigo: textoDe('codigo'),
-    tipoCodigo: normalizarTextoEncabezadoXlsx(textoDe('tipoCodigo')) === 'QR' ? 'qr' : 'barras',
-    notas: textoDe('notas'),
+    /* Sin código propio en el archivo (ni "Código" ni "Placa de activo"),
+       se deja vacío aquí y se completa solo (folio + QR) al confirmar la
+       importación — mismo criterio de "auto-generado sin clic" que
+       modalActivo() al crear a mano (pedido explícito de Victor,
+       17-sep-2026). */
+    codigo: textoDe('codigo') || textoDe('placa'),
+    tipoCodigo: (textoDe('codigo') || textoDe('placa')) ? (normalizarTextoEncabezadoXlsx(textoDe('tipoCodigo')) === 'BARRAS' ? 'barras' : 'qr') : '',
+    notas,
     registradoPor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || 'Alguien del equipo' }
   });
 }
@@ -7358,6 +7416,128 @@ async function importarActivosDesdeExcel(archivo){
 
   if(!candidatos.length){ aviso('No se encontró ningún activo capturado en el archivo.', true); return; }
 
+  /* Un inventario real (ej. el que compartió Victor, 17-sep-2026) casi
+     nunca trae columnas de Cliente/Sitio propias: el archivo COMPLETO es
+     de un solo cliente, y quien lo sube lo dice en ese momento — mismo
+     criterio que al importar una póliza desde Excel. Si el archivo SÍ trae
+     esas columnas (el que la propia app exporta, por ejemplo), se respeta
+     el cliente/sitio de cada fila tal cual ya se resolvía antes, sin pedir
+     nada extra. */
+  if(extraido.mapa.cliente === undefined && extraido.mapa.sitio === undefined){
+    modalVincularClienteActivosImportados(candidatos, vacias, archivo.name);
+  }else{
+    continuarImportacionActivos(candidatos, vacias);
+  }
+}
+
+/* Cuando el archivo no trae Cliente/Sitio por fila, se pide UNA sola vez —
+   se aplica a los N activos del archivo completo, igual que elegir a qué
+   sitio pertenece la póliza que se acaba de leer de un Excel. */
+function modalVincularClienteActivosImportados(candidatos, vacias, nombreArchivo){
+  /* A diferencia de modalActivo() (que sí exige tener ya un cliente dado
+     de alta porque cuelga de /clientes por su cuenta), aquí no hace falta
+     ningún candado: el propio modal deja crear el cliente y el sitio sin
+     salir, así que puede abrirse aunque todavía no exista ninguno. */
+  const clientesOrd = datos.clientes.slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'));
+  const opc = (lista, texto, valor) => lista.map(o => '<option value="' + esc(valor(o)) + '">' + esc(texto(o)) + '</option>').join('');
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">Se encontraron <b>' + candidatos.length + '</b> ' + plural(candidatos.length,'activo','activos')
+    + ' en <b>' + esc(nombreArchivo) + '</b>. Este archivo no trae de qué cliente/sitio son — elige uno para ligarlos todos.</p>'
+    + '<div class="campo"><label>Cliente *</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="impActCliente"><option value="">— Elige uno —</option>' + opc(clientesOrd, c=>c.nombre, c=>c.id) + '</select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnClienteNuevoImpAct" title="Dar de alta un cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="zonaClienteNuevoImpAct" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre del cliente nuevo *</label>'
+    +     '<input type="text" id="incNombre" placeholder="Ej. Prolec Potencia" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="incCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="incCrear">Crear y seleccionar</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="campo"><label>Sitio *</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="impActSitio"><option value="">— Elige un cliente primero —</option></select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnSitioNuevoImpAct" title="Dar de alta un sitio de este cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="zonaSitioNuevoImpAct" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre del sitio nuevo *</label>'
+    +     '<input type="text" id="insNombre" placeholder="Ej. Comedor Prolec Potencia" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="insCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="insCrear">Crear y seleccionar</button>'
+    +   '</div>'
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Continuar</button>';
+
+  abrirModal('Vincular activos importados a un cliente', cuerpo, pie);
+
+  function pintarSitiosImp(){
+    const clienteId = $('impActCliente').value;
+    const sitios = sitiosDe(clienteId).slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'));
+    $('impActSitio').innerHTML = sitios.length
+      ? opc(sitios, s=>s.nombre, s=>s.id)
+      : '<option value="">— Este cliente no tiene sitios —</option>';
+  }
+  $('impActCliente').addEventListener('change', ()=>{ $('zonaSitioNuevoImpAct').hidden = true; pintarSitiosImp(); });
+
+  $('btnClienteNuevoImpAct').addEventListener('click', ()=>{ $('zonaClienteNuevoImpAct').hidden = false; $('incNombre').focus(); });
+  $('incCancelar').addEventListener('click', ()=>{ $('zonaClienteNuevoImpAct').hidden = true; $('incNombre').value = ''; });
+  $('incCrear').addEventListener('click', ()=>{
+    const nombre = $('incNombre').value.trim();
+    if(!nombre){ aviso('Ponle un nombre al cliente nuevo.', true); return; }
+    const nuevo = normalizarCliente({ id:nuevoId(), nombre, usaForpass:'si' });
+    datos.clientes.push(nuevo);
+    guardarCliente(nuevo, 'creó');
+    $('impActCliente').insertAdjacentHTML('beforeend', '<option value="' + esc(nuevo.id) + '" selected>' + esc(nuevo.nombre) + '</option>');
+    $('impActCliente').value = nuevo.id;
+    $('zonaClienteNuevoImpAct').hidden = true;
+    pintarSitiosImp();
+    aviso('Cliente agregado. Ahora agrégale un sitio.');
+  });
+
+  $('btnSitioNuevoImpAct').addEventListener('click', ()=>{
+    if(!$('impActCliente').value){ aviso('Primero elige o crea el cliente.', true); return; }
+    $('zonaSitioNuevoImpAct').hidden = false;
+    $('insNombre').focus();
+  });
+  $('insCancelar').addEventListener('click', ()=>{ $('zonaSitioNuevoImpAct').hidden = true; $('insNombre').value = ''; });
+  $('insCrear').addEventListener('click', ()=>{
+    const clienteId = $('impActCliente').value;
+    const nombreSitio = $('insNombre').value.trim();
+    if(!clienteId){ aviso('Primero elige o crea el cliente.', true); return; }
+    if(!nombreSitio){ aviso('Ponle un nombre al sitio nuevo.', true); return; }
+    const sitio = normalizarSitio({ id:nuevoId(), clienteId, nombre:nombreSitio, modulos:0, mensualidad:0, fechaInicio:hoyISO(), meses:12 });
+    datos.sitios.push(sitio);
+    guardarSitio(sitio, 'creó');
+    pintarSitiosImp();
+    $('impActSitio').value = sitio.id;
+    $('zonaSitioNuevoImpAct').hidden = true;
+    $('insNombre').value = '';
+    aviso(nombreSitio + ' dado de alta y seleccionado.');
+  });
+
+  cerrarModalActual = ()=>{
+    const clienteId = $('impActCliente').value;
+    const sitioId = $('impActSitio').value;
+    if(!clienteId){ aviso('Elige a qué cliente pertenecen estos activos.', true); return; }
+    if(!sitioId){ aviso('Elige a qué sitio pertenecen estos activos.', true); return; }
+    const sitio = sitioPorId(sitioId);
+    const ligados = candidatos.map(act => Object.assign({}, act, {
+      tipo:'cliente', clienteId, sitioId, sitioNombre: sitio ? sitio.nombre : ''
+    })).map(normalizarActivo);
+    cerrarModal();
+    continuarImportacionActivos(ligados, vacias);
+  };
+}
+
+function continuarImportacionActivos(candidatos, vacias){
   const yaExisten = new Set(datos.activos.map(llaveActivoImportadoXlsx));
   const nuevos = [], duplicados = [];
   candidatos.forEach(act=>{
@@ -7379,6 +7559,7 @@ async function importarActivosDesdeExcel(archivo){
     'Sí, importar', ()=>{
       nuevos.forEach(act=>{
         if(!act.folio) act.folio = generarFolioActivo(act.fechaCreacion || hoyISO());
+        if(!act.codigo){ act.codigo = act.folio; act.tipoCodigo = 'qr'; }
         datos.activos.push(act);
       });
       guardarLocal();
@@ -13560,18 +13741,101 @@ function botonRegresarActivos(){
 }
 
 function resumirActivos(lista){
-  const r = { total:lista.length, operacion:0, mantenimiento:0, bajaOPerdido:0, valor:0, garantiasPorVencer:0, mantenimientoPendiente:0 };
+  const r = { total:lista.length, borradores:0, operacion:0, mantenimiento:0, bajaOPerdido:0, valor:0, garantiasPorVencer:0, mantenimientoPendiente:0 };
   lista.forEach(a=>{
+    if(a.estatus === 'borrador'){ r.borradores++; return; } /* sin confirmar: no cuenta en operación ni en el valor todavía */
     if(a.estatus === 'activo') r.operacion++;
     if(a.estatus === 'mantenimiento') r.mantenimiento++;
     if(a.estatus === 'baja' || a.estatus === 'perdido') r.bajaOPerdido++;
-    r.valor += a.costoCompra;
+    r.valor += a.costoCompra * a.cantidad;
     const diasGarantia = diasParaVencerGarantia(a);
     if(diasGarantia !== null && diasGarantia >= 0 && diasGarantia <= 30) r.garantiasPorVencer++;
     const mant = estadoMantenimientoActivo(a);
     if(mant && (mant.tono === 'error' || mant.tono === 'alerta')) r.mantenimientoPendiente++;
   });
   return r;
+}
+
+/* "Estado de resultados" de Activos (pedido explícito de Victor,
+   17-sep-2026: "algo que consideres que funcionaría"): un activo no
+   genera ingreso, así que en vez de utilidad se mide INVERSIÓN — cuánto se
+   ha invertido en total, este año y este mes, y en qué (categoría) y para
+   quién (cliente) se fue ese dinero. Los "Borrador" quedan fuera —igual
+   que en resumirActivos()— porque todavía no es una compra confirmada. */
+function calcularEstadoResultadosActivos(lista){
+  const hoy = hoyISO();
+  const anioActual = hoy.slice(0,4), mesActual = hoy.slice(0,7);
+  const real = lista.filter(a => a.estatus !== 'borrador');
+  let totalInvertido = 0, invertidoAnio = 0, invertidoMes = 0, invertidoCliente = 0, invertidoInterno = 0;
+  const porCategoria = new Map(), porCliente = new Map();
+  real.forEach(a=>{
+    const monto = a.costoCompra * a.cantidad;
+    totalInvertido += monto;
+    if(a.fechaCompra && a.fechaCompra.slice(0,4) === anioActual) invertidoAnio += monto;
+    if(a.fechaCompra && a.fechaCompra.slice(0,7) === mesActual) invertidoMes += monto;
+    if(a.tipo === 'cliente') invertidoCliente += monto; else invertidoInterno += monto;
+    const cat = a.categoria || 'Sin categoría';
+    porCategoria.set(cat, (porCategoria.get(cat) || 0) + monto);
+    if(a.tipo === 'cliente'){
+      const cli = clientePorId(a.clienteId);
+      const nombreCli = cli ? cli.nombre : (a.sitioNombre || 'Sin cliente');
+      porCliente.set(nombreCli, (porCliente.get(nombreCli) || 0) + monto);
+    }
+  });
+  const aRanking = mapa => Array.from(mapa, ([nombre, monto]) => ({ nombre, monto })).sort((a,b) => b.monto - a.monto);
+  return {
+    cantidad: real.length, totalInvertido, invertidoAnio, invertidoMes, invertidoCliente, invertidoInterno,
+    porCategoria: aRanking(porCategoria).slice(0, 8), porCliente: aRanking(porCliente).slice(0, 8)
+  };
+}
+
+function filaRankingInversion(fila, maxMonto){
+  const pct = maxMonto > 0 ? Math.max(4, Math.round(fila.monto / maxMonto * 100)) : 0;
+  return '<div class="fila-ranking-inversion" style="margin-bottom:10px">'
+       +   '<div style="display:flex; justify-content:space-between; gap:8px; font-size:12.5px; margin-bottom:3px">'
+       +     '<span>' + esc(fila.nombre) + '</span><span style="font-weight:700">' + dinero(fila.monto) + '</span>'
+       +   '</div>'
+       +   '<div style="height:8px; border-radius:5px; background:var(--bg)">'
+       +     '<div style="height:100%; width:' + pct + '%; border-radius:5px; background:var(--navy)"></div>'
+       +   '</div>'
+       + '</div>';
+}
+
+function vistaEstadoResultadosActivos(){
+  const r = calcularEstadoResultadosActivos(datos.activos);
+  let h = botonRegresarActivos();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Estado de resultados · Activos</h2>'
+     +   '<p>Cuánto se ha invertido en activos, y en qué — ' + numero(r.cantidad) + ' ' + plural(r.cantidad,'activo confirmado','activos confirmados') + '</p>'
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Invertido total', dinero(r.totalInvertido), 'Suma de costo de compra × cantidad')
+     + tarjetaKpi('Invertido este año', dinero(r.invertidoAnio), 'Activos comprados en ' + hoyISO().slice(0,4))
+     + tarjetaKpi('Invertido este mes', dinero(r.invertidoMes), 'Compras del mes en curso')
+     + tarjetaKpi('Cliente vs. interno', dinero(r.invertidoCliente) + ' / ' + dinero(r.invertidoInterno), 'Instalado en cliente / propio de Forguard')
+     + '</div>';
+
+  if(!r.cantidad){
+    h += '<div class="vacio"><h3>Todavía no hay nada que resumir</h3><p>En cuanto haya activos confirmados (no en borrador), aquí se ve en qué se ha invertido.</p></div>';
+    return h;
+  }
+
+  const maxCategoria = r.porCategoria.length ? r.porCategoria[0].monto : 0;
+  const maxCliente = r.porCliente.length ? r.porCliente[0].monto : 0;
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Inversión por categoría</h3><p>Las ' + r.porCategoria.length + ' categorías con más inversión.</p></div></div>'
+     +   r.porCategoria.map(f => filaRankingInversion(f, maxCategoria)).join('')
+     + '</div>';
+
+  if(r.porCliente.length){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Inversión por cliente</h3><p>Solo equipo instalado en cliente — no cuenta lo interno de Forguard.</p></div></div>'
+       +   r.porCliente.map(f => filaRankingInversion(f, maxCliente)).join('')
+       + '</div>';
+  }
+
+  return h;
 }
 
 function vistaActivos(){
@@ -13582,6 +13846,7 @@ function vistaActivos(){
      +   '<h2>Activos</h2>'
      +   '<p>' + numero(r.total) + ' ' + plural(r.total,'activo','activos') + ' registrados</p>'
      + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-estado-resultados-activos">' + ICONO.credencial + 'Estado de resultados</button>'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="excel-activos">' + ICONO.excel + 'Descargar Excel</button>'
      +   (puedeGestionarActivos()
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="importar-activos-excel">' + ICONO.excel + 'Importar desde Excel</button>'
@@ -13676,7 +13941,7 @@ function vistaActivos(){
          +   '</div>'
          +   '<div class="t-chips">' + chips + '</div>'
          +   '<div class="t-datos">'
-         +     '<div class="t-dato"><div class="d-label">' + (a.tipo === 'cliente' ? 'Sitio' : 'Ubicación') + '</div><div class="d-valor chico">' + esc(a.tipo === 'cliente' ? (a.sitioNombre || 'Sin sitio') : (a.ubicacion || 'Sin ubicación')) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">' + (a.tipo === 'cliente' ? 'Sitio' : 'Ubicación') + '</div><div class="d-valor chico">' + esc(a.tipo === 'cliente' ? (a.sitioNombre || 'Sin sitio') + (a.ubicacion ? ' · ' + a.ubicacion : '') : (a.ubicacion || 'Sin ubicación')) + '</div></div>'
          +     '<div class="t-dato"><div class="d-label">' + (a.tipo === 'interno' ? 'Asignado a' : 'Condición') + '</div><div class="d-valor chico">' + (a.tipo === 'interno' ? esc(a.asignadoA || 'Sin asignar') : esc(ETIQUETA_CONDICION_ACTIVO[a.condicion])) + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie"><span class="pista">' + fmtFecha(a.fechaCreacion) + '</span></div>'
@@ -13738,9 +14003,11 @@ function vistaActivo(){
   h += '<div class="kpis">'
      + tarjetaKpi(a.tipo === 'cliente' ? 'Sitio' : 'Ubicación',
          esc(a.tipo === 'cliente' ? (a.sitioNombre || 'Sin sitio') : (a.ubicacion || 'Sin ubicación')),
-         a.tipo === 'cliente' ? (cli ? esc(cli.nombre) : '') : (a.asignadoA ? 'Asignado a ' + esc(a.asignadoA) : 'Sin asignar'))
+         a.tipo === 'cliente'
+           ? [cli ? cli.nombre : '', a.ubicacion].filter(Boolean).map(esc).join(' · ')
+           : (a.asignadoA ? 'Asignado a ' + esc(a.asignadoA) : 'Sin asignar'))
      + tarjetaKpi('Marca / Modelo', esc([a.marca, a.modelo].filter(Boolean).join(' / ') || 'Sin especificar'), a.serie ? 'Serie ' + esc(a.serie) : '')
-     + tarjetaKpi('Costo de compra', dinero(a.costoCompra), a.fechaCompra ? fmtFecha(a.fechaCompra) : 'Sin fecha registrada')
+     + tarjetaKpi('Costo de compra', dinero(a.costoCompra), (a.cantidad > 1 ? numero(a.cantidad) + ' unidades · ' : '') + (a.fechaCompra ? fmtFecha(a.fechaCompra) : 'Sin fecha registrada'))
      + tarjetaKpi('Garantía', a.garantiaHasta ? fmtFecha(a.garantiaHasta) : 'Sin garantía', a.garantiaHasta ? (garantiaVencida ? 'Vencida' : 'Vigente') : '')
      + '</div>';
 
@@ -13867,7 +14134,12 @@ function modalActivo(id){
   const a = id ? activoPorId(id) : null;
 
   let evidenciasTmp = a ? a.evidencias.slice() : [];
-  let codigoTmp = a ? a.tipoCodigo : 'barras';
+  /* Al crear, el QR se genera solo desde que se abre el modal —con el folio
+     que le va a tocar— para que no haya que darle clic a "Generar": pedido
+     explícito de Victor (17-sep-2026). Al editar, se respeta lo que el
+     activo ya traía guardado. */
+  let codigoTmp = a ? a.tipoCodigo : 'qr';
+  const folioSugerido = a ? a.folio : generarFolioActivo(hoyISO());
   const clientesOrd = datos.clientes.slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'));
 
   const opc = (lista, sel, texto, valor) => lista.map(o =>
@@ -13911,9 +14183,9 @@ function modalActivo(id){
     +     '</div>'
     +   '</div>'
     + '</div>'
+    + '<div class="campo"><label id="labelUbicacionAct">Ubicación</label>'
+    +   '<input type="text" id="actUbicacion" placeholder="Ej. Bodega Monterrey, Camioneta 3…" value="' + esc(a ? a.ubicacion : '') + '"></div>'
     + '<div id="actZonaInterno">'
-    +   '<div class="campo"><label>Ubicación</label>'
-    +     '<input type="text" id="actUbicacion" placeholder="Ej. Bodega Monterrey, Camioneta 3…" value="' + esc(a ? a.ubicacion : '') + '"></div>'
     /* La asignación de un activo YA EXISTENTE solo se toca desde los
        botones "Asignar"/"Devolver" del detalle (ver vistaActivo) — eso es
        lo que mantiene vivo el historial de asignaciones[]. Aquí, al
@@ -13940,6 +14212,9 @@ function modalActivo(id){
     + '</div>'
     + '<div class="campo"><label>Nombre *</label>'
     +   '<input type="text" id="actNombre" placeholder="Ej. Freidora de doble canasta" value="' + esc(a ? a.nombre : '') + '"></div>'
+    + '<div class="campo"><label>Cantidad</label>'
+    +   '<input type="number" id="actCantidad" min="1" step="1" value="' + (a ? a.cantidad : 1) + '">'
+    +   '<div class="pista">Más de 1 cuando este renglón representa varias unidades idénticas (ej. un inventario por lote).</div></div>'
     + '<div class="campo"><label>Marca</label>'
     +   '<input type="text" id="actMarca" value="' + esc(a ? a.marca : '') + '"></div>'
     + '<div class="campo"><label>Modelo</label>'
@@ -13971,7 +14246,7 @@ function modalActivo(id){
     +   '<textarea id="actNotas" placeholder="Cualquier detalle que ayude a administrarlo…">' + esc(a ? a.notas : '') + '</textarea></div>'
     + '<div class="campo"><label>Código (barras / QR)</label>'
     +   '<div class="info-equipo">'
-    +     '<label>Código<input type="text" id="actCodigo" value="' + esc(a ? a.codigo : '') + '" placeholder="Escanea o captura" maxlength="30">'
+    +     '<label>Código<input type="text" id="actCodigo" value="' + esc(a ? a.codigo : folioSugerido) + '" placeholder="Escanea o captura" maxlength="30">'
     +       '<button type="button" class="btn btn-suave btn-mini" id="btnGenerarCodigoAct">Generar</button></label>'
     +     '<div class="tipo-codigo" role="group" aria-label="Tipo de código">'
     +       '<button type="button" id="btnCodigoBarrasAct" class="' + (codigoTmp !== 'qr' ? 'on' : '') + '">Código de barras</button>'
@@ -14005,6 +14280,11 @@ function modalActivo(id){
     const esCliente = $('actTipo').value === 'cliente';
     $('actZonaCliente').hidden = !esCliente;
     $('actZonaInterno').hidden = esCliente;
+    /* Mismo campo para las dos, con distinto sentido: dentro de un sitio
+       (comedor, cocina…) o en general (bodega, camioneta…) cuando es
+       interno — ver el comentario de `ubicacion` en normalizarActivo. */
+    $('labelUbicacionAct').textContent = esCliente ? 'Ubicación dentro del sitio (opcional)' : 'Ubicación';
+    $('actUbicacion').placeholder = esCliente ? 'Ej. Comedor, cocina, bodega…' : 'Ej. Bodega Monterrey, Camioneta 3…';
   }
   pintarTipo();
   pintarSitios();
@@ -14125,15 +14405,14 @@ function modalActivo(id){
     const nombre = $('actNombre').value.trim();
     if(!nombre){ $('actNombre').setAttribute('aria-invalid','true'); $('actNombre').focus(); aviso('El activo necesita un nombre.', true); return; }
 
-    let clienteId = '', sitioId = '', sitioNombre = '', ubicacion = '';
+    let clienteId = '', sitioId = '', sitioNombre = '';
+    const ubicacion = $('actUbicacion').value.trim();
     if(tipoSel === 'cliente'){
       sitioId = $('actSitio').value;
       if(!sitioId){ aviso('Elige un sitio: el activo necesita saber dónde está instalado.', true); return; }
       clienteId = $('actCliente').value;
       const sitio = sitioPorId(sitioId);
       sitioNombre = sitio ? sitio.nombre : '';
-    }else{
-      ubicacion = $('actUbicacion').value.trim();
     }
 
     /* asignadoA/asignadoAId/asignaciones se dejan FUERA de datosComunes a
@@ -14143,7 +14422,7 @@ function modalActivo(id){
        a alguien, se arma la primera asignación aparte, más abajo. */
     const datosComunes = {
       tipo: tipoSel, clienteId, sitioId, sitioNombre, ubicacion,
-      categoria: $('actCategoria').value.trim(), nombre,
+      categoria: $('actCategoria').value.trim(), nombre, cantidad: $('actCantidad').value,
       marca: $('actMarca').value.trim(), modelo: $('actModelo').value.trim(), serie: $('actSerie').value.trim(),
       codigo: $('actCodigo').value.trim(), tipoCodigo: codigoTmp,
       estatus: $('actEstatus').value, condicion: $('actCondicion').value,
@@ -14159,8 +14438,12 @@ function modalActivo(id){
       reg = normalizarActivo(a);
       Object.assign(a, reg);
     }else{
-      const creacion = Object.assign({ id:nuevoId(), folio: generarFolioActivo(hoyISO()),
+      /* Mismo folio que ya se le enseñó en el QR mientras se capturaba
+         (folioSugerido, al abrir el modal) — así el código nunca cambia
+         entre lo que se vio y lo que de verdad se guardó. */
+      const creacion = Object.assign({ id:nuevoId(), folio: folioSugerido,
         registradoPor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || 'Alguien del equipo' } }, datosComunes);
+      if(!creacion.codigo){ creacion.codigo = creacion.folio; creacion.tipoCodigo = 'qr'; }
       if(tipoSel === 'interno' && $('actAsignadoAId')){
         const selPersona = $('actAsignadoAId').value;
         let personaId = '', personaNombre = '';
@@ -14180,6 +14463,60 @@ function modalActivo(id){
     entrarActivo(reg.id);
     aviso(a ? 'Activo actualizado.' : 'Activo registrado: ' + (reg.folio || reg.nombre) + '.');
   };
+
+  /* Solo aplica al CREAR (editar uno ya existente no arriesga perder nada:
+     el registro real no se toca hasta "Guardar"). Mismo criterio que
+     modalPoliza/modalCotizacion: cerrar por fuera (X, fondo, Escape) sin
+     terminar de capturar ya NO tira el activo — se guarda tal cual con
+     estatus "Borrador", pedido explícito de Victor (17-sep-2026): "que el
+     modal... no se elimine sino se guarde como borrador en caso de que
+     cerremos". El botón "Cancelar" del pie sigue sin pasar por aquí a
+     propósito: sigue siendo la única salida que de verdad descarta. */
+  if(!a){
+    guardarBorradorAlSalir = ()=>{
+      const nombre = $('actNombre').value.trim();
+      const categoria = $('actCategoria').value.trim();
+      const marca = $('actMarca').value.trim();
+      const modelo = $('actModelo').value.trim();
+      const serie = $('actSerie').value.trim();
+      const notas = $('actNotas').value.trim();
+      /* Sin nada capturado no hay nada que valga la pena guardar: se abrió
+         el modal y no se tocó nada. */
+      if(!nombre && !categoria && !marca && !modelo && !serie && !notas && !evidenciasTmp.length){ cerrarModal(); return; }
+
+      const tipoSel = $('actTipo').value;
+      const ubicacion = $('actUbicacion').value.trim();
+      let clienteId = '', sitioId = '', sitioNombre = '';
+      if(tipoSel === 'cliente'){
+        sitioId = $('actSitio').value;
+        clienteId = $('actCliente').value;
+        const sitio = sitioId ? sitioPorId(sitioId) : null;
+        sitioNombre = sitio ? sitio.nombre : '';
+      }
+
+      const creacion = {
+        id: nuevoId(), folio: folioSugerido,
+        tipo: tipoSel, clienteId, sitioId, sitioNombre, ubicacion,
+        categoria, nombre: nombre || 'Activo sin nombre (borrador)', cantidad: $('actCantidad').value,
+        marca, modelo, serie,
+        codigo: $('actCodigo').value.trim(), tipoCodigo: codigoTmp,
+        estatus: 'borrador', condicion: $('actCondicion').value,
+        proveedor: $('actProveedor').value.trim(), fechaCompra: $('actFechaCompra').value,
+        costoCompra: $('actCostoCompra').value, garantiaHasta: $('actGarantiaHasta').value,
+        mantenimientoFrecuenciaDias: $('actMantFrecuencia').value, proximoMantenimiento: $('actProximoMantenimiento').value,
+        notas, evidencias: evidenciasTmp,
+        registradoPor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || 'Alguien del equipo' }
+      };
+      if(!creacion.codigo){ creacion.codigo = creacion.folio; creacion.tipoCodigo = 'qr'; }
+
+      const reg = normalizarActivo(creacion);
+      datos.activos.push(reg);
+      guardarActivo(reg, 'creó', 'guardado como borrador al cerrar sin terminar.');
+      cerrarModal();
+      render();
+      aviso('Se guardó como borrador: lo que ya capturaste no se perdió.');
+    };
+  }
 }
 
 /* ------------------------- Modal: historial de activo ------------------------- */
@@ -20010,7 +20347,9 @@ function render(){
     : estado.modulo === 'cocinas'      ? vistaCocinas()
     : estado.modulo === 'levantamientos' ? (estado.vista === 'levantamiento' ? vistaLevantamiento() : vistaLevantamientos())
     : estado.modulo === 'visitas'      ? vistaVisitas()
-    : estado.modulo === 'activos'      ? (estado.vista === 'activo' ? vistaActivo() : vistaActivos())
+    : estado.modulo === 'activos'      ? (estado.vista === 'activo' ? vistaActivo()
+                                    : estado.vista === 'activos-resultados' ? vistaEstadoResultadosActivos()
+                                    : vistaActivos())
     : estado.modulo === 'proveedores'  ? (estado.vista === 'gasto-proveedor' ? vistaGastoProveedor()
                                     : estado.vista === 'proveedor' ? vistaProveedorDetalle()
                                     : estado.vista === 'proveedores' ? vistaProveedores()
@@ -26059,6 +26398,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-activos') irAActivos();
     else if(a === 'mantenimiento-pendiente-activos'){ estado.modulo = 'activos'; estado.vista = 'activos'; estado.filtro = 'mantenimiento_pendiente'; estado.busca = ''; render(); }
     else if(a === 'garantias-por-vencer-activos'){ estado.modulo = 'activos'; estado.vista = 'activos'; estado.filtro = 'garantia_por_vencer'; estado.busca = ''; render(); }
+    else if(a === 'ver-estado-resultados-activos'){ estado.vista = 'activos-resultados'; render(); window.scrollTo({ top:0, behavior:'smooth' }); }
     else if(a === 'excel-activos') descargarExcelActivos();
     else if(a === 'importar-activos-excel'){ if(exigirGestionActivos()) $('archivoActivosExcel').click(); }
     else if(a === 'nuevo-activo'){ if(exigirGestionActivos()) modalActivo(null); }
