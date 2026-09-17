@@ -4777,7 +4777,7 @@ function normalizarOrdenCompra(o){
     proveedorNombre: (o && o.proveedorNombre ? String(o.proveedorNombre) : '').trim(),
     fecha: /^\d{4}-\d{2}-\d{2}$/.test(o && o.fecha) ? o.fecha : hoyISO(),
     fechaEntrega: /^\d{4}-\d{2}-\d{2}$/.test(o && o.fechaEntrega) ? o.fechaEntrega : '',
-    estatus: ESTATUS_ORDEN_COMPRA.includes(o && o.estatus) ? o.estatus : 'borrador',
+    estatus: ESTATUS_ORDEN_COMPRA.includes(o && o.estatus) ? o.estatus : 'confirmada',
     renglones,
     /* A dónde debe llegar lo que se pide — un sitio de Forpass, la oficina, o
        texto libre si no aplica ninguno de los dos. */
@@ -15085,7 +15085,7 @@ function modalOrdenCompra(id, proveedorPresetId){
     +   '<div class="campo"><label>Folio</label>'
     +     '<input type="text" id="ocFolio" value="' + esc(o ? o.folio : generarFolioOrdenCompra(hoyISO())) + '"></div>'
     +   '<div class="campo"><label>Estatus</label><select id="ocEstatus">'
-    +     ESTATUS_ORDEN_COMPRA.map(e => '<option value="' + e + '"' + ((o ? o.estatus : 'borrador') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[e]) + '</option>').join('')
+    +     ESTATUS_ORDEN_COMPRA.map(e => '<option value="' + e + '"' + ((o ? o.estatus : 'confirmada') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[e]) + '</option>').join('')
     +   '</select></div>'
     + '</div>'
     + '<div class="fila2">'
@@ -15114,6 +15114,7 @@ function modalOrdenCompra(id, proveedorPresetId){
             + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (o ? 'Guardar cambios' : 'Crear orden de compra') + '</button>';
 
   abrirModal(o ? 'Editar orden de compra' : 'Nueva orden de compra', cuerpo, pie);
+  $('modal').classList.add('enorme');
 
   /* Mismo molde que pintarPartidas() en modalCotizacion: se repinta la tabla
      entera solo al agregar/quitar un renglón, nunca al teclear (o se pierde
