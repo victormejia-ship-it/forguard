@@ -4767,7 +4767,11 @@ function normalizarRenglonOrdenCompra(x){
     concepto: aOracion((x && x.concepto ? String(x.concepto) : '').trim()),
     cantidad: Math.max(0, numDef(x && x.cantidad, 1)),
     um: (x && x.um ? String(x.um) : '').trim(),
-    precioUnitario: Math.max(0, Math.round(numDef(x && x.precioUnitario, 0)))
+    /* Único precio de toda la app que se redondea a CENTAVOS y no a peso
+       entero: los proveedores cotizan así (ver dineroOC más arriba), y
+       forzarlo a entero perdería justo el detalle que se está comparando
+       contra su cotización real. */
+    precioUnitario: Math.max(0, Math.round(numDef(x && x.precioUnitario, 0) * 100) / 100)
   };
 }
 
@@ -4817,6 +4821,11 @@ function normalizarOrdenCompra(o){
        Mismo molde que respaldosCosto en Cotizaciones: fotos o PDF chicos
        embebidos, no un archivo aparte que se pueda perder. */
     respaldosCotizacion: (Array.isArray(o && o.respaldosCotizacion) ? o.respaldosCotizacion : []).map(normalizarRespaldoCosto),
+    /* El número de esa cotización, para cuando el proveedor lo da pero no
+       hay nada que valga la pena adjuntar como archivo (o mientras se
+       consigue el PDF/foto) — no depende de respaldosCotizacion, se puede
+       llenar uno, el otro, o los dos. */
+    cotizacionProveedorFolio: (o && o.cotizacionProveedorFolio ? String(o.cotizacionProveedorFolio) : '').trim(),
     notas: (o && o.notas ? String(o.notas) : '').trim()
   };
 }
@@ -4826,9 +4835,9 @@ function normalizarOrdenCompra(o){
    calcularCotizacion() (IVA_COTIZACION): una orden de compra es, en el
    fondo, la misma cuenta que una cotización pero en sentido contrario. */
 function calcularOrdenCompra(o){
-  const subtotal = o.renglones.reduce((t,r)=> t + r.cantidad * r.precioUnitario, 0);
-  const iva = Math.round(subtotal * IVA_COTIZACION);
-  const total = subtotal + iva;
+  const subtotal = Math.round(o.renglones.reduce((t,r)=> t + r.cantidad * r.precioUnitario, 0) * 100) / 100;
+  const iva = Math.round(subtotal * IVA_COTIZACION * 100) / 100;
+  const total = Math.round((subtotal + iva) * 100) / 100;
   let tono, tonoInsignia;
   if(o.estatus === 'cancelada'){ tono = 'neutro'; tonoInsignia = 'neutro'; }
   else if(o.estatus === 'borrador'){ tono = 'neutro'; tonoInsignia = 'info'; }
@@ -8044,6 +8053,12 @@ function fmtFecha(iso){
   return String(p.d).padStart(2,'0') + ' ' + MES[p.m-1] + ' ' + p.a;
 }
 function dinero(n){ return '$' + Math.round(Number(n)||0).toLocaleString('en-US'); }
+/* Única excepción al peso entero de arriba: Órdenes de Compra, a pedido
+   explícito de Victor (17-sep-2026) — los proveedores cotizan con centavos
+   (ver el PDF real que compartió, con precios como $23,007.60) y la orden
+   tiene que poder capturar y mostrar eso tal cual, sin redondear. No se usa
+   en ningún otro módulo. */
+function dineroOC(n){ return '$' + (Number(n)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 }); }
 function numero(n){ return (Number(n)||0).toLocaleString('en-US'); }
 function plural(n, uno, muchos){ return n === 1 ? uno : muchos; }
 /* Serial de fecha de Excel (1899-12-30 = 0). */
@@ -9029,12 +9044,12 @@ function armarPayloadOrdenCompra(o){
       cantidad: numero(r.cantidad),
       um: r.um || '',
       concepto: r.concepto,
-      precioUnitario: dinero(r.precioUnitario),
-      importe: dinero(r.cantidad * r.precioUnitario)
+      precioUnitario: dineroOC(r.precioUnitario),
+      importe: dineroOC(r.cantidad * r.precioUnitario)
     })),
-    subtotal: dinero(c.subtotal),
-    iva: dinero(c.iva),
-    total: dinero(c.total)
+    subtotal: dineroOC(c.subtotal),
+    iva: dineroOC(c.iva),
+    total: dineroOC(c.total)
   };
 }
 
@@ -14949,7 +14964,7 @@ function tarjetaOrdenCompra(o, i){
        +   '</div>'
        +   '<div class="t-chips"><span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[o.estatus]) + '</span></div>'
        +   '<div class="t-datos">'
-       +     '<div class="t-dato"><div class="d-label">Total</div><div class="d-valor">' + dinero(c.total) + '</div></div>'
+       +     '<div class="t-dato"><div class="d-label">Total</div><div class="d-valor">' + dineroOC(c.total) + '</div></div>'
        +     '<div class="t-dato"><div class="d-label">Comedor</div><div class="d-valor chico">' + esc(o.sitioNombre || 'Sin especificar') + '</div></div>'
        +   '</div>'
        +   '<div class="t-pie"><span class="pista">' + fmtFecha(o.fecha) + '</span><span class="espacio"></span>'
@@ -14971,7 +14986,7 @@ function tablaOrdenesCompra(lista){
                 +   '<td>' + fmtFecha(o.fecha) + '</td>'
                 +   '<td><span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[o.estatus]) + '</span></td>'
                 +   '<td>' + numero(o.renglones.length) + '</td>'
-                +   '<td>' + dinero(c.total) + '</td>'
+                +   '<td>' + dineroOC(c.total) + '</td>'
                 + '</tr>';
          }).join('')
        + '</tbody></table></div>';
@@ -15002,7 +15017,7 @@ function vistaOrdenesCompra(){
   const r = resumenOrdenesCompra(datos.ordenesCompra);
   h += '<div class="kpis">'
      + tarjetaKpi('Abiertas', numero(r.abiertas), 'Sin recibir ni cancelar')
-     + tarjetaKpi('Monto abierto', dinero(r.montoAbierto), 'Suma de las órdenes todavía abiertas')
+     + tarjetaKpi('Monto abierto', dineroOC(r.montoAbierto), 'Suma de las órdenes todavía abiertas')
      + tarjetaKpi('Enviadas', numero(r.enviadas), 'Esperando respuesta del proveedor', r.enviadas ? 'k-alerta' : '')
      + '</div>';
 
@@ -15062,7 +15077,7 @@ function vistaOrdenCompra(){
      + '</div>';
 
   h += '<div class="kpis">'
-     + tarjetaKpi('Total', dinero(c.total), 'Subtotal ' + dinero(c.subtotal) + ' + IVA ' + dinero(c.iva))
+     + tarjetaKpi('Total', dineroOC(c.total), 'Subtotal ' + dineroOC(c.subtotal) + ' + IVA ' + dineroOC(c.iva))
      + tarjetaKpi('Comedor / sitio', esc(o.sitioNombre || 'Sin especificar'), '', 'k-texto')
      + tarjetaKpi('Fecha de entrega', o.fechaEntrega ? fmtFecha(o.fechaEntrega) : 'Sin definir', o.tiempoEntrega || '')
      + tarjetaKpi('Lugar de entrega', esc(o.lugarEntrega || 'Sin especificar'), '', 'k-texto')
@@ -15084,15 +15099,15 @@ function vistaOrdenCompra(){
               +   '<td>' + esc(r.concepto) + (r.numeroParte ? ' <span class="pista">(N° de parte: ' + esc(r.numeroParte) + ')</span>' : '') + '</td>'
               +   '<td>' + numero(r.cantidad) + '</td>'
               +   '<td>' + esc(r.um || '—') + '</td>'
-              +   '<td>' + dinero(r.precioUnitario) + '</td>'
-              +   '<td>' + dinero(r.cantidad * r.precioUnitario) + '</td>'
+              +   '<td>' + dineroOC(r.precioUnitario) + '</td>'
+              +   '<td>' + dineroOC(r.cantidad * r.precioUnitario) + '</td>'
               + '</tr>').join('')
           : '<tr><td colspan="6" class="vacio-chico">Sin conceptos capturados.</td></tr>')
      +   '</tbody></table></div>'
      +   '<div class="resumen" style="margin-top:10px; max-width:280px; margin-left:auto">'
-     +     '<div class="r-fila"><span>Subtotal</span><span>' + dinero(c.subtotal) + '</span></div>'
-     +     '<div class="r-fila"><span>IVA 16%</span><span>' + dinero(c.iva) + '</span></div>'
-     +     '<div class="r-fila r-total"><span>Total</span><span>' + dinero(c.total) + '</span></div>'
+     +     '<div class="r-fila"><span>Subtotal</span><span>' + dineroOC(c.subtotal) + '</span></div>'
+     +     '<div class="r-fila"><span>IVA 16%</span><span>' + dineroOC(c.iva) + '</span></div>'
+     +     '<div class="r-fila r-total"><span>Total</span><span>' + dineroOC(c.total) + '</span></div>'
      +   '</div>'
      + '</div>';
 
@@ -15104,15 +15119,18 @@ function vistaOrdenCompra(){
        + '</div>';
   }
 
-  if(o.respaldosCotizacion.length){
+  if(o.cotizacionProveedorFolio || o.respaldosCotizacion.length){
     h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Cotización del proveedor</h3><p>Lo que mandó ' + esc(o.proveedorNombre || 'el proveedor') + ', anclado a esta orden.</p></div></div>'
-       +   '<div class="galeria-evidencia">' + o.respaldosCotizacion.map(r=>
-             '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
-             + (r.tipo === 'pdf'
-                 ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
-                 : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
-             + '</div>'
-           ).join('') + '</div>'
+       +   (o.cotizacionProveedorFolio ? '<p class="pista" style="margin:0 0 10px"><b>N°:</b> ' + esc(o.cotizacionProveedorFolio) + '</p>' : '')
+       +   (o.respaldosCotizacion.length
+            ? '<div class="galeria-evidencia">' + o.respaldosCotizacion.map(r=>
+                '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
+                + (r.tipo === 'pdf'
+                    ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
+                    : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
+                + '</div>'
+              ).join('') + '</div>'
+            : '')
        + '</div>';
   }
 
@@ -15207,9 +15225,12 @@ function modalOrdenCompra(id, proveedorPresetId){
     + '</div>'
     + '<div class="campo"><label>Cotización del proveedor (opcional)</label>'
     +   '<div id="listaRespaldoOC"></div>'
-    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarRespaldoOC" style="margin-top:8px">' + ICONO.subir + 'Adjuntar cotización</button>'
+    +   '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px">'
+    +     '<input type="text" id="ocCotizacionFolio" placeholder="N° de cotización del proveedor" style="flex:1; min-width:180px" value="' + esc(o ? o.cotizacionProveedorFolio : '') + '">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarRespaldoOC">' + ICONO.subir + 'Adjuntar cotización</button>'
+    +   '</div>'
     +   '<input type="file" id="ocArchivoRespaldo" accept="image/*,application/pdf" hidden>'
-    +   '<div class="pista">Foto o PDF (máx. 600 KB) de lo que mandó el proveedor, para dejarlo anclado a esta orden.</div></div>'
+    +   '<div class="pista">Escribe el número si el proveedor te lo dio, y/o adjunta la foto o PDF (máx. 600 KB) — lo que tengas a la mano.</div></div>'
     + '<div class="campo"><label>Notas</label>'
     +   '<textarea id="ocNotas" placeholder="Cualquier detalle útil…">' + esc(o ? o.notas : '') + '</textarea></div>';
 
@@ -15229,8 +15250,8 @@ function modalOrdenCompra(id, proveedorPresetId){
       + '<td><input type="text" data-campo="concepto" value="' + esc(x.concepto) + '" placeholder="Concepto"></td>'
       + '<td class="mini"><input type="number" min="0" step="1" data-campo="cantidad" value="' + x.cantidad + '"></td>'
       + '<td class="mini"><input type="text" data-campo="um" value="' + esc(x.um) + '" placeholder="PZA"></td>'
-      + '<td class="med"><input type="number" min="0" step="1" data-campo="precioUnitario" value="' + x.precioUnitario + '"></td>'
-      + '<td class="med"><span class="pista">' + dinero(x.cantidad * x.precioUnitario) + '</span></td>'
+      + '<td class="med"><input type="number" min="0" step="0.01" data-campo="precioUnitario" value="' + x.precioUnitario + '"></td>'
+      + '<td class="med"><span class="pista">' + dineroOC(x.cantidad * x.precioUnitario) + '</span></td>'
       + '<td class="acc"><button type="button" class="icono-mini" data-quitar-renglon-oc="' + i + '" data-tip="Borrar">' + ICONO.basura + '</button></td>'
       + '</tr>').join('');
     $('listaRenglonesOC').innerHTML = renglonesTmp.length
@@ -15242,11 +15263,11 @@ function modalOrdenCompra(id, proveedorPresetId){
   }
 
   function refrescarTotal(){
-    const subtotal = renglonesTmp.reduce((t,x)=> t + x.cantidad * x.precioUnitario, 0);
-    const iva = Math.round(subtotal * IVA_COTIZACION);
-    $('ocSubtotal').textContent = dinero(subtotal);
-    $('ocIva').textContent = dinero(iva);
-    $('ocTotal').textContent = dinero(subtotal + iva);
+    const subtotal = Math.round(renglonesTmp.reduce((t,x)=> t + x.cantidad * x.precioUnitario, 0) * 100) / 100;
+    const iva = Math.round(subtotal * IVA_COTIZACION * 100) / 100;
+    $('ocSubtotal').textContent = dineroOC(subtotal);
+    $('ocIva').textContent = dineroOC(iva);
+    $('ocTotal').textContent = dineroOC(subtotal + iva);
   }
 
   /* Mismo molde que pintarRespaldos() en modalCotizacion, sobre
@@ -15304,10 +15325,10 @@ function modalOrdenCompra(id, proveedorPresetId){
     const x = renglonesTmp[+campo.closest('[data-idx]').dataset.idx];
     const k = campo.dataset.campo;
     if(k === 'cantidad') x.cantidad = Math.max(0, parseFloat(campo.value) || 0);
-    else if(k === 'precioUnitario') x.precioUnitario = Math.max(0, Math.round(Number(campo.value) || 0));
+    else if(k === 'precioUnitario') x.precioUnitario = Math.max(0, Math.round((Number(campo.value) || 0) * 100) / 100);
     else x[k] = campo.value;
     if(k === 'cantidad' || k === 'precioUnitario'){
-      campo.closest('tr').querySelector('.med .pista').textContent = dinero(x.cantidad * x.precioUnitario);
+      campo.closest('tr').querySelector('.med .pista').textContent = dineroOC(x.cantidad * x.precioUnitario);
       refrescarTotal();
     }
   });
@@ -15344,7 +15365,7 @@ function modalOrdenCompra(id, proveedorPresetId){
       tiempoEntrega: $('ocTiempoEntrega').value.trim(),
       lugarEntrega: $('ocLugarEntrega').value.trim(), condicionesPago: $('ocCondicionesPago').value.trim(),
       solicitaNombre: $('ocSolicita').value.trim(), renglones: limpios,
-      respaldosCotizacion: respaldosCotizacionTmp,
+      respaldosCotizacion: respaldosCotizacionTmp, cotizacionProveedorFolio: $('ocCotizacionFolio').value.trim(),
       notas: $('ocNotas').value.trim()
     };
 
@@ -15358,7 +15379,7 @@ function modalOrdenCompra(id, proveedorPresetId){
       datos.ordenesCompra.push(reg);
     }
     guardarOrdenCompra(reg, o ? 'editó' : 'creó',
-      reg.renglones.length + ' ' + plural(reg.renglones.length,'renglón','renglones') + ' · ' + dinero(calcularOrdenCompra(reg).total));
+      reg.renglones.length + ' ' + plural(reg.renglones.length,'renglón','renglones') + ' · ' + dineroOC(calcularOrdenCompra(reg).total));
     cerrarModal();
     entrarOrdenCompra(reg.id);
     aviso(o ? 'Orden de compra actualizada.' : 'Orden de compra creada.');
