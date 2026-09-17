@@ -9253,6 +9253,12 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
                  vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaActivos:'tarjetas', vistaProveedores:'tarjetas',
                  vistaGastosProveedor:'tarjetas', vistaRefacciones:'tarjetas',
+                 /* Órdenes de compra arranca en tabla (a diferencia de las
+                    demás, que arrancan en tarjetas): pedido explícito de
+                    Victor — para esta lista lo que importa a primera vista es
+                    comparar folio/proveedor/estatus/total de varias juntas,
+                    no la tarjeta de cada una. */
+                 vistaOrdenesCompra:'tabla',
                  /* Orden de la lista de pólizas: por qué columna y en qué
                     sentido. Misma naturaleza que vistaPolizas de arriba —
                     preferencia de pantalla, no dato — así que aplica igual en
