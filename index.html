@@ -7280,6 +7280,34 @@ function extraerActivosXlsx(hoja){
   return null;
 }
 
+/* Un archivo de inventario real puede traer VARIAS pestañas, cada una de
+   un cliente distinto (ej. el que compartió Victor, 17-sep-2026: BENAVIDES,
+   ASPIRINA, GENERAL ELECTRIC, PROLEC POTENCIA, MERCADO LIBRE, OXXO, MATCOR,
+   cada una en su propia hoja) — a diferencia de extraerActivosXlsx(), que
+   se detiene en la PRIMERA que reconoce, esto junta TODAS las que traigan
+   una tabla reconocible, para que ninguna se quede fuera ni se le ponga el
+   cliente de otra por accidente. */
+function extraerTodasLasTablasActivosXlsx(hojas){
+  const tablas = [];
+  hojas.forEach(hoja=>{
+    const extraido = extraerActivosXlsx(hoja);
+    if(extraido) tablas.push({ hojaNombre: hoja.nombre, mapa: extraido.mapa, filas: extraido.filas });
+  });
+  return tablas;
+}
+
+/* Nombre de cliente sugerido a partir del de la pestaña — nomás para no
+   arrancar de un campo vacío: "INV MERCADO LIBRE" -> "Mercado libre". Es
+   editable en el propio modal, así que no hace falta que adivine perfecto,
+   solo dar un punto de partida razonable. */
+function sugerirClienteDeHojaXlsx(nombreHoja){
+  const limpio = String(nombreHoja || '').trim()
+    .replace(/^INV(ENTARIO)?\.?\s+(INICIAL\s+)?(ACTIVOS\s+)?/i, '')
+    .replace(/^FALTANTES\s+(DE\s+EQUIPO\s+)?/i, '')
+    .trim();
+  return aOracion(limpio) || nombreHoja;
+}
+
 /* Una celda de fecha puede venir como número de serie de Excel (fecha de
    verdad, lo que produce descargarExcelActivos), como texto ISO (alguien
    la escribió a mano) o como DD/MM/AAAA (formato mexicano común al teclear
@@ -7398,35 +7426,54 @@ async function importarActivosDesdeExcel(archivo){
   try{ hojas = await leerLibroXlsx(archivo); }
   catch(e){ aviso('No se pudo leer el archivo: ' + e.message, true); return; }
 
-  let extraido = null;
-  for(const hoja of hojas){ extraido = extraerActivosXlsx(hoja); if(extraido) break; }
-  if(!extraido){
-    aviso('No se reconoció una tabla de activos en el archivo — falta una columna "Nombre" en el encabezado.', true);
+  const tablas = extraerTodasLasTablasActivosXlsx(hojas);
+  if(!tablas.length){
+    aviso('No se reconoció ninguna tabla de activos en el archivo — falta una columna "Nombre" en el encabezado.', true);
     return;
   }
 
   const cache = new Map();
-  const candidatos = [];
   let vacias = 0;
-  extraido.filas.forEach(fila=>{
-    if(!fila.some(v => v !== null && v !== undefined && String(v).trim() !== '')){ vacias++; return; }
-    const act = filaXlsxAActivo(fila, extraido.mapa, cache);
-    if(act) candidatos.push(act);
+  /* Cada tabla (una por pestaña) se procesa por separado: una hoja puede
+     traer Cliente/Sitio por fila (se resuelve sola, como antes) y otra no
+     (necesita que se le diga a qué cliente pertenece TODA ella). Mezclar
+     las dos cosas en una sola lista de candidatos, sin distinguir de qué
+     hoja viene cada uno, es justo el bug que reportó Victor (17-sep-2026):
+     "si importo todos los inventarios no sabré de quién es cada equipo". */
+  const gruposResueltos = []; // ya traen cliente/sitio por fila, listos para importar tal cual
+  const gruposPorAsignar = []; // toda la hoja necesita UN cliente/sitio
+  tablas.forEach(t=>{
+    const candidatos = [];
+    t.filas.forEach(fila=>{
+      if(!fila.some(v => v !== null && v !== undefined && String(v).trim() !== '')){ vacias++; return; }
+      const act = filaXlsxAActivo(fila, t.mapa, cache);
+      if(act) candidatos.push(act);
+    });
+    if(!candidatos.length) return;
+    if(t.mapa.cliente !== undefined || t.mapa.sitio !== undefined) gruposResueltos.push({ hojaNombre: t.hojaNombre, candidatos });
+    else gruposPorAsignar.push({ hojaNombre: t.hojaNombre, candidatos });
   });
 
-  if(!candidatos.length){ aviso('No se encontró ningún activo capturado en el archivo.', true); return; }
+  const totalCandidatos = gruposResueltos.reduce((s,g)=> s + g.candidatos.length, 0) + gruposPorAsignar.reduce((s,g)=> s + g.candidatos.length, 0);
+  if(!totalCandidatos){ aviso('No se encontró ningún activo capturado en el archivo.', true); return; }
 
-  /* Un inventario real (ej. el que compartió Victor, 17-sep-2026) casi
-     nunca trae columnas de Cliente/Sitio propias: el archivo COMPLETO es
-     de un solo cliente, y quien lo sube lo dice en ese momento — mismo
-     criterio que al importar una póliza desde Excel. Si el archivo SÍ trae
-     esas columnas (el que la propia app exporta, por ejemplo), se respeta
-     el cliente/sitio de cada fila tal cual ya se resolvía antes, sin pedir
-     nada extra. */
-  if(extraido.mapa.cliente === undefined && extraido.mapa.sitio === undefined){
-    modalVincularClienteActivosImportados(candidatos, vacias, archivo.name);
+  if(!gruposPorAsignar.length){
+    /* Todas las hojas ya traían Cliente/Sitio por fila (el archivo que la
+       propia app exporta, por ejemplo) — se respeta tal cual, sin pedir
+       nada extra. */
+    continuarImportacionActivos(gruposResueltos.flatMap(g => g.candidatos), vacias);
+  }else if(gruposPorAsignar.length === 1 && !gruposResueltos.length){
+    /* El caso más común: un archivo de un solo cliente, en una sola hoja
+       (o varias hojas del mismo tema, pero solo una con datos reales) —
+       se pregunta UNA vez, igual que al importar una póliza desde Excel. */
+    modalVincularClienteActivosImportados(gruposPorAsignar[0].candidatos, vacias, archivo.name);
   }else{
-    continuarImportacionActivos(candidatos, vacias);
+    /* Varias hojas SIN Cliente/Sitio propio: cada una es de un cliente
+       distinto (pedido explícito de Victor, 17-sep-2026) — se le pregunta
+       a cuál, una por una, en vez de forzar todo el archivo a un solo
+       cliente. Las que ya venían resueltas por fila se importan igual,
+       sin tocarlas. */
+    modalVincularClientesPorHojaActivosImportados(gruposPorAsignar, gruposResueltos, vacias, archivo.name);
   }
 }
 
@@ -7534,6 +7581,91 @@ function modalVincularClienteActivosImportados(candidatos, vacias, nombreArchivo
     })).map(normalizarActivo);
     cerrarModal();
     continuarImportacionActivos(ligados, vacias);
+  };
+}
+
+/* Encuentra el cliente por nombre (sin importar mayúsculas/acentos) o lo
+   crea; luego lo mismo con el sitio, ya DENTRO de ese cliente — mismo
+   criterio de "por nombre tal cual" que vincularOCrearSitioActivoXlsx(),
+   pero recibiendo el nombre del cliente ya decidido por la persona en vez
+   de tener que adivinarlo de una columna. */
+function resolverClienteYSitioPorNombre(nombreCliente, nombreSitio){
+  const llaveCliente = normalizarTextoEncabezadoXlsx(nombreCliente);
+  let cliente = datos.clientes.find(c => normalizarTextoEncabezadoXlsx(c.nombre) === llaveCliente);
+  if(!cliente){
+    cliente = normalizarCliente({ id: nuevoId(), nombre: nombreCliente, usaForpass: 'si' });
+    datos.clientes.push(cliente);
+    guardarCliente(cliente, 'creó');
+  }
+  const llaveSitio = normalizarTextoEncabezadoXlsx(nombreSitio);
+  let sitio = datos.sitios.find(s => s.clienteId === cliente.id && normalizarTextoEncabezadoXlsx(s.nombre) === llaveSitio);
+  if(!sitio){
+    sitio = normalizarSitio({ id: nuevoId(), clienteId: cliente.id, nombre: nombreSitio, modulos:0, mensualidad:0, fechaInicio:hoyISO(), meses:12 });
+    datos.sitios.push(sitio);
+    guardarSitio(sitio, 'creó');
+  }
+  return { clienteId: cliente.id, sitioId: sitio.id, sitioNombre: sitio.nombre };
+}
+
+/* Cuando el archivo trae VARIAS hojas sin Cliente/Sitio propio (cada una
+   de un cliente distinto — pedido explícito de Victor, 17-sep-2026: "si
+   importo todos los inventarios no sabré de quién es cada equipo"): se
+   pregunta el cliente/sitio de CADA hoja por separado, con el nombre de la
+   pestaña como sugerencia inicial, en vez de forzar todo el archivo a un
+   solo cliente. Las hojas que ya traían Cliente/Sitio por fila (grupos
+   resueltos) se importan tal cual, sin pedir nada más. */
+function modalVincularClientesPorHojaActivosImportados(gruposPorAsignar, gruposResueltos, vacias, nombreArchivo){
+  const clientesOrd = datos.clientes.slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'));
+  const datalistClientes = '<datalist id="datalistClientesImpAct">' + clientesOrd.map(c => '<option value="' + esc(c.nombre) + '">').join('') + '</datalist>';
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">El archivo <b>' + esc(nombreArchivo) + '</b> trae <b>' + gruposPorAsignar.length + '</b> '
+    + plural(gruposPorAsignar.length,'pestaña','pestañas') + ' sin Cliente/Sitio propio — revisa a qué cliente es cada una antes de importar. '
+    + 'Destilda la que no quieras traer (por ejemplo, una hoja resumen que repite lo de otra).</p>'
+    + datalistClientes
+    + gruposPorAsignar.map((g,i) => {
+        const clienteSugerido = sugerirClienteDeHojaXlsx(g.hojaNombre);
+        return '<div class="bloque" style="padding:12px; margin-bottom:10px" data-fila-hoja-imp="' + i + '">'
+          +   '<label style="display:flex; align-items:center; gap:8px; font-weight:700; margin-bottom:8px">'
+          +     '<input type="checkbox" id="impHojaIncluir' + i + '" checked>'
+          +     esc(g.hojaNombre) + ' <span class="pista" style="font-weight:400">(' + g.candidatos.length + ' ' + plural(g.candidatos.length,'activo','activos') + ')</span>'
+          +   '</label>'
+          +   '<div class="fila2">'
+          +     '<div class="campo" style="margin:0"><label>Cliente</label>'
+          +       '<input type="text" id="impHojaCliente' + i + '" list="datalistClientesImpAct" value="' + esc(clienteSugerido) + '"></div>'
+          +     '<div class="campo" style="margin:0"><label>Sitio</label>'
+          +       '<input type="text" id="impHojaSitio' + i + '" value="' + esc(clienteSugerido) + '"></div>'
+          +   '</div>'
+          + '</div>';
+      }).join('')
+    + (gruposResueltos.length
+        ? '<p class="pista">Además, ' + gruposResueltos.reduce((s,g)=>s+g.candidatos.length,0) + ' '
+          + plural(gruposResueltos.reduce((s,g)=>s+g.candidatos.length,0),'activo','activos') + ' de '
+          + gruposResueltos.map(g => esc(g.hojaNombre)).join(', ') + ' ya traían Cliente/Sitio propio — se importan tal cual.</p>'
+        : '');
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Continuar</button>';
+
+  abrirModal('Vincular cada pestaña a su cliente', cuerpo, pie);
+  $('modal').classList.add('ancho');
+
+  cerrarModalActual = ()=>{
+    const ligados = [];
+    for(let i = 0; i < gruposPorAsignar.length; i++){
+      if(!$('impHojaIncluir' + i).checked) continue;
+      const nombreCliente = $('impHojaCliente' + i).value.trim();
+      const nombreSitio = $('impHojaSitio' + i).value.trim() || nombreCliente;
+      if(!nombreCliente){ aviso('Ponle un cliente a "' + gruposPorAsignar[i].hojaNombre + '", o destíldala si no la quieres importar.', true); return; }
+      const ligado = resolverClienteYSitioPorNombre(nombreCliente, nombreSitio);
+      gruposPorAsignar[i].candidatos.forEach(act=>{
+        ligados.push(normalizarActivo(Object.assign({}, act, { tipo:'cliente', clienteId: ligado.clienteId, sitioId: ligado.sitioId, sitioNombre: ligado.sitioNombre })));
+      });
+    }
+    const todos = ligados.concat(gruposResueltos.flatMap(g => g.candidatos));
+    if(!todos.length){ aviso('No quedó ninguna pestaña seleccionada para importar.', true); return; }
+    cerrarModal();
+    continuarImportacionActivos(todos, vacias);
   };
 }
 
