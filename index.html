@@ -275,6 +275,12 @@ button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
   color:var(--ink); background:#fff; outline:none; transition:border-color .15s;
 }
 .barra-busca input{flex:1; min-width:180px;}
+/* Barra de selección múltiple (ej. Activos: elegir varios para borrarlos). */
+.barra-seleccion{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:16px; padding:10px 14px; background:var(--fondo-suave,#f3f5f9); border:1px solid var(--line); border-radius:10px;}
+.barra-seleccion .pista{margin:0;}
+.barra-seleccion .btn{margin-left:auto;}
+.chk-linea{display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; white-space:nowrap;}
+.chk-linea input{width:16px; height:16px; cursor:pointer;}
 /* Alternador tarjetas/tabla: mismo lenguaje visual que .modulos (fondo gris,
    la opción activa se despega en blanco con sombra), pero de tamaño de icono
    porque aquí no hay texto que leer. */
@@ -9699,6 +9705,12 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                     pantalla, no dato, así que no se sube a la nube. */
                  fuentesOcultasResultados:[],
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'', categoriaFiltroActivo:'',
+                 /* Modo de selección múltiple de Activos, para poder borrar
+                    varios de un jalón (ej. limpiar todo un lote mal
+                    importado o toda una categoría) — pedido explícito de
+                    Victor (17-sep-2026). Preferencia de pantalla, no dato;
+                    cuáles quedaron marcados se lee del DOM al confirmar. */
+                 seleccionActivos:false,
                  /* Qué pestaña ve un cliente dentro de SU portal (no es un
                     módulo de MODULOS — ver esCliente() en render()), y cuál
                     póliza/cotización/reporte tiene abierto en el detalle. */
@@ -13970,6 +13982,17 @@ function vistaEstadoResultadosActivos(){
   return h;
 }
 
+/* Actualiza el contador y el botón de "Eliminar seleccionados" sin volver a
+   dibujar toda la lista (así no se pierde el scroll ni las casillas ya
+   marcadas fuera de pantalla, en la vista de tabla con rodillo). */
+function actualizarConteoSeleccionActivos(){
+  const n = $('vista').querySelectorAll('.chkSeleccionActivo:checked').length;
+  const conteo = document.getElementById('conteoSeleccionActivos');
+  if(conteo) conteo.textContent = numero(n) + ' ' + plural(n,'seleccionado','seleccionados');
+  const btn = document.getElementById('btnEliminarSeleccionActivos');
+  if(btn) btn.disabled = n === 0;
+}
+
 function vistaActivos(){
   const r = resumirActivos(datos.activos);
   let h = '';
@@ -13983,10 +14006,21 @@ function vistaActivos(){
      +   (puedeGestionarActivos()
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="importar-activos-excel">' + ICONO.excel + 'Importar desde Excel</button>'
           : '')
+     +   (esAdmin() && datos.activos.length
+          ? '<button type="button" class="btn btn-suave btn-mini" data-accion="alternar-seleccion-activos">' + (estado.seleccionActivos ? 'Cancelar selección' : ICONO.mas + 'Seleccionar') + '</button>'
+          : '')
      +   (puedeGestionarActivos()
           ? '<button type="button" class="btn btn-primario" data-accion="nuevo-activo">' + ICONO.mas + 'Nuevo activo</button>'
           : '')
      + '</div></div>';
+
+  if(estado.seleccionActivos){
+    h += '<div class="barra-seleccion" id="barraSeleccionActivos">'
+       +   '<label class="chk-linea"><input type="checkbox" id="chkTodosActivos">Seleccionar todos los visibles</label>'
+       +   '<span class="pista" id="conteoSeleccionActivos">0 seleccionados</span>'
+       +   '<button type="button" class="btn btn-peligro btn-mini" id="btnEliminarSeleccionActivos" data-accion="eliminar-activos-seleccionados" disabled>' + ICONO.basura + 'Eliminar seleccionados</button>'
+       + '</div>';
+  }
 
   h += '<div class="kpis">'
      + tarjetaKpi('Total', numero(r.total), numero(r.operacion) + ' en operación · ' + numero(r.bajaOPerdido) + ' de baja/perdidos')
@@ -14065,6 +14099,9 @@ function vistaActivos(){
 
     return '<div class="tarjeta tarjeta-clic t-' + tono + '" data-activo="' + esc(a.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
          +   '<div class="t-cabeza">'
+         +     (estado.seleccionActivos
+                ? '<label class="chk-linea" data-activo-check="' + esc(a.id) + '" style="margin-right:2px"><input type="checkbox" class="chkSeleccionActivo" value="' + esc(a.id) + '"></label>'
+                : '')
          +     (cli ? avatarCliente(cli) : '<div class="t-avatar">' + esc(iniciales(a.nombre || a.folio || 'AC')) + '</div>')
          +     '<div style="flex:1; min-width:0">'
          +       '<div class="t-nombre">' + esc(a.nombre || 'Sin nombre') + '</div>'
@@ -14085,13 +14122,16 @@ function vistaActivos(){
 
 /* Misma lista, en tabla. */
 function tablaActivos(lista){
+  const seleccion = estado.seleccionActivos;
   return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1000px"><thead><tr>'
+       +   (seleccion ? '<th></th>' : '')
        +   '<th>Folio</th><th>Nombre</th><th>Tipo</th><th>Cliente / Ubicación</th><th>Asignado a</th><th>Estatus</th><th>Valor</th><th>Fecha</th>'
        + '</tr></thead><tbody>'
        + lista.map(a=>{
            const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
            const tono = TONO_ESTATUS_ACTIVO[a.estatus] || 'neutro';
            return '<tr class="fila-clic" data-activo="' + esc(a.id) + '" tabindex="0" role="button">'
+                +   (seleccion ? '<td data-activo-check="' + esc(a.id) + '"><input type="checkbox" class="chkSeleccionActivo" value="' + esc(a.id) + '"></td>' : '')
                 +   '<td>' + esc(a.folio || '—') + '</td>'
                 +   '<td>' + esc(a.nombre || '—') + '</td>'
                 +   '<td>' + esc(ETIQUETA_TIPO_ACTIVO[a.tipo]) + '</td>'
@@ -14338,35 +14378,47 @@ function modalActivo(id){
           + '<div class="campo" id="zonaAsignadoATextoAct" hidden><label>Nombre de la persona</label>'
           +   '<input type="text" id="actAsignadoATexto" placeholder="Ej. Juan Pérez"></div>')
     + '</div>'
-    + '<div class="campo"><label>Categoría</label>'
-    +   '<input type="text" id="actCategoria" list="listaCategoriasActivo" placeholder="Ej. Freidora, Herramienta, Vehículo, Laptop…" value="' + esc(a ? a.categoria : '') + '">'
-    +   '<datalist id="listaCategoriasActivo">' + categoriasActivo().map(c => '<option value="' + esc(c) + '">').join('') + '</datalist>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Categoría</label>'
+    +     '<input type="text" id="actCategoria" list="listaCategoriasActivo" placeholder="Ej. Freidora, Herramienta, Vehículo, Laptop…" value="' + esc(a ? a.categoria : '') + '">'
+    +     '<datalist id="listaCategoriasActivo">' + categoriasActivo().map(c => '<option value="' + esc(c) + '">').join('') + '</datalist>'
+    +   '</div>'
+    +   '<div class="campo"><label>Nombre *</label>'
+    +     '<input type="text" id="actNombre" placeholder="Ej. Freidora de doble canasta" value="' + esc(a ? a.nombre : '') + '"></div>'
     + '</div>'
-    + '<div class="campo"><label>Nombre *</label>'
-    +   '<input type="text" id="actNombre" placeholder="Ej. Freidora de doble canasta" value="' + esc(a ? a.nombre : '') + '"></div>'
-    + '<div class="campo"><label>Cantidad</label>'
-    +   '<input type="number" id="actCantidad" min="1" step="1" value="' + (a ? a.cantidad : 1) + '">'
-    +   '<div class="pista">Más de 1 cuando este renglón representa varias unidades idénticas (ej. un inventario por lote).</div></div>'
-    + '<div class="campo"><label>Marca</label>'
-    +   '<input type="text" id="actMarca" value="' + esc(a ? a.marca : '') + '"></div>'
-    + '<div class="campo"><label>Modelo</label>'
-    +   '<input type="text" id="actModelo" value="' + esc(a ? a.modelo : '') + '"></div>'
-    + '<div class="campo"><label>Número de serie</label>'
-    +   '<input type="text" id="actSerie" value="' + esc(a ? a.serie : '') + '"></div>'
-    + '<div class="campo"><label>Estatus</label><select id="actEstatus">'
-    +   ESTATUS_ACTIVO.map(e => '<option value="' + e + '"' + ((a ? a.estatus : 'activo') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_ACTIVO[e]) + '</option>').join('')
-    + '</select></div>'
-    + '<div class="campo"><label>Condición física</label><select id="actCondicion">'
-    +   CONDICION_ACTIVO.map(c => '<option value="' + c + '"' + ((a ? a.condicion : 'buena') === c ? ' selected' : '') + '>' + esc(ETIQUETA_CONDICION_ACTIVO[c]) + '</option>').join('')
-    + '</select></div>'
-    + '<div class="campo"><label>Proveedor</label>'
-    +   '<input type="text" id="actProveedor" value="' + esc(a ? a.proveedor : '') + '"></div>'
-    + '<div class="campo"><label>Fecha de compra</label>'
-    +   '<input type="date" id="actFechaCompra" value="' + esc(a ? a.fechaCompra : '') + '"></div>'
-    + '<div class="campo"><label>Costo de compra</label>'
-    +   '<input type="number" id="actCostoCompra" min="0" step="1" value="' + (a && a.costoCompra ? a.costoCompra : '') + '"></div>'
-    + '<div class="campo"><label>Garantía hasta</label>'
-    +   '<input type="date" id="actGarantiaHasta" value="' + esc(a ? a.garantiaHasta : '') + '"></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Cantidad</label>'
+    +     '<input type="number" id="actCantidad" min="1" step="1" value="' + (a ? a.cantidad : 1) + '">'
+    +     '<div class="pista">Más de 1 cuando este renglón representa varias unidades idénticas (ej. un inventario por lote).</div></div>'
+    +   '<div class="campo"><label>Marca</label>'
+    +     '<input type="text" id="actMarca" value="' + esc(a ? a.marca : '') + '"></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Modelo</label>'
+    +     '<input type="text" id="actModelo" value="' + esc(a ? a.modelo : '') + '"></div>'
+    +   '<div class="campo"><label>Número de serie</label>'
+    +     '<input type="text" id="actSerie" value="' + esc(a ? a.serie : '') + '"></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Estatus</label><select id="actEstatus">'
+    +     ESTATUS_ACTIVO.map(e => '<option value="' + e + '"' + ((a ? a.estatus : 'activo') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_ACTIVO[e]) + '</option>').join('')
+    +   '</select></div>'
+    +   '<div class="campo"><label>Condición física</label><select id="actCondicion">'
+    +     CONDICION_ACTIVO.map(c => '<option value="' + c + '"' + ((a ? a.condicion : 'buena') === c ? ' selected' : '') + '>' + esc(ETIQUETA_CONDICION_ACTIVO[c]) + '</option>').join('')
+    +   '</select></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Proveedor</label>'
+    +     '<input type="text" id="actProveedor" value="' + esc(a ? a.proveedor : '') + '"></div>'
+    +   '<div class="campo"><label>Fecha de compra</label>'
+    +     '<input type="date" id="actFechaCompra" value="' + esc(a ? a.fechaCompra : '') + '"></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Costo de compra</label>'
+    +     '<input type="number" id="actCostoCompra" min="0" step="1" value="' + (a && a.costoCompra ? a.costoCompra : '') + '"></div>'
+    +   '<div class="campo"><label>Garantía hasta</label>'
+    +     '<input type="date" id="actGarantiaHasta" value="' + esc(a ? a.garantiaHasta : '') + '"></div>'
+    + '</div>'
     + '<div class="fila2">'
     +   '<div class="campo"><label>Frecuencia de mantenimiento (días, opcional)</label>'
     +     '<input type="number" id="actMantFrecuencia" min="0" step="1" placeholder="Ej. 90" value="' + (a && a.mantenimientoFrecuenciaDias ? a.mantenimientoFrecuenciaDias : '') + '">'
@@ -14398,6 +14450,7 @@ function modalActivo(id){
             + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (a ? 'Guardar cambios' : 'Registrar activo') + '</button>';
 
   abrirModal(a ? 'Editar activo' : 'Nuevo activo', cuerpo, pie);
+  $('modal').classList.add('ancho');
 
   function pintarSitios(){
     const clienteId = $('actCliente').value;
@@ -21802,6 +21855,17 @@ function modalEditarUsuario(id){
 
 /* --------------------- Acciones del panel de admin --------------------- */
 $('vista').addEventListener('change', async ev=>{
+  if(ev.target.id === 'chkTodosActivos'){
+    const marcado = ev.target.checked;
+    $('vista').querySelectorAll('.chkSeleccionActivo').forEach(c => { c.checked = marcado; });
+    actualizarConteoSeleccionActivos();
+    return;
+  }
+  if(ev.target.classList.contains('chkSeleccionActivo')){
+    actualizarConteoSeleccionActivos();
+    return;
+  }
+
   const selCat = ev.target.closest('[data-cambiar-categoria]');
   if(selCat){
     if(!exigirAdmin('cambiar la lista de precios')) { render(); return; }
@@ -26595,6 +26659,26 @@ $('vista').addEventListener('click', ev=>{
           render(); aviso('Activo eliminado.');
         });
     }
+    else if(a === 'alternar-seleccion-activos'){
+      if(!exigirAdmin('seleccionar activos para eliminarlos')) return;
+      estado.seleccionActivos = !estado.seleccionActivos;
+      render();
+    }
+    else if(a === 'eliminar-activos-seleccionados'){
+      if(!exigirAdmin('eliminar activos')) return;
+      const ids = Array.from(document.querySelectorAll('.chkSeleccionActivo:checked')).map(c => c.value);
+      if(!ids.length) return;
+      const seleccionados = datos.activos.filter(x => ids.includes(x.id));
+      confirmar('Eliminar ' + numero(ids.length) + ' ' + plural(ids.length,'activo','activos'),
+        'Se van a eliminar <b>' + numero(ids.length) + ' ' + plural(ids.length,'activo','activos') + '</b> y todo su historial. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          seleccionados.forEach(ac => borrarRegistro('activos', ac.id));
+          datos.activos = datos.activos.filter(x => !ids.includes(x.id));
+          anotar('eliminó', 'activos', numero(ids.length) + ' ' + plural(ids.length,'activo','activos') + ' de un jalón');
+          estado.seleccionActivos = false;
+          render(); aviso(numero(ids.length) + ' ' + plural(ids.length,'activo','activos') + ' eliminados.');
+        });
+    }
     else if(a === 'ir-gastos-proveedor') irAGastosProveedor();
     else if(a === 'ir-proveedores') irAProveedores();
     else if(a === 'nuevo-proveedor'){ if(exigirGestionProveedores()) modalProveedor(null); }
@@ -27145,6 +27229,7 @@ $('vista').addEventListener('click', ev=>{
   const tarR = t.closest('[data-reporte]');
   if(tarR){ entrarReporte(tarR.dataset.reporte); return; }
 
+  if(t.closest('[data-activo-check]')) return;
   const tarAc = t.closest('[data-activo]');
   if(tarAc){ entrarActivo(tarAc.dataset.activo); return; }
 
@@ -27272,6 +27357,7 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarQ){ ev.preventDefault(); entrarCotizacion(tarQ.dataset.cotizacion); return; }
   const tarR = ev.target.closest('[data-reporte]');
   if(tarR){ ev.preventDefault(); entrarReporte(tarR.dataset.reporte); return; }
+  if(ev.target.closest('[data-activo-check]')) return;
   const tarAc = ev.target.closest('[data-activo]');
   if(tarAc){ ev.preventDefault(); entrarActivo(tarAc.dataset.activo); return; }
   const tarGp = ev.target.closest('[data-gasto-proveedor]');
