@@ -4775,6 +4775,21 @@ function normalizarRenglonOrdenCompra(x){
   };
 }
 
+/* Un abono a una orden de compra: mismo molde que normalizarAbonoProveedor,
+   pero en centavos — la misma excepción de dineroOC (una orden trae precios
+   con centavos, y el abono tiene que poder saldarla exacto, no aproximado
+   al peso). Con esto una OC ya no necesita un "gasto" aparte para llevar
+   sus pagos: pedido explícito de Victor (17-sep-2026). */
+function normalizarAbonoOrdenCompra(a){
+  return {
+    id: (a && a.id) || nuevoId(),
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(a && a.fecha) ? a.fecha : hoyISO(),
+    monto: Math.max(0, Math.round((Number(a && a.monto) || 0) * 100) / 100),
+    metodo: (a && a.metodo ? String(a.metodo) : '').trim(),
+    referencia: (a && a.referencia ? String(a.referencia) : '').trim()
+  };
+}
+
 function normalizarOrdenCompra(o){
   const renglonesCrudos = (Array.isArray(o && o.renglones) ? o.renglones : []).map(normalizarRenglonOrdenCompra);
   /* Un renglón sin concepto es basura de una captura a medias: se tira,
@@ -4826,6 +4841,14 @@ function normalizarOrdenCompra(o){
        consigue el PDF/foto) — no depende de respaldosCotizacion, se puede
        llenar uno, el otro, o los dos. */
     cotizacionProveedorFolio: (o && o.cotizacionProveedorFolio ? String(o.cotizacionProveedorFolio) : '').trim(),
+    /* Para que esta orden aparezca en "Vencido"/"Por vencer" del rastreo de
+       gastos junto con lo que se captura por separado — mismo campo y
+       mismo criterio que fechaVencimiento en un gasto de proveedor. */
+    fechaVencimiento: /^\d{4}-\d{2}-\d{2}$/.test(o && o.fechaVencimiento) ? o.fechaVencimiento : '',
+    /* Pagos parciales de ESTA orden — así una OC confirmada ya es, ella
+       misma, la cuenta por pagar: no hace falta duplicarla como un gasto
+       de proveedor solo para poder abonarle. */
+    abonos: (Array.isArray(o && o.abonos) ? o.abonos : []).map(normalizarAbonoOrdenCompra),
     notas: (o && o.notas ? String(o.notas) : '').trim()
   };
 }
@@ -4845,6 +4868,37 @@ function calcularOrdenCompra(o){
   else if(o.estatus === 'confirmada'){ tono = 'ok'; tonoInsignia = 'info'; }
   else{ tono = 'alerta'; tonoInsignia = 'alerta'; } /* enviada: esperando respuesta del proveedor */
   return { subtotal, iva, total, tono, tonoInsignia };
+}
+
+/* El lado de PAGO de una orden de compra — mismo cálculo que
+   calcularGastoProveedor(), nada más leyendo de la OC en vez de un gasto
+   aparte. Así una orden confirmada YA es la cuenta por pagar, sin tener que
+   capturarla otra vez en Gastos de proveedores (pedido explícito de
+   Victor, 17-sep-2026: "que los gastos sean las órdenes de compra, no
+   necesariamente por aparte"). estatusPago cae en el mismo vocabulario que
+   ESTATUS_GASTO_PROVEEDOR para que un solo filtro sirva para las dos cosas. */
+function calcularPagoOrdenCompra(o){
+  const total = calcularOrdenCompra(o).total;
+  const totalAbonado = o.abonos.reduce((t,a)=> t + a.monto, 0);
+  const saldo = Math.max(0, Math.round((total - totalAbonado) * 100) / 100);
+  /* Una orden en "borrador" es como una cotización propia (todavía no hay
+     compromiso) y una "cancelada" nunca lo hubo — ninguna de las dos es
+     una cuenta por pagar real. Cualquier otro estatus (enviada, confirmada,
+     recibida) sí lo es. */
+  const cuentaComoGasto = o.estatus !== 'borrador' && o.estatus !== 'cancelada';
+  const pagado = cuentaComoGasto && total > 0 && saldo <= 0;
+  const diasParaVencer = o.fechaVencimiento ? diasEntre(hoyISO(), o.fechaVencimiento) : null;
+  const vencido = cuentaComoGasto && !pagado && diasParaVencer !== null && diasParaVencer < 0;
+
+  let estatusPago, estado, tono, tonoInsignia;
+  if(o.estatus === 'cancelada'){ estatusPago = 'cancelado'; estado = 'Cancelado'; tono = 'neutro'; tonoInsignia = 'neutro'; }
+  else if(o.estatus === 'borrador'){ estatusPago = 'cotizacion'; estado = 'Cotización'; tono = 'neutro'; tonoInsignia = 'info'; }
+  else if(pagado){ estatusPago = 'pagado'; estado = 'Pagado'; tono = 'ok'; tonoInsignia = 'ok'; }
+  else if(vencido){ estatusPago = 'por-pagar'; estado = 'Vencido'; tono = 'error'; tonoInsignia = 'error'; }
+  else if(diasParaVencer !== null && diasParaVencer <= 7){ estatusPago = 'por-pagar'; estado = 'Por vencer'; tono = 'alerta'; tonoInsignia = 'alerta'; }
+  else{ estatusPago = 'por-pagar'; estado = 'Por pagar'; tono = 'neutro'; tonoInsignia = 'info'; }
+
+  return { total, totalAbonado, saldo, pagado, vencido, cuentaComoGasto, diasParaVencer, estatusPago, estado, tono, tonoInsignia };
 }
 
 function guardarOrdenCompra(o, accion, detalle){
@@ -14237,10 +14291,13 @@ function botonRegresarProveedores(){
        + ICONO.atras + 'Regresar a proveedores</button></div>';
 }
 
-function resumirGastosProveedor(lista){
+/* Suma gastos capturados a mano Y órdenes de compra que ya son una cuenta
+   por pagar (todo lo que no sea "borrador"/"cancelada") — una orden
+   confirmada cuenta aquí sola, sin necesitar un gasto que la duplique. */
+function resumirGastosProveedor(gastos, ordenes){
   const r = { cotizaciones:0, porPagarCant:0, porPagarSaldo:0, vencidoCant:0, vencidoSaldo:0, porVencerCant:0, pagadoMes:0 };
   const mesActual = hoyISO().slice(0,7);
-  lista.forEach(g=>{
+  gastos.forEach(g=>{
     const c = calcularGastoProveedor(g);
     if(g.estatus === 'cotizacion') r.cotizaciones++;
     else if(g.estatus === 'por-pagar' && !c.pagado){
@@ -14250,6 +14307,16 @@ function resumirGastosProveedor(lista){
     }
     g.abonos.forEach(a=>{ if((a.fecha || '').slice(0,7) === mesActual) r.pagadoMes += a.monto; });
   });
+  ordenes.forEach(o=>{
+    const c = calcularPagoOrdenCompra(o);
+    if(c.estatusPago === 'cotizacion') r.cotizaciones++;
+    else if(c.estatusPago === 'por-pagar'){
+      r.porPagarCant++; r.porPagarSaldo += c.saldo;
+      if(c.vencido){ r.vencidoCant++; r.vencidoSaldo += c.saldo; }
+      else if(c.diasParaVencer !== null && c.diasParaVencer <= 7) r.porVencerCant++;
+    }
+    o.abonos.forEach(a=>{ if((a.fecha || '').slice(0,7) === mesActual) r.pagadoMes += a.monto; });
+  });
   return r;
 }
 
@@ -14258,6 +14325,7 @@ function resumirGastosProveedor(lista){
    más acotado a los gastos de ese proveedor. */
 function resumenProveedor(proveedorId){
   const gastos = gastosDeProveedor(proveedorId);
+  const ordenes = ordenesCompraDeProveedor(proveedorId);
   let porPagarCant = 0, porPagarSaldo = 0, vencidoCant = 0;
   gastos.forEach(g=>{
     const c = calcularGastoProveedor(g);
@@ -14266,7 +14334,14 @@ function resumenProveedor(proveedorId){
       if(c.vencido) vencidoCant++;
     }
   });
-  return { total: gastos.length, porPagarCant, porPagarSaldo, vencidoCant };
+  ordenes.forEach(o=>{
+    const c = calcularPagoOrdenCompra(o);
+    if(c.estatusPago === 'por-pagar'){
+      porPagarCant++; porPagarSaldo += c.saldo;
+      if(c.vencido) vencidoCant++;
+    }
+  });
+  return { total: gastos.length + ordenes.filter(o => o.estatus !== 'borrador').length, porPagarCant, porPagarSaldo, vencidoCant };
 }
 
 /* Una tarjeta de gasto — la usan tanto el rastreo general como el detalle de
@@ -14300,22 +14375,100 @@ function tarjetaGastoProveedor(g, i){
        + '</div>';
 }
 
+function filaGastoProveedor(g){
+  const c = calcularGastoProveedor(g);
+  return '<tr class="fila-clic" data-gasto-proveedor="' + esc(g.id) + '" tabindex="0" role="button">'
+       +   '<td>' + esc(g.proveedorNombre || '—') + '</td>'
+       +   '<td>' + esc(g.concepto || '—') + '</td>'
+       +   '<td>' + esc(g.folio || '—') + '</td>'
+       +   '<td><span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span></td>'
+       +   '<td>' + dinero(g.monto) + '</td>'
+       +   '<td>' + (c.pagado ? '—' : dinero(c.saldo)) + '</td>'
+       +   '<td>' + (g.fechaVencimiento ? fmtFecha(g.fechaVencimiento) : '—') + '</td>'
+       + '</tr>';
+}
+
 function tablaGastosProveedor(lista){
   return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1000px"><thead><tr>'
        +   '<th>Proveedor</th><th>Concepto</th><th>Folio</th><th>Estatus</th><th>Monto</th><th>Saldo</th><th>Vencimiento</th>'
+       + '</tr></thead><tbody>' + lista.map(filaGastoProveedor).join('') + '</tbody></table></div>';
+}
+
+/* Una orden de compra, mostrada como si fuera un gasto: mismo molde que
+   tarjetaGastoProveedor(), nada más con el estatus de PAGO (calcularPago
+   OrdenCompra) en vez del de compra — para el rastreo general, lo que
+   importa aquí es si ya se le pagó al proveedor, no si la orden fue
+   enviada o recibida. Montos en peso entero (dinero, no dineroOC): los
+   centavos son solo del apartado de Órdenes de Compra, no de este rastreo. */
+function tarjetaOrdenCompraPago(o, i){
+  const c = calcularPagoOrdenCompra(o);
+  const concepto = o.renglones.length === 1 ? o.renglones[0].concepto
+    : numero(o.renglones.length) + ' ' + plural(o.renglones.length,'concepto','conceptos');
+  const chips = '<span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span>'
+              + '<span class="insignia i-neutro">Orden de compra</span>';
+
+  return '<div class="tarjeta tarjeta-clic t-' + c.tono + '" data-orden-compra="' + esc(o.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+       +   '<div class="t-cabeza">'
+       +     '<div class="t-avatar">' + esc(iniciales(o.proveedorNombre || 'Proveedor')) + '</div>'
+       +     '<div style="flex:1; min-width:0">'
+       +       '<div class="t-nombre">' + esc(concepto || 'Orden de compra') + '</div>'
+       +       '<div class="t-sub">' + esc(o.proveedorNombre || 'Sin proveedor') + (o.folio ? ' · ' + esc(o.folio) : '') + '</div>'
+       +     '</div>'
+       +   '</div>'
+       +   '<div class="t-chips">' + chips + '</div>'
+       +   '<div class="t-datos">'
+       +     '<div class="t-dato"><div class="d-label">Monto</div><div class="d-valor">' + dinero(c.total) + '</div></div>'
+       +     '<div class="t-dato"><div class="d-label">' + (c.pagado ? 'Pagado' : 'Saldo pendiente') + '</div>'
+       +       '<div class="d-valor" style="color:' + (c.pagado ? 'var(--ok)' : (c.vencido ? 'var(--error)' : 'var(--ink)')) + '">'
+       +         dinero(c.pagado ? c.total : c.saldo) + '</div></div>'
+       +     '<div class="t-dato"><div class="d-label">Vencimiento</div><div class="d-valor chico">' + (o.fechaVencimiento ? fmtFecha(o.fechaVencimiento) : 'Sin fecha') + '</div></div>'
+       +   '</div>'
+       +   '<div class="t-pie"><span class="pista">' + fmtFecha(o.fecha) + '</span><span class="espacio"></span>'
+       +     '<button type="button" class="btn btn-suave btn-mini" data-orden-compra="' + esc(o.id) + '">Ver detalle →</button>'
+       +   '</div>'
+       + '</div>';
+}
+
+function filaOrdenCompraPago(o){
+  const c = calcularPagoOrdenCompra(o);
+  const concepto = o.renglones.map(r => r.concepto).join(', ');
+  return '<tr class="fila-clic" data-orden-compra="' + esc(o.id) + '" tabindex="0" role="button">'
+       +   '<td>' + esc(o.proveedorNombre || '—') + '</td>'
+       +   '<td>' + esc(concepto || 'Orden de compra') + '</td>'
+       +   '<td>' + esc(o.folio || '—') + '</td>'
+       +   '<td><span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span></td>'
+       +   '<td>' + dinero(c.total) + '</td>'
+       +   '<td>' + (c.pagado ? '—' : dinero(c.saldo)) + '</td>'
+       +   '<td>' + (o.fechaVencimiento ? fmtFecha(o.fechaVencimiento) : '—') + '</td>'
+       + '</tr>';
+}
+
+/* Une gastos capturados a mano con las órdenes de compra que ya son una
+   cuenta por pagar, en un solo vocabulario (estatusPago, calcado de
+   ESTATUS_GASTO_PROVEEDOR) para que un mismo filtro/orden sirva para las
+   dos — así una orden de compra no tiene que registrarse TAMBIÉN como
+   gasto para aparecer aquí (pedido explícito de Victor, 17-sep-2026). */
+function itemsGastoCombinados(gastos, ordenes){
+  const deGastos = gastos.map(g => ({
+    tipo:'gasto', ref:g, calc: calcularGastoProveedor(g), estatusPago: g.estatus,
+    fechaOrden: g.fechaVencimiento || g.fecha
+  }));
+  const deOrdenes = ordenes.map(o => {
+    const c = calcularPagoOrdenCompra(o);
+    return { tipo:'orden-compra', ref:o, calc:c, estatusPago: c.estatusPago, fechaOrden: o.fechaVencimiento || o.fecha };
+  });
+  return deGastos.concat(deOrdenes);
+}
+
+function tarjetaItemGasto(item, i){
+  return item.tipo === 'gasto' ? tarjetaGastoProveedor(item.ref, i) : tarjetaOrdenCompraPago(item.ref, i);
+}
+
+function tablaGastosCombinada(items){
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1000px"><thead><tr>'
+       +   '<th>Proveedor</th><th>Concepto</th><th>Folio</th><th>Estatus</th><th>Monto</th><th>Saldo</th><th>Vencimiento</th>'
        + '</tr></thead><tbody>'
-       + lista.map(g=>{
-           const c = calcularGastoProveedor(g);
-           return '<tr class="fila-clic" data-gasto-proveedor="' + esc(g.id) + '" tabindex="0" role="button">'
-                +   '<td>' + esc(g.proveedorNombre || '—') + '</td>'
-                +   '<td>' + esc(g.concepto || '—') + '</td>'
-                +   '<td>' + esc(g.folio || '—') + '</td>'
-                +   '<td><span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(c.estado) + '</span></td>'
-                +   '<td>' + dinero(g.monto) + '</td>'
-                +   '<td>' + (c.pagado ? '—' : dinero(c.saldo)) + '</td>'
-                +   '<td>' + (g.fechaVencimiento ? fmtFecha(g.fechaVencimiento) : '—') + '</td>'
-                + '</tr>';
-         }).join('')
+       + items.map(item => item.tipo === 'gasto' ? filaGastoProveedor(item.ref) : filaOrdenCompraPago(item.ref)).join('')
        + '</tbody></table></div>';
 }
 
@@ -14323,12 +14476,16 @@ function tablaGastosProveedor(lista){
    ha pagado, qué está por pagar y qué sigue como cotización, de todos los
    proveedores juntos. */
 function vistaGastosProveedor(){
-  const r = resumirGastosProveedor(datos.gastosProveedor);
+  /* Una orden de compra confirmada/enviada/recibida YA es un gasto: no hace
+     falta capturarla otra vez aquí (pedido explícito de Victor,
+     17-sep-2026). "items" junta las dos fuentes en un solo vocabulario. */
+  const items = itemsGastoCombinados(datos.gastosProveedor, datos.ordenesCompra);
+  const r = resumirGastosProveedor(datos.gastosProveedor, datos.ordenesCompra);
   let h = '';
 
   h += '<div class="titulo-zona"><div>'
      +   '<h2>Proveedores</h2>'
-     +   '<p>' + numero(datos.gastosProveedor.length) + ' ' + plural(datos.gastosProveedor.length,'gasto','gastos')
+     +   '<p>' + numero(items.length) + ' ' + plural(items.length,'gasto','gastos')
      +   ' · ' + numero(datos.proveedores.length) + ' ' + plural(datos.proveedores.length,'proveedor','proveedores') + '</p>'
      + '</div><div class="acciones">'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-proveedores">' + ICONO.edificio + 'Catálogo de proveedores</button>'
@@ -14346,9 +14503,9 @@ function vistaGastosProveedor(){
      + tarjetaKpi('Pagado este mes', dinero(r.pagadoMes), 'Suma de abonos del mes en curso')
      + '</div>';
 
-  if(!datos.gastosProveedor.length){
+  if(!items.length){
     h += vistaVacia('reporte', 'Todavía no hay gastos de proveedores registrados',
-          'Registra una cotización que te mandó un proveedor, o una factura por pagar, para empezar a rastrear lo que se le debe.',
+          'Una orden de compra confirmada ya cuenta como gasto — o registra aquí una cotización o factura suelta que no viene de una orden.',
           puedeGestionarProveedores() ? 'nuevo-gasto-proveedor' : '', 'Nuevo gasto');
     return h;
   }
@@ -14364,13 +14521,15 @@ function vistaGastosProveedor(){
      + '</div>';
 
   const q = estado.busca.trim().toLowerCase();
-  const lista = datos.gastosProveedor.filter(g=>{
+  const lista = items.filter(item=>{
+    const g = item.ref;
     if(q){
-      const campos = [g.proveedorNombre, g.concepto, g.folio, g.notas];
+      const concepto = item.tipo === 'gasto' ? g.concepto : g.renglones.map(rr => rr.concepto).join(' ');
+      const campos = [g.proveedorNombre, concepto, g.folio, g.notas];
       if(!campos.some(v => (v||'').toLowerCase().includes(q))) return false;
     }
-    if(estado.filtroGastoProveedor === 'vencido') return calcularGastoProveedor(g).vencido;
-    if(estado.filtroGastoProveedor !== 'todos') return g.estatus === estado.filtroGastoProveedor;
+    if(estado.filtroGastoProveedor === 'vencido') return item.calc.vencido;
+    if(estado.filtroGastoProveedor !== 'todos') return item.estatusPago === estado.filtroGastoProveedor;
     return true;
   });
 
@@ -14384,15 +14543,14 @@ function vistaGastosProveedor(){
      enseñe de una vez lo que necesita atención. */
   const PRIORIDAD_ESTADO_GASTO = { 'Vencido':0, 'Por vencer':1, 'Por pagar':2, 'Cotización':3, 'Pagado':4, 'Cancelado':5 };
   const ordenados = lista.slice().sort((a,b)=>{
-    const ca = calcularGastoProveedor(a), cb = calcularGastoProveedor(b);
-    const pa = PRIORIDAD_ESTADO_GASTO[ca.estado], pb = PRIORIDAD_ESTADO_GASTO[cb.estado];
+    const pa = PRIORIDAD_ESTADO_GASTO[a.calc.estado], pb = PRIORIDAD_ESTADO_GASTO[b.calc.estado];
     if(pa !== pb) return pa - pb;
-    return (a.fechaVencimiento || a.fecha || '').localeCompare(b.fechaVencimiento || b.fecha || '');
+    return (a.fechaOrden || '').localeCompare(b.fechaOrden || '');
   });
 
-  if(estado.vistaGastosProveedor === 'tabla') return h + tablaGastosProveedor(ordenados);
+  if(estado.vistaGastosProveedor === 'tabla') return h + tablaGastosCombinada(ordenados);
 
-  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((g,i)=> tarjetaGastoProveedor(g,i)).join('') + '</div>';
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((item,i)=> tarjetaItemGasto(item,i)).join('') + '</div>';
   return h;
 }
 
@@ -14587,7 +14745,10 @@ function vistaProveedorDetalle(){
   const p = proveedorPorId(estado.proveedorId);
   if(!p){ estado.vista = 'proveedores'; return vistaProveedores(); }
   const r = resumenProveedor(p.id);
-  const gastos = gastosDeProveedor(p.id).slice().sort((a,b)=> (b.fecha || '').localeCompare(a.fecha || ''));
+  /* Gastos capturados a mano + órdenes de compra que ya son cuenta por
+     pagar, juntos: una orden confirmada no necesita duplicarse aquí. */
+  const itemsGasto = itemsGastoCombinados(gastosDeProveedor(p.id), ordenesCompraDeProveedor(p.id))
+    .sort((a,b)=> (b.fechaOrden || '').localeCompare(a.fechaOrden || ''));
 
   let h = botonRegresarProveedores();
 
@@ -14619,14 +14780,15 @@ function vistaProveedorDetalle(){
      +   '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="ir-ordenes-compra" data-proveedor-preset="' + esc(p.id) + '">' + ICONO.documento + 'Ver órdenes de compra →</button></div>'
      + '</div></div>';
 
-  h += '<div class="bloque-cabeza" style="margin-bottom:10px"><div><h3>Gastos de este proveedor</h3></div>'
+  h += '<div class="bloque-cabeza" style="margin-bottom:10px"><div><h3>Gastos de este proveedor</h3>'
+     +   '<p>Cotizaciones, facturas y órdenes de compra confirmadas — lo que se le debe o ya se le pagó.</p></div>'
      +   (puedeGestionarProveedores()
           ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="nuevo-gasto-proveedor" data-proveedor-preset="' + esc(p.id) + '">' + ICONO.mas + 'Nuevo gasto</button></div>'
           : '')
      + '</div>';
 
-  h += gastos.length
-    ? '<div class="grid">' + gastos.map((g,i)=> tarjetaGastoProveedor(g,i)).join('') + '</div>'
+  h += itemsGasto.length
+    ? '<div class="grid">' + itemsGasto.map((item,i)=> tarjetaItemGasto(item,i)).join('') + '</div>'
     : '<p class="pista">Todavía no hay gastos registrados para este proveedor.</p>';
 
   h += '<div class="acciones" style="flex-wrap:wrap; margin-top:16px">';
@@ -15059,6 +15221,7 @@ function vistaOrdenCompra(){
   const o = ordenCompraPorId(estado.ordenCompraId);
   if(!o){ estado.vista = 'ordenes-compra'; return vistaOrdenesCompra(); }
   const c = calcularOrdenCompra(o);
+  const pago = calcularPagoOrdenCompra(o);
   const puede = puedeGestionarProveedores();
 
   let h = botonRegresarOrdenesCompra();
@@ -15110,6 +15273,33 @@ function vistaOrdenCompra(){
      +     '<div class="r-fila r-total"><span>Total</span><span>' + dineroOC(c.total) + '</span></div>'
      +   '</div>'
      + '</div>';
+
+  /* Esta orden YA es la cuenta por pagar: sus abonos se registran aquí
+     mismo, no en un "gasto" aparte (pedido explícito de Victor,
+     17-sep-2026). "Borrador"/"cancelada" no son un compromiso todavía, así
+     que no muestran este bloque. */
+  if(pago.cuentaComoGasto){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Pago al proveedor</h3>'
+       +   '<p>Esta orden ya cuenta como gasto — no hace falta capturarla también en "Gastos de proveedores".</p></div>'
+       +   (puede && !pago.pagado
+            ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="nuevo-abono-orden-compra">' + ICONO.mas + 'Agregar abono</button></div>'
+            : '')
+       + '</div>'
+       +   '<div class="kpis" style="margin-bottom:12px">'
+       +     tarjetaKpi('Abonado', dineroOC(pago.totalAbonado), o.abonos.length + ' ' + plural(o.abonos.length,'abono','abonos'))
+       +     tarjetaKpi(pago.pagado ? 'Pagado' : 'Saldo pendiente', dineroOC(pago.pagado ? pago.total : pago.saldo), '')
+       +     tarjetaKpi('Vencimiento', o.fechaVencimiento ? fmtFecha(o.fechaVencimiento) : 'Sin fecha', '')
+       +   '</div>'
+       +   (o.abonos.length
+            ? '<div class="lista-seguimiento">' + o.abonos.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha)).map(a=>
+                '<div class="seguimiento-item"><b>' + dineroOC(a.monto) + '</b> '
+                + '<span class="pista">' + fmtFecha(a.fecha) + (a.metodo ? ' · ' + esc(a.metodo) : '') + (a.referencia ? ' · ' + esc(a.referencia) : '') + '</span>'
+                +   (puede ? '<button type="button" class="btn btn-suave btn-mini" style="margin-left:8px" data-accion="quitar-abono-orden-compra" data-abono="' + esc(a.id) + '">' + ICONO.basura + '</button>' : '')
+                + '</div>'
+              ).join('') + '</div>'
+            : '<p class="pista" style="margin:0">Todavía no hay abonos registrados.</p>')
+       + '</div>';
+  }
 
   if(o.condicionesPago || o.solicitaNombre || o.notas){
     h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Otros datos</h3></div></div>'
@@ -15214,6 +15404,9 @@ function modalOrdenCompra(id, proveedorPresetId){
     +   '<div class="campo"><label>Solicita</label>'
     +     '<input type="text" id="ocSolicita" value="' + esc(o ? o.solicitaNombre : nombreDe(sesion)) + '"></div>'
     + '</div>'
+    + '<div class="campo"><label>Fecha límite de pago (opcional)</label>'
+    +   '<input type="date" id="ocFechaVencimiento" value="' + esc(o ? o.fechaVencimiento : '') + '">'
+    +   '<div class="pista">Con esto la orden aparece en "Por vencer"/"Vencido" del rastreo de gastos — no hace falta capturarla también como un gasto aparte.</div></div>'
     + '<div class="campo"><label>Conceptos</label>'
     +   '<div id="listaRenglonesOC"></div>'
     +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarRenglonOC" style="margin-top:8px">' + ICONO.mas + 'Agregar renglón</button>'
@@ -15366,6 +15559,7 @@ function modalOrdenCompra(id, proveedorPresetId){
       lugarEntrega: $('ocLugarEntrega').value.trim(), condicionesPago: $('ocCondicionesPago').value.trim(),
       solicitaNombre: $('ocSolicita').value.trim(), renglones: limpios,
       respaldosCotizacion: respaldosCotizacionTmp, cotizacionProveedorFolio: $('ocCotizacionFolio').value.trim(),
+      fechaVencimiento: $('ocFechaVencimiento').value || '',
       notas: $('ocNotas').value.trim()
     };
 
@@ -15699,6 +15893,51 @@ function modalAbonoProveedor(gastoId){
     const reg = normalizarGastoProveedor(g);
     Object.assign(g, reg);
     guardarGastoProveedor(g, 'registró un abono de', dinero(monto) + ' a ' + (g.concepto || 'un gasto'));
+    cerrarModal();
+    render();
+    aviso('Abono registrado.');
+  };
+}
+
+/* Mismo molde que modalAbonoProveedor, pero para abonar directo una orden
+   de compra — con centavos (dineroOC/step 0.01), porque el saldo de la
+   orden ya trae los de su total. Así una OC confirmada no necesita un
+   "gasto" aparte para poder registrarle pagos. */
+function modalAbonoOrdenCompra(ocId){
+  const o = ordenCompraPorId(ocId);
+  if(!o) return;
+  const c = calcularPagoOrdenCompra(o);
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">Saldo pendiente: <b>' + dineroOC(c.saldo) + '</b> de ' + dineroOC(c.total) + '.</p>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Monto *</label>'
+    +     '<input type="number" id="abMonto" min="0.01" step="0.01" value="' + (c.saldo > 0 ? c.saldo : '') + '"></div>'
+    +   '<div class="campo"><label>Fecha *</label>'
+    +     '<input type="date" id="abFecha" value="' + hoyISO() + '"></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Método (opcional)</label>'
+    +     '<input type="text" id="abMetodo" placeholder="Transferencia, cheque, efectivo…"></div>'
+    +   '<div class="campo"><label>Referencia (opcional)</label>'
+    +     '<input type="text" id="abReferencia" placeholder="Folio de transferencia, etc."></div>'
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Registrar abono</button>';
+
+  abrirModal('Nuevo abono', cuerpo, pie);
+
+  cerrarModalActual = ()=>{
+    const monto = Number($('abMonto').value) || 0;
+    if(monto <= 0){ $('abMonto').setAttribute('aria-invalid','true'); aviso('Captura un monto mayor a cero.', true); return; }
+    o.abonos.push(normalizarAbonoOrdenCompra({
+      fecha: $('abFecha').value || hoyISO(), monto,
+      metodo: $('abMetodo').value.trim(), referencia: $('abReferencia').value.trim()
+    }));
+    const reg = normalizarOrdenCompra(o);
+    Object.assign(o, reg);
+    guardarOrdenCompra(o, 'registró un abono de', dineroOC(monto) + ' a la orden ' + (o.folio || 'sin folio'));
     cerrarModal();
     render();
     aviso('Abono registrado.');
@@ -25841,10 +26080,10 @@ $('vista').addEventListener('click', ev=>{
       if(!exigirAdmin('eliminar un proveedor')) return;
       const pv = proveedorPorId(estado.proveedorId);
       if(!pv) return;
-      const cuantos = gastosDeProveedor(pv.id).length;
+      const cuantos = gastosDeProveedor(pv.id).length + ordenesCompraDeProveedor(pv.id).length;
       confirmar('Eliminar proveedor',
         'Se va a eliminar <b>' + esc(pv.nombre || 'este proveedor') + '</b>.'
-        + (cuantos ? ' Tiene ' + cuantos + ' ' + plural(cuantos,'gasto registrado','gastos registrados') + ' que se quedan sin proveedor ligado, pero no se borran.' : '')
+        + (cuantos ? ' Tiene ' + cuantos + ' ' + plural(cuantos,'registro de gasto u orden de compra','registros de gasto u órdenes de compra') + ' que se quedan sin proveedor ligado, pero no se borran.' : '')
         + ' Esta acción no se puede deshacer.',
         'Sí, eliminar', ()=>{
           datos.proveedores = datos.proveedores.filter(x => x.id !== pv.id);
@@ -25979,6 +26218,15 @@ $('vista').addEventListener('click', ev=>{
       render(); aviso('Orden marcada como "' + ETIQUETA_ESTATUS_ORDEN_COMPRA[nuevo] + '".');
     }
     else if(a === 'imprimir-orden-compra') abrirDocumentoOrdenCompra(estado.ordenCompraId);
+    else if(a === 'nuevo-abono-orden-compra'){ if(exigirGestionProveedores()) modalAbonoOrdenCompra(estado.ordenCompraId); }
+    else if(a === 'quitar-abono-orden-compra'){
+      if(!exigirGestionProveedores()) return;
+      const oc = ordenCompraPorId(estado.ordenCompraId);
+      if(!oc) return;
+      oc.abonos = oc.abonos.filter(x => x.id !== acc.dataset.abono);
+      guardarOrdenCompra(oc, 'quitó un abono de', 'la orden ' + (oc.folio || 'sin folio'));
+      render(); aviso('Abono eliminado.');
+    }
     else if(a === 'nueva-persona'){ if(exigirGestionPersonal()) modalPersona(null); }
     else if(a === 'ir-levantamientos') irALevantamientos();
     else if(a === 'nuevo-levantamiento'){ if(exigirGestionLevantamiento()) modalLevantamiento(null); }
