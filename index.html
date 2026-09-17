@@ -7334,45 +7334,27 @@ function condicionDesdeTextoXlsx(txt){
 
 /* Mismo criterio que vincularOCrearSitioCotizacionXlsx: si el sitio ya
    existe (por nombre) se reusa; si no, se crea el cliente (si tampoco
-   existía) y el sitio, ambos por nombre tal cual vienen en el Excel. Solo
-   se usa cuando el renglón trae su PROPIO nombre de cliente en una
-   columna — para eso es el parámetro nombreCliente. */
+   existía) y el sitio, ambos por nombre tal cual vienen en el Excel.
+   Cuando el renglón no trae su propia columna "Cliente" (nombreCliente
+   vacío), el nombre del SITIO sirve también como nombre del cliente —
+   pedido explícito de Victor (17-sep-2026, cuarta vuelta): "que los
+   separe por cliente, no englobe el listado", igual que ya se hace con
+   Pólizas. Así, una columna "Sitio" con valores como "NGK"/"PEX" da de
+   alta dos clientes distintos en vez de amontonar todo bajo uno solo. */
 function vincularOCrearSitioActivoXlsx(nombreCliente, nombreSitio, cache){
-  const llave = 'C:' + normalizarTextoEncabezadoXlsx(nombreCliente) + '|' + normalizarTextoEncabezadoXlsx(nombreSitio);
+  const llave = normalizarTextoEncabezadoXlsx(nombreSitio);
   if(cache.has(llave)) return cache.get(llave);
-  let cliente = datos.clientes.find(c => normalizarTextoEncabezadoXlsx(c.nombre) === normalizarTextoEncabezadoXlsx(nombreCliente));
-  if(!cliente){
-    cliente = normalizarCliente({ id: nuevoId(), nombre: nombreCliente, usaForpass: 'si' });
-    datos.clientes.push(cliente);
-  }
-  let sitio = datos.sitios.find(s => s.clienteId === cliente.id && normalizarTextoEncabezadoXlsx(s.nombre) === normalizarTextoEncabezadoXlsx(nombreSitio));
+  let sitio = datos.sitios.find(s => normalizarTextoEncabezadoXlsx(s.nombre) === llave);
   if(!sitio){
+    let cliente = nombreCliente ? datos.clientes.find(c => normalizarTextoEncabezadoXlsx(c.nombre) === normalizarTextoEncabezadoXlsx(nombreCliente)) : null;
+    if(!cliente){
+      cliente = normalizarCliente({ id: nuevoId(), nombre: nombreCliente || nombreSitio, usaForpass: 'si' });
+      datos.clientes.push(cliente);
+    }
     sitio = normalizarSitio({ id: nuevoId(), clienteId: cliente.id, nombre: nombreSitio, modulos: 0, mensualidad: 0, fechaInicio: hoyISO(), meses: 12 });
     datos.sitios.push(sitio);
   }
   const resultado = { clienteId: sitio.clienteId, sitioId: sitio.id, sitioNombre: sitio.nombre };
-  cache.set(llave, resultado);
-  return resultado;
-}
-
-/* Cuando el renglón trae un nombre de sitio/ubicación pero NO trae su
-   propio nombre de cliente (ej. una columna "Sitio" con valores como
-   "NGK"/"PEX" sin ninguna columna "Cliente" junto), ese sitio se crea o
-   reusa DENTRO del cliente elegido ANTES de cargar el archivo — nunca
-   como un cliente nuevo por su cuenta. Antes de este ajuste,
-   vincularOCrearSitioActivoXlsx inventaba un cliente distinto por cada
-   nombre de sitio cuando no había columna de cliente, que es justo lo que
-   Victor reportó (17-sep-2026, tercera vuelta): "los importa de manera
-   global y no los va a clasificar por cliente". */
-function resolverSitioBajoClientePorDefecto(clienteId, nombreSitio, cache){
-  const llave = 'D:' + clienteId + '|' + normalizarTextoEncabezadoXlsx(nombreSitio);
-  if(cache.has(llave)) return cache.get(llave);
-  let sitio = datos.sitios.find(s => s.clienteId === clienteId && normalizarTextoEncabezadoXlsx(s.nombre) === normalizarTextoEncabezadoXlsx(nombreSitio));
-  if(!sitio){
-    sitio = normalizarSitio({ id: nuevoId(), clienteId, nombre: nombreSitio, modulos: 0, mensualidad: 0, fechaInicio: hoyISO(), meses: 12 });
-    datos.sitios.push(sitio);
-  }
-  const resultado = { clienteId, sitioId: sitio.id, sitioNombre: sitio.nombre };
   cache.set(llave, resultado);
   return resultado;
 }
@@ -7388,16 +7370,15 @@ function filaXlsxAActivo(fila, mapa, cache, clientePorDefecto){
   let clienteId = '', sitioId = '', sitioNombre = '';
   if(tipo === 'cliente'){
     const nombreSitio = textoDe('sitio');
-    const nombreClienteTexto = textoDe('cliente');
     let ligado;
-    if(nombreClienteTexto){
-      /* El renglón trae su propio cliente (ej. un archivo que la app
-         exportó antes) — se respeta tal cual, sin tocar el elegido al
-         cargar el archivo. */
-      ligado = vincularOCrearSitioActivoXlsx(nombreClienteTexto, nombreSitio || nombreClienteTexto, cache);
-    }else if(nombreSitio && clientePorDefecto){
-      ligado = resolverSitioBajoClientePorDefecto(clientePorDefecto.clienteId, nombreSitio, cache);
+    if(nombreSitio){
+      /* Trae algo con qué distinguir de quién es (columna "Cliente", o a
+         falta de ella la propia columna "Sitio") — se liga o crea por ese
+         nombre, sin importar el cliente elegido al cargar el archivo. */
+      ligado = vincularOCrearSitioActivoXlsx(textoDe('cliente'), nombreSitio, cache);
     }else if(clientePorDefecto){
+      /* Sin ninguna pista de cliente/sitio en el renglón: se usa el
+         elegido de antemano, para que el renglón no quede huérfano. */
       ligado = clientePorDefecto;
     }
     if(ligado){ clienteId = ligado.clienteId; sitioId = ligado.sitioId; sitioNombre = ligado.sitioNombre; }
@@ -7460,8 +7441,8 @@ function modalClienteImportacionActivos(){
   const opc = (lista, texto, valor) => lista.map(o => '<option value="' + esc(valor(o)) + '">' + esc(texto(o)) + '</option>').join('');
 
   const cuerpo =
-      '<p class="pista" style="margin-top:0">Antes de elegir el archivo, dinos a qué cliente se va a ligar todo el inventario que traiga — se da de alta aquí mismo si todavía no existe.</p>'
-    + '<div class="campo"><label>Cliente *</label>'
+      '<p class="pista" style="margin-top:0">Antes de elegir el archivo, dinos a qué cliente se va a ligar el equipo que NO traiga de quién es. Si el archivo trae su propia columna de Cliente o Sitio, cada renglón se clasifica solo por ese nombre — igual que al importar Pólizas.</p>'
+    + '<div class="campo"><label>Cliente por defecto *</label>'
     +   '<div class="cliente-zona">'
     +     '<select id="impActCliente"><option value="">— Elige uno —</option>' + opc(clientesOrd, c=>c.nombre, c=>c.id) + '</select>'
     +     '<button type="button" class="btn btn-suave btn-mini" id="btnClienteNuevoImpAct" title="Dar de alta un cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
@@ -7489,12 +7470,12 @@ function modalClienteImportacionActivos(){
     +     '<button type="button" class="btn btn-primario btn-mini" id="insCrear">Crear y seleccionar</button>'
     +   '</div>'
     + '</div>'
-    + '<p class="pista">Si algún renglón del archivo ya trae su propio Cliente/Sitio (ej. uno que la app haya exportado antes), se respeta tal cual; este cliente solo se usa para lo que el archivo no traiga resuelto. Los renglones marcados "Activo interno" tampoco se ligan a ningún cliente.</p>';
+    + '<p class="pista">Si el archivo trae columna de Cliente y/o Sitio, cada renglón se liga (o da de alta) por ese nombre — este cliente por defecto solo se usa en lo que el archivo no traiga ninguna de las dos. Los renglones marcados "Activo interno" tampoco se ligan a ningún cliente.</p>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
             + '<button type="button" class="btn btn-primario" data-modal="guardar">Elegir archivo</button>';
 
-  abrirModal('¿A qué cliente se va a ligar este inventario?', cuerpo, pie);
+  abrirModal('Cliente por defecto para este inventario', cuerpo, pie);
 
   function pintarSitiosImp(){
     const clienteId = $('impActCliente').value;
