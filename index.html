@@ -22496,6 +22496,22 @@ function modalPoliza(id, origenLevantamiento){
               + '<input type="text" value="' + Math.abs(p.descuento) + '% — solo un Admin lo cambia" readonly>'
               + '</div>'
             : ''))
+    /* Pedido explícito de Victor (17-sep-2026): en cuanto "Cargo a" es
+       Interno, que se vea DE UNA VEZ el precio de venta interno que
+       resulta —costo anual + el % de aumento (o − el % de descuento)—,
+       aquí mismo junto a los campos que lo deciden, no solo hasta abajo en
+       "Resumen" bajo la etiqueta genérica "Precio anual" (que dice lo
+       mismo pero hay que bajar toda la lista de equipos para verla).
+       Vive fuera del <div> de arriba porque tiene que verse también
+       cuando un Analyst no ve los campos de ajuste (ahí arriba puede salir
+       vacío) — el precio interno igual aplica aunque no haya ajuste
+       capturado. refrescarResumen() lo llena y lo esconde con el mismo
+       criterio que ya usa para el pie de la tabla de equipos. */
+    +   '<div class="resumen" id="avisoPrecioInterno" hidden style="margin-top:2px">'
+    +     '<div class="r-fila"><span>Costo anual</span><span id="avisoPICosto"></span></div>'
+    +     '<div class="r-fila" id="avisoPIAjusteFila" style="display:none"><span id="avisoPIAjusteEtiqueta"></span><span id="avisoPIAjuste"></span></div>'
+    +     '<div class="r-fila r-total"><span>Precio de venta interno</span><span id="avisoPITotal"></span></div>'
+    +   '</div>'
     + '</div>'
 
     + '<div class="seccion"><h4>Vendedor</h4>'
@@ -22866,6 +22882,25 @@ function modalPoliza(id, origenLevantamiento){
     const f = leerForm();
     const prov = normalizarPoliza(Object.assign({}, f, { partidas: partidasTmp, id:'tmp' }));
     const c = calcularPoliza(prov);
+    /* Precio de venta interno, junto a "Cargo a" — ver el comentario de ahí.
+       c.base YA es el costo anual cuando esInterno (ver calcularPoliza), y
+       c.precioAnual ya trae aplicado el aumento/descuento sobre ese costo:
+       aquí solo se muestran, no se recalculan aparte. */
+    if($('avisoPrecioInterno')){
+      const esInterno = prov.cargoA === 'interno';
+      $('avisoPrecioInterno').hidden = !esInterno;
+      if(esInterno){
+        $('avisoPICosto').textContent = dinero(c.base);
+        const hayAjuste = c.descuento !== 0;
+        $('avisoPIAjusteFila').style.display = hayAjuste ? '' : 'none';
+        if(hayAjuste){
+          $('avisoPIAjusteEtiqueta').textContent = (c.esAumento ? 'Aumento ' : 'Descuento ') + c.descuentoAbs + '%';
+          $('avisoPIAjuste').textContent = (c.esAumento ? '+' : '−') + dinero(c.montoDescuentoAbs);
+          $('avisoPIAjuste').style.color = c.esAumento ? 'var(--ok)' : 'var(--error)';
+        }
+        $('avisoPITotal').textContent = dinero(c.precioAnual);
+      }
+    }
     if($('pieAnual'))   $('pieAnual').textContent   = dinero(c.precioAnual);
     /* El descuento en vivo mientras se captura: se teclea 5 y el pie ya enseña
        cuánto son y cuánto queda. Sin esto habría que guardar para saberlo. */
