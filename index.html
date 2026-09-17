@@ -9078,7 +9078,7 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                  /* Qué tema de la Guía de uso (Ayuda) está abierto. */
                  temaAyudaId: null,
                  ladoCotizacion:'costo',
-                 periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'',
+                 periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'', resultadosSitioId:'',
                  /* Módulo Cocinas: mismo mecanismo de periodo que Resultados
                     (ver rangoPeriodoResultados()) pero con su propio estado —
                     cambiar el periodo de uno no debe mover el del otro. Arranca
@@ -10417,7 +10417,7 @@ function pathBarraDerechaRedonda(x, y, w, h, r){
 /* Los últimos `n` meses completos (incluye el actual), cada uno con el
    mismo calcularResultados() que ya usa el resto de esta vista — así la
    tendencia no depende de qué periodo tenga elegido el selector de arriba. */
-function tendenciaMensualResultados(n){
+function tendenciaMensualResultados(n, sitioId){
   const anclaMes = hoyISO().slice(0,7) + '-01';
   const meses = [];
   for(let i = n - 1; i >= 0; i--){
@@ -10425,7 +10425,7 @@ function tendenciaMensualResultados(n){
     const anioMes = inicioMes.slice(0,7);
     const ultimoDia = new Date(Number(anioMes.slice(0,4)), Number(anioMes.slice(5,7)), 0).getDate();
     const finMes = anioMes + '-' + String(ultimoDia).padStart(2,'0');
-    meses.push({ anio:Number(anioMes.slice(0,4)), mesNum:Number(anioMes.slice(5,7)), r:calcularResultados(inicioMes, finMes) });
+    meses.push({ anio:Number(anioMes.slice(0,4)), mesNum:Number(anioMes.slice(5,7)), r:calcularResultados(inicioMes, finMes, sitioId) });
   }
   return meses;
 }
@@ -10639,7 +10639,16 @@ function sumaPorId(mapa, id, campo, monto){
   mapa.get(id)[campo] += monto;
 }
 
-function calcularResultados(inicio, fin){
+/* `sitioId` (opcional): acota TODO el cálculo a un solo sitio —Forpass,
+   pólizas, cotizaciones, Imagen/Aperturas y hasta el ranking de técnicos—,
+   para poder ver el dashboard completo de Resultados "como si" solo
+   existiera ese sitio. Se filtra con un `return` temprano en cada forEach,
+   nunca cambiando qué cuenta como ingreso/costo ni las fechas: es
+   exactamente el mismo cálculo de siempre, solo que sobre un subconjunto
+   de registros. Sin sitioId (o con '', el valor por default del filtro en
+   pantalla) se comporta idéntico a como era antes de que existiera este
+   parámetro. */
+function calcularResultados(inicio, fin, sitioId){
   const r = { ingresoForpass:0, ingresoPolizas:0, ingresoPolizasCliente:0, ingresoPolizasInterno:0,
               ingresoCotizaciones:0, costoCotizaciones:0, costoPolizas:0,
               numPagosForpass:0, numCobrosPolizas:0, numPolizasNegociadasNoCobradas:0,
@@ -10654,6 +10663,7 @@ function calcularResultados(inicio, fin){
      el mes al que corresponde (fechaInicio + su número de mes), no en el mes
      en que se haya dado clic en "Marcar pagada". */
   datos.sitios.forEach(s=>{
+    if(sitioId && s.id !== sitioId) return;
     const c = calcular(s);
     s.pagos.forEach((pagado, i)=>{
       if(!pagado) return;
@@ -10698,6 +10708,7 @@ function calcularResultados(inicio, fin){
      menos costo (el mismo costo) da justo el aumento, la utilidad real de
      cargarlo internamente. */
   datos.polizas.forEach(p=>{
+    if(sitioId && p.sitioId !== sitioId) return;
     const c = calcularPoliza(p);
     if(p.cargoA === 'interno'){
       if(p.estatus === 'activa'){
@@ -10754,6 +10765,7 @@ function calcularResultados(inicio, fin){
      del tablero llegan con costo $0 (el origen no lo trae), así que no se
      les inventa un margen — mismo criterio que ya tiene Forpass. */
   datos.cotizaciones.forEach(q=>{
+    if(sitioId && q.sitioId !== sitioId) return;
     if(!ESTATUS_COTIZACION_INGRESO.includes(q.estatus)) return;
     if(!(q.fecha >= inicio && q.fecha <= fin)) return;
     const c = calcularCotizacion(q);
@@ -10779,6 +10791,7 @@ function calcularResultados(inicio, fin){
      materiales vs. mano de obra (ver esConceptoManoDeObra). */
   r.imagenMateriales = 0; r.imagenManoObra = 0; r.numProyectosImagen = 0;
   datos.proyectosImagen.forEach(p=>{
+    if(sitioId && p.sitioId !== sitioId) return;
     if(p.estatus === 'cancelado') return;
     if(!(p.fecha >= inicio && p.fecha <= fin)) return;
     const d = desgloseConceptosProyecto(p);
@@ -10813,6 +10826,7 @@ function calcularResultados(inicio, fin){
      técnico de verdad hizo el trabajo). */
   const porTecnico = new Map();
   datos.reportes.forEach(rep=>{
+    if(sitioId && rep.sitioId !== sitioId) return;
     if(!['resuelto','cerrado'].includes(rep.estatus)) return;
     if(!(rep.fechaCierre && rep.fechaCierre >= inicio && rep.fechaCierre <= fin)) return;
     rep.tecnicos.forEach(t=>{
@@ -11601,14 +11615,26 @@ function tablasComparativasResultados(r){
 function vistaResultados(){
   const modo = estado.periodoResultados;
   const { inicio, fin } = rangoPeriodoResultados(modo, estado.resultadosDesde, estado.resultadosHasta);
-  const r = calcularResultados(inicio, fin);
+
+  /* Filtro opcional por sitio: acota TODO el dashboard (KPIs, tarjetas, tabla
+     y las 3 gráficas de tendencia) a un solo sitio. Si el sitio guardado ya
+     no existe (se borró, o es de otra sesión vieja), se regresa a "todos". */
+  const sitiosOrdenados = datos.sitios.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  if(estado.resultadosSitioId && !sitiosOrdenados.some(s => s.id === estado.resultadosSitioId)){
+    estado.resultadosSitioId = '';
+  }
+  const sitioActivo = estado.resultadosSitioId ? sitioPorId(estado.resultadosSitioId) : null;
+
+  const r = calcularResultados(inicio, fin, estado.resultadosSitioId);
   const vista = estado.vistaResultados || 'graficas';
   const enTabla = vista === 'tabla', enTarjetas = vista === 'tarjetas';
 
   let h = '<div class="titulo-zona"><div>'
         +   '<h2>Estado de resultados</h2>'
         +   '<p>' + fmtFecha(inicio) + ' – ' + fmtFecha(fin)
-        +   ' · cruce de Forpass, pólizas y cotizaciones aprobadas</p>'
+        +   ' · cruce de Forpass, pólizas y cotizaciones aprobadas'
+        +   (sitioActivo ? ' · solo ' + esc(sitioActivo.nombre) : '')
+        +   '</p>'
         + '</div></div>';
 
   h += '<div class="barra-busca">'
@@ -11621,6 +11647,15 @@ function vistaResultados(){
         ? '<input type="date" id="resultadosDesde" value="' + esc(estado.resultadosDesde || inicio) + '">'
           + '<input type="date" id="resultadosHasta" value="' + esc(estado.resultadosHasta || fin) + '">'
         : '')
+     +   '<select id="selSitioResultados" style="min-width:200px">'
+     +     '<option value="">Todos los sitios (' + sitiosOrdenados.length + ')</option>'
+     +     sitiosOrdenados.map(s => {
+             const cli = clientePorId(s.clienteId);
+             return '<option value="' + esc(s.id) + '"' + (s.id === estado.resultadosSitioId ? ' selected' : '') + '>'
+                  + esc(s.nombre) + (cli ? ' — ' + esc(cli.nombre) : '') + '</option>';
+           }).join('')
+     +   '</select>'
+     +   (sitioActivo ? '<button type="button" class="btn btn-suave btn-mini" data-accion="quitar-filtro-sitio-resultados">Quitar filtro</button>' : '')
      /* Tres formas de leer lo mismo: gráficas (dirección, tendencia visual),
         tarjetas (vistazo rápido de quién deja más) y tabla (el desglose
         completo, la misma que se manda a Excel/PDF). Mismo mecanismo de
@@ -11657,7 +11692,7 @@ function vistaResultados(){
      de ESTE periodo, para leerse junto con las tarjetas y la tabla de abajo.
      Se saltan por completo en la vista "tabla": ahí el punto es leer cifras
      exactas y comparativas, no una tendencia visual. */
-  const tendencia12m = tendenciaMensualResultados(12);
+  const tendencia12m = tendenciaMensualResultados(12, estado.resultadosSitioId);
   const hayTendencia = !enTabla && tendencia12m.some(m => m.r.ingresoTotal || m.r.costoTotal);
 
   if(hayTendencia){
@@ -19253,6 +19288,8 @@ function render(){
     if(rDesde) rDesde.addEventListener('change', ()=>{ estado.resultadosDesde = rDesde.value; render(); });
     if(rHasta) rHasta.addEventListener('change', ()=>{ estado.resultadosHasta = rHasta.value; render(); });
   }
+  const selSitioRes = $('selSitioResultados');
+  if(selSitioRes) selSitioRes.addEventListener('change', ()=>{ estado.resultadosSitioId = selSitioRes.value; render(); });
   const selPC = $('selPeriodoCocinas');
   if(selPC){
     selPC.addEventListener('change', ()=>{
@@ -25272,6 +25309,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'respaldo'){ if(exigirAdmin('descargar el respaldo completo')) descargarRespaldo(); }
     else if(a === 'restaurar'){ if(exigirAdmin('restaurar un respaldo')) $('archivoRestaurar').click(); }
     else if(a === 'limpiar-filtros'){ estado.sitioFiltro = ''; estado.encargadoFiltro = ''; render(); }
+    else if(a === 'quitar-filtro-sitio-resultados'){ estado.resultadosSitioId = ''; render(); }
     else if(a === 'ver-por-vencer') modalPorVencer(null);
     else if(a === 'ver-por-vencer-cliente') modalPorVencer(estado.clienteId);
     else if(a === 'mi-cuenta') modalPerfil();
