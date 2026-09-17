@@ -458,6 +458,11 @@ service cloud.firestore {
       allow create, update: if puedeEditar();
       allow delete: if esAdmin();
     }
+    match /ordenesCompra/{id} {
+      allow read:   if conAcceso() && !esCliente();
+      allow create, update: if puedeEditar();
+      allow delete: if esAdmin();
+    }
 
     /* --- Visitas (programación de rutas) ---
        Undécimo módulo: cuándo va cada técnico a qué sitio, armado desde lo

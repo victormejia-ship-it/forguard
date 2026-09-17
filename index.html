@@ -2349,7 +2349,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], visitas:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
 
 function cargar(){
   try{
@@ -2381,7 +2381,8 @@ function cargar(){
         personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona),
         proveedores: (Array.isArray(d.proveedores) ? d.proveedores : []).map(normalizarProveedor),
         gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor),
-        refacciones: (Array.isArray(d.refacciones) ? d.refacciones : []).map(normalizarRefaccion) };
+        refacciones: (Array.isArray(d.refacciones) ? d.refacciones : []).map(normalizarRefaccion),
+        ordenesCompra: (Array.isArray(d.ordenesCompra) ? d.ordenesCompra : []).map(normalizarOrdenCompra) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -2479,7 +2480,8 @@ async function restaurarSnapshotIndexedDB(){
       personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona),
       proveedores: (Array.isArray(d.proveedores) ? d.proveedores : []).map(normalizarProveedor),
       gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor),
-      refacciones: (Array.isArray(d.refacciones) ? d.refacciones : []).map(normalizarRefaccion) };
+      refacciones: (Array.isArray(d.refacciones) ? d.refacciones : []).map(normalizarRefaccion),
+      ordenesCompra: (Array.isArray(d.ordenesCompra) ? d.ordenesCompra : []).map(normalizarOrdenCompra) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -3403,7 +3405,7 @@ function limpiarSesionYDatos(){
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
-  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null;
+  estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
   sincronizado = false;
 }
 function salir(porVencimiento){
@@ -3821,13 +3823,13 @@ async function bajarDeLaNube(){
      precios (ver firestore.rules): un Viewer/Técnico/Reportero recibe un 403
      ahí. Con listarNube a secas eso tumbaba TODO el login de esos roles —
      mismo bug que ya pasó con /proveedores (ver listarNubeSuave arriba). */
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf, vi] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf, oc, vi] = await Promise.all([
     listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
     leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60),
     listarNube('levantamientos', 60), listarNubeSuave('proyectosImagen', 60),
     listarNubeSuave('serviciosExtras', 60), listarNube('activos', 60), listarNube('personal', 200),
     listarNubeSuave('proveedores', 100), listarNubeSuave('gastosProveedor', 100),
-    listarNubeSuave('refacciones', 100), listarNubeSuave('visitas', 100)
+    listarNubeSuave('refacciones', 100), listarNubeSuave('ordenesCompra', 100), listarNubeSuave('visitas', 100)
   ]);
   if(!cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -3850,6 +3852,7 @@ async function bajarDeLaNube(){
             proveedores: (pv === null ? datos.proveedores : pv.map(normalizarProveedor)),
             gastosProveedor: (gp === null ? datos.gastosProveedor : gp.map(normalizarGastoProveedor)),
             refacciones: (rf === null ? datos.refacciones : rf.map(normalizarRefaccion)),
+            ordenesCompra: (oc === null ? datos.ordenesCompra : oc.map(normalizarOrdenCompra)),
             visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)) };
   guardarLocal();
   return 'ok';
@@ -4720,6 +4723,90 @@ function guardarGastoProveedor(g, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'gastosProveedor', id:g.id, obj:g });
   anotar(accion || 'editó', 'gasto de proveedor', (g.proveedorNombre || 'Proveedor') + ' — ' + (g.concepto || 'sin concepto'), detalle);
+}
+
+/* ==================== Órdenes de compra (documento interno para el proveedor) ====================
+   Un gasto de proveedor (arriba) registra lo que YA se debe o se pagó; la
+   orden de compra es lo que se manda ANTES, para pedirle formalmente al
+   proveedor qué se necesita, cuánto y a qué precio — el documento que sale
+   de Forguard hacia afuera, mismo espíritu que una cotización pero en el
+   sentido contrario (aquí Forguard es quien compra, no quien vende). */
+const ESTATUS_ORDEN_COMPRA = ['borrador', 'enviada', 'confirmada', 'recibida', 'cancelada'];
+const ETIQUETA_ESTATUS_ORDEN_COMPRA = {
+  borrador:'Borrador', enviada:'Enviada', confirmada:'Confirmada', recibida:'Recibida', cancelada:'Cancelada'
+};
+
+function ordenCompraPorId(id){ return datos.ordenesCompra.find(o => o.id === id); }
+function ordenesCompraDeProveedor(proveedorId){ return datos.ordenesCompra.filter(o => o.proveedorId === proveedorId); }
+
+/* OC-DDMMAA-NN: mismo molde que generarFolioCotizacion(), consecutivo del
+   día para que folios de días distintos nunca choquen. */
+function generarFolioOrdenCompra(fechaISO){
+  const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
+  const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
+  const delMismoDia = datos.ordenesCompra.filter(o => o.fecha === f).length;
+  return 'OC-' + ddmmaa + '-' + String(delMismoDia + 1).padStart(2,'0');
+}
+
+/* Un renglón: qué se pide, cuánto y a qué precio unitario — mismo molde que
+   normalizarPartidaCotizacion() pero solo con lo que hace falta para pedir
+   (sin margen ni precio al cliente: esto nunca se le muestra a un cliente). */
+function normalizarRenglonOrdenCompra(x){
+  return {
+    id: (x && x.id ? String(x.id) : '').trim() || nuevoId(),
+    numeroParte: (x && x.numeroParte ? String(x.numeroParte) : '').trim(),
+    concepto: aOracion((x && x.concepto ? String(x.concepto) : '').trim()),
+    cantidad: Math.max(0, numDef(x && x.cantidad, 1)),
+    um: (x && x.um ? String(x.um) : '').trim(),
+    precioUnitario: Math.max(0, Math.round(numDef(x && x.precioUnitario, 0)))
+  };
+}
+
+function normalizarOrdenCompra(o){
+  const renglonesCrudos = (Array.isArray(o && o.renglones) ? o.renglones : []).map(normalizarRenglonOrdenCompra);
+  /* Un renglón sin concepto es basura de una captura a medias: se tira,
+     mismo criterio que normalizarCotizacion(). */
+  const renglones = renglonesCrudos.filter(x => x.concepto);
+  return {
+    id: (o && o.id) || nuevoId(),
+    folio: (o && o.folio ? String(o.folio) : '').trim(),
+    proveedorId: (o && o.proveedorId ? String(o.proveedorId) : '').trim(),
+    /* Copiado al guardar, mismo criterio que proveedorNombre en gastos: si el
+       proveedor se borra o se renombra después, la OC sigue diciendo a quién
+       se le pidió. */
+    proveedorNombre: (o && o.proveedorNombre ? String(o.proveedorNombre) : '').trim(),
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(o && o.fecha) ? o.fecha : hoyISO(),
+    fechaEntrega: /^\d{4}-\d{2}-\d{2}$/.test(o && o.fechaEntrega) ? o.fechaEntrega : '',
+    estatus: ESTATUS_ORDEN_COMPRA.includes(o && o.estatus) ? o.estatus : 'borrador',
+    renglones,
+    /* A dónde debe llegar lo que se pide — un sitio de Forpass, la oficina, o
+       texto libre si no aplica ninguno de los dos. */
+    lugarEntrega: (o && o.lugarEntrega ? String(o.lugarEntrega) : '').trim(),
+    condicionesPago: (o && o.condicionesPago ? String(o.condicionesPago) : '').trim(),
+    /* Quién la solicita internamente — se prellena de quien la captura, pero
+       es editable por si la pide alguien más y solo se está capturando. */
+    solicitaNombre: (o && o.solicitaNombre ? String(o.solicitaNombre) : '').trim(),
+    notas: (o && o.notas ? String(o.notas) : '').trim()
+  };
+}
+
+/* Total y demás derivados — nunca se guardan, mismo criterio que
+   calcularGastoProveedor()/calcularPoliza(). */
+function calcularOrdenCompra(o){
+  const total = o.renglones.reduce((t,r)=> t + r.cantidad * r.precioUnitario, 0);
+  let tono, tonoInsignia;
+  if(o.estatus === 'cancelada'){ tono = 'neutro'; tonoInsignia = 'neutro'; }
+  else if(o.estatus === 'borrador'){ tono = 'neutro'; tonoInsignia = 'info'; }
+  else if(o.estatus === 'recibida'){ tono = 'ok'; tonoInsignia = 'ok'; }
+  else if(o.estatus === 'confirmada'){ tono = 'ok'; tonoInsignia = 'info'; }
+  else{ tono = 'alerta'; tonoInsignia = 'alerta'; } /* enviada: esperando respuesta del proveedor */
+  return { total, tono, tonoInsignia };
+}
+
+function guardarOrdenCompra(o, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'ordenesCompra', id:o.id, obj:o });
+  anotar(accion || 'editó', 'orden de compra', (o.folio || 'sin folio') + ' — ' + (o.proveedorNombre || 'Proveedor'), detalle);
 }
 
 /* ==================== Refacciones (catálogo de piezas por proveedor) ====================
@@ -8878,6 +8965,61 @@ function modalPreviaCotizacion(id, lado){
   $('modal').classList.add('doc-previa');
 }
 
+/* ------------------- Documento imprimible de orden de compra -------------------
+   A diferencia de la cotización (Forguard le vende AL cliente), aquí Forguard
+   es quien COMPRA: el documento va dirigido al proveedor, con los datos de
+   Forguard como quien pide. Mismo criterio de siempre: esta función entrega
+   todo ya resuelto (total incluido), la plantilla solo formatea y concatena. */
+function armarPayloadOrdenCompra(o){
+  const c = calcularOrdenCompra(o);
+  return {
+    meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
+    contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: (sesion && sesion.correo) || '' },
+    folio: o.folio || '',
+    fecha: fechaDocumento(o.fecha),
+    fechaEntrega: o.fechaEntrega ? fechaDocumento(o.fechaEntrega) : 'NA',
+    proveedor: o.proveedorNombre || '',
+    lugarEntrega: o.lugarEntrega || 'NA',
+    condicionesPago: o.condicionesPago || 'NA',
+    solicita: o.solicitaNombre || '',
+    estatus: ETIQUETA_ESTATUS_ORDEN_COMPRA[o.estatus] || '',
+    notas: o.notas || '',
+    renglones: o.renglones.map(r => ({
+      numeroParte: r.numeroParte || '',
+      cantidad: numero(r.cantidad),
+      um: r.um || '',
+      concepto: r.concepto,
+      precioUnitario: dinero(r.precioUnitario),
+      importe: dinero(r.cantidad * r.precioUnitario)
+    })),
+    total: dinero(c.total)
+  };
+}
+
+const LLAVE_DOC_ORDEN_COMPRA = 'forguard.documento.ordenCompra';
+
+function prepararDocumentoOrdenCompra(id){
+  const o = ordenCompraPorId(id);
+  if(!o) return null;
+  try{
+    const payload = armarPayloadOrdenCompra(o);
+    sessionStorage.setItem(LLAVE_DOC_ORDEN_COMPRA, JSON.stringify(payload));
+    return payload;
+  }catch(e){
+    aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
+    return null;
+  }
+}
+
+/* Mismo molde que abrirDocumentoCotizacion(): SIN 'noopener' (la pestaña
+   nueva necesita heredar el sessionStorage) y con ?v=Date.now() para que
+   Pages nunca sirva una copia vieja de la plantilla. */
+function abrirDocumentoOrdenCompra(id){
+  if(!prepararDocumentoOrdenCompra(id)) return;
+  const w = window.open('docs/plantilla_orden_compra.html?v=' + Date.now(), '_blank');
+  if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
+}
+
 /* -------------------- Documento imprimible de un levantamiento --------------------
    Mismo criterio que armarPayloadPoliza()/armarPayloadCotizacion(): esta función
    entrega TODO ya resuelto (el % de calcularFuncionamientoLevantamiento(), las
@@ -9046,7 +9188,7 @@ function polizaPorId(id){ return datos.polizas.find(p => p.id === id); }
    ese producto se está. Son dos ejes distintos a propósito: el panel de admin es
    de la app entera y vive fuera de los dos módulos. */
 const estado = { modulo:'resultados', vista:'resultados', clienteId:null, polizaId:null, cotizacionId:null, reporteId:null,
-                 levantamientoId:null, proyectoImagenId:null, activoId:null, proveedorId:null, gastoProveedorId:null, refaccionId:null, visitaId:null,
+                 levantamientoId:null, proyectoImagenId:null, activoId:null, proveedorId:null, gastoProveedorId:null, refaccionId:null, ordenCompraId:null, visitaId:null,
                  /* Vista previa de rol (solo Owner, ver rolEfectivo() junto a
                     esOwner()): null = nada, o { rol, uid, nombre, clienteId }
                     mientras el Owner está viendo la app como otro rol. Nunca
@@ -9072,6 +9214,11 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                  /* Igual que filtroGastoProveedor pero para el catálogo de
                     refacciones: 'todos' o el id de un proveedor puntual. */
                  filtroProveedorRefaccion:'todos',
+                 /* Igual que filtroProveedorRefaccion pero para el listado de
+                    órdenes de compra: 'todos' o el id de un proveedor puntual —
+                    así "Órdenes de compra" desde la ficha de un proveedor abre
+                    ya filtrado a las suyas, igual que Refacciones. */
+                 filtroProveedorOrdenCompra:'todos',
                  /* Qué mes se ve en el cierre mensual de refacciones
                     ('AAAA-MM'). Empieza en el mes en curso. */
                  mesCierreRefacciones: hoyISO().slice(0,7),
@@ -9254,7 +9401,7 @@ function irAModulo(m){
   /* Se limpia lo del módulo anterior: una búsqueda de sitios no tiene por qué
      seguir filtrando pólizas. */
   estado.vista = inicioDelModulo();
-  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.visitaId = null;
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null; estado.visitaId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
   animarTarjetas = true;      /* lista nueva: sí anima */
@@ -9291,7 +9438,7 @@ function irAInicio(){
      nada más sin cambiar el módulo (por eso no se puede reusar tal cual —
      ahí el guard de "ya estás en ese módulo" no deja avanzar). */
   estado.vista = inicioDelModulo();
-  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.visitaId = null;
+  estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null; estado.visitaId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
   animarTarjetas = true;
@@ -9500,6 +9647,21 @@ function entrarGastoProveedor(id){
   if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
   animarTarjetas = true;
   estado.vista = 'gasto-proveedor'; estado.gastoProveedorId = id;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function irAOrdenesCompra(proveedorPresetId){
+  if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'ordenes-compra'; estado.ordenCompraId = null;
+  estado.busca = ''; estado.filtroProveedorOrdenCompra = proveedorPresetId || 'todos';
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function entrarOrdenCompra(id){
+  if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
+  animarTarjetas = true;
+  estado.vista = 'orden-compra'; estado.ordenCompraId = id;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -14108,6 +14270,7 @@ function vistaGastosProveedor(){
      + '</div><div class="acciones">'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-proveedores">' + ICONO.edificio + 'Catálogo de proveedores</button>'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-refacciones">' + ICONO.codigoBarras + 'Refacciones</button>'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-ordenes-compra">' + ICONO.documento + 'Órdenes de compra</button>'
      +   (puedeGestionarProveedores()
           ? '<button type="button" class="btn btn-primario" data-accion="nuevo-gasto-proveedor">' + ICONO.mas + 'Nuevo gasto</button>'
           : '')
@@ -14386,6 +14549,11 @@ function vistaProveedorDetalle(){
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Refacciones de este proveedor</h3>'
      +   '<p>' + numero(refaccionesDeProveedor(p.id).length) + ' ' + plural(refaccionesDeProveedor(p.id).length,'refacción','refacciones') + ' en catálogo</p></div>'
      +   '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="ir-refacciones" data-proveedor-preset="' + esc(p.id) + '">' + ICONO.codigoBarras + 'Ver refacciones →</button></div>'
+     + '</div></div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Órdenes de compra a este proveedor</h3>'
+     +   '<p>' + numero(ordenesCompraDeProveedor(p.id).length) + ' ' + plural(ordenesCompraDeProveedor(p.id).length,'orden de compra','órdenes de compra') + '</p></div>'
+     +   '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="ir-ordenes-compra" data-proveedor-preset="' + esc(p.id) + '">' + ICONO.documento + 'Ver órdenes de compra →</button></div>'
      + '</div></div>';
 
   h += '<div class="bloque-cabeza" style="margin-bottom:10px"><div><h3>Gastos de este proveedor</h3></div>'
@@ -14698,6 +14866,344 @@ function vistaRefaccion(){
   h += '</div>';
 
   return h;
+}
+
+/* =========================== Vistas: Órdenes de compra ===========================
+   El documento formal que Forguard le manda a un proveedor para pedirle algo
+   —qué, cuánto y a qué precio—, antes de que exista cualquier gasto o factura
+   (ver guardarOrdenCompra() y normalizarOrdenCompra() arriba). Vive dentro de
+   Proveedores como pestaña hermana, mismo criterio que Refacciones. */
+function botonRegresarOrdenesCompra(){
+  return '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-ordenes-compra">'
+       + ICONO.atras + 'Regresar a órdenes de compra</button></div>';
+}
+
+function resumenOrdenesCompra(lista){
+  let abiertas = 0, montoAbierto = 0, enviadas = 0;
+  lista.forEach(o=>{
+    const c = calcularOrdenCompra(o);
+    if(!['recibida','cancelada'].includes(o.estatus)){ abiertas++; montoAbierto += c.total; }
+    if(o.estatus === 'enviada') enviadas++;
+  });
+  return { abiertas, montoAbierto, enviadas };
+}
+
+function tarjetaOrdenCompra(o, i){
+  const c = calcularOrdenCompra(o);
+  return '<div class="tarjeta tarjeta-clic t-' + c.tono + '" data-orden-compra="' + esc(o.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+       +   '<div class="t-cabeza">'
+       +     '<div class="t-avatar">' + esc(iniciales(o.proveedorNombre || 'Proveedor')) + '</div>'
+       +     '<div style="flex:1; min-width:0">'
+       +       '<div class="t-nombre">' + esc(o.folio || 'Sin folio') + '</div>'
+       +       '<div class="t-sub">' + esc(o.proveedorNombre || 'Sin proveedor') + '</div>'
+       +     '</div>'
+       +   '</div>'
+       +   '<div class="t-chips"><span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[o.estatus]) + '</span></div>'
+       +   '<div class="t-datos">'
+       +     '<div class="t-dato"><div class="d-label">Total</div><div class="d-valor">' + dinero(c.total) + '</div></div>'
+       +     '<div class="t-dato"><div class="d-label">Renglones</div><div class="d-valor">' + numero(o.renglones.length) + '</div></div>'
+       +   '</div>'
+       +   '<div class="t-pie"><span class="pista">' + fmtFecha(o.fecha) + '</span><span class="espacio"></span>'
+       +     '<button type="button" class="btn btn-suave btn-mini" data-orden-compra="' + esc(o.id) + '">Ver detalle →</button>'
+       +   '</div>'
+       + '</div>';
+}
+
+function tablaOrdenesCompra(lista){
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:900px"><thead><tr>'
+       +   '<th>Folio</th><th>Proveedor</th><th>Fecha</th><th>Estatus</th><th>Renglones</th><th>Total</th>'
+       + '</tr></thead><tbody>'
+       + lista.map(o=>{
+           const c = calcularOrdenCompra(o);
+           return '<tr class="fila-clic" data-orden-compra="' + esc(o.id) + '" tabindex="0" role="button">'
+                +   '<td>' + esc(o.folio || '—') + '</td>'
+                +   '<td>' + esc(o.proveedorNombre || '—') + '</td>'
+                +   '<td>' + fmtFecha(o.fecha) + '</td>'
+                +   '<td><span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[o.estatus]) + '</span></td>'
+                +   '<td>' + numero(o.renglones.length) + '</td>'
+                +   '<td>' + dinero(c.total) + '</td>'
+                + '</tr>';
+         }).join('')
+       + '</tbody></table></div>';
+}
+
+/* Lista global, con filtro opcional por proveedor (así llega quien entra
+   desde "Ver órdenes de compra →" del detalle de un proveedor). */
+function vistaOrdenesCompra(){
+  let h = botonRegresarGastosProveedor();
+  const proveedoresOrd = datos.proveedores.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Órdenes de compra</h2>'
+     +   '<p>' + numero(datos.ordenesCompra.length) + ' ' + plural(datos.ordenesCompra.length,'orden de compra','órdenes de compra') + '</p>'
+     + '</div><div class="acciones">'
+     +   (puedeGestionarProveedores()
+          ? '<button type="button" class="btn btn-primario" data-accion="nueva-orden-compra">' + ICONO.mas + 'Nueva orden de compra</button>'
+          : '')
+     + '</div></div>';
+
+  if(!datos.ordenesCompra.length){
+    h += vistaVacia('documento', 'Todavía no hay órdenes de compra',
+          'Genera una orden de compra para pedirle formalmente a un proveedor qué necesitas, cuánto y a qué precio, y mándasela en PDF.',
+          puedeGestionarProveedores() ? 'nueva-orden-compra' : '', 'Nueva orden de compra');
+    return h;
+  }
+
+  const r = resumenOrdenesCompra(datos.ordenesCompra);
+  h += '<div class="kpis">'
+     + tarjetaKpi('Abiertas', numero(r.abiertas), 'Sin recibir ni cancelar')
+     + tarjetaKpi('Monto abierto', dinero(r.montoAbierto), 'Suma de las órdenes todavía abiertas')
+     + tarjetaKpi('Enviadas', numero(r.enviadas), 'Esperando respuesta del proveedor', r.enviadas ? 'k-alerta' : '')
+     + '</div>';
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaOrdenCompra" placeholder="Buscar por folio o proveedor…" value="' + esc(estado.busca) + '">'
+     +   '<select id="filtroProveedorOrdenCompra">'
+     +     '<option value="todos"' + (estado.filtroProveedorOrdenCompra === 'todos' ? ' selected' : '') + '>Todos los proveedores</option>'
+     +     proveedoresOrd.map(p => '<option value="' + esc(p.id) + '"' + (estado.filtroProveedorOrdenCompra === p.id ? ' selected' : '') + '>' + esc(p.nombre) + '</option>').join('')
+     +   '</select>'
+     +   controlAlternaVista('vistaOrdenesCompra')
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const lista = datos.ordenesCompra.filter(o=>{
+    if(estado.filtroProveedorOrdenCompra !== 'todos' && o.proveedorId !== estado.filtroProveedorOrdenCompra) return false;
+    if(q){
+      const campos = [o.folio, o.proveedorNombre];
+      if(!campos.some(v => (v||'').toLowerCase().includes(q))) return false;
+    }
+    return true;
+  });
+
+  if(!lista.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Ninguna orden de compra coincide con la búsqueda o el filtro.</p></div>';
+    return h;
+  }
+
+  const ordenados = lista.slice().sort((a,b)=> (b.fecha || '').localeCompare(a.fecha || ''));
+  if(estado.vistaOrdenesCompra === 'tabla') return h + tablaOrdenesCompra(ordenados);
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((o,i)=> tarjetaOrdenCompra(o,i)).join('') + '</div>';
+  return h;
+}
+
+/* Detalle de una orden de compra: sus renglones, total y las acciones para
+   mandarla —cambiar de estatus conforme el proveedor responde, y el PDF que
+   de verdad se le manda. */
+function vistaOrdenCompra(){
+  const o = ordenCompraPorId(estado.ordenCompraId);
+  if(!o){ estado.vista = 'ordenes-compra'; return vistaOrdenesCompra(); }
+  const c = calcularOrdenCompra(o);
+  const puede = puedeGestionarProveedores();
+
+  let h = botonRegresarOrdenesCompra();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(o.folio || 'Orden de compra') + '</h2>'
+     +   '<p>' + esc(o.proveedorNombre || 'Sin proveedor') + ' · ' + fmtFecha(o.fecha) + '</p>'
+     + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-orden-compra">' + ICONO.imprimir + 'PDF para el proveedor</button>'
+     + '</div></div>';
+
+  h += '<div class="t-chips" style="margin:-6px 0 16px">'
+     +   '<span class="insignia i-' + c.tonoInsignia + '"><span class="punto p-' + c.tono + '"></span>' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[o.estatus]) + '</span>'
+     + '</div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Total', dinero(c.total), numero(o.renglones.length) + ' ' + plural(o.renglones.length,'renglón','renglones'))
+     + tarjetaKpi('Fecha de entrega', o.fechaEntrega ? fmtFecha(o.fechaEntrega) : 'Sin definir', '')
+     + tarjetaKpi('Lugar de entrega', esc(o.lugarEntrega || 'Sin especificar'), '', 'k-texto')
+     + '</div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Conceptos</h3></div></div>'
+     +   '<div class="rodillo"><table class="tabla"><thead><tr>'
+     +     '<th>N° de parte</th><th>Concepto</th><th>Cantidad</th><th>U.M.</th><th>Precio unitario</th><th>Importe</th>'
+     +   '</tr></thead><tbody>'
+     +   (o.renglones.length
+          ? o.renglones.map(r => '<tr>'
+              +   '<td>' + esc(r.numeroParte || '—') + '</td>'
+              +   '<td>' + esc(r.concepto) + '</td>'
+              +   '<td>' + numero(r.cantidad) + '</td>'
+              +   '<td>' + esc(r.um || '—') + '</td>'
+              +   '<td>' + dinero(r.precioUnitario) + '</td>'
+              +   '<td>' + dinero(r.cantidad * r.precioUnitario) + '</td>'
+              + '</tr>').join('')
+          : '<tr><td colspan="6" class="vacio-chico">Sin conceptos capturados.</td></tr>')
+     +   '</tbody></table></div>'
+     + '</div>';
+
+  if(o.condicionesPago || o.solicitaNombre || o.notas){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Otros datos</h3></div></div>'
+       +   (o.condicionesPago ? '<p class="pista" style="margin:0 0 8px"><b>Condiciones de pago:</b> ' + esc(o.condicionesPago) + '</p>' : '')
+       +   (o.solicitaNombre ? '<p class="pista" style="margin:0 0 8px"><b>Solicita:</b> ' + esc(o.solicitaNombre) + '</p>' : '')
+       +   (o.notas ? '<p class="pista" style="white-space:pre-wrap; margin:0"><b>Notas:</b> ' + esc(o.notas) + '</p>' : '')
+       + '</div>';
+  }
+
+  if(puede){
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Estatus</h3><p>Se actualiza conforme el proveedor va respondiendo.</p></div></div>'
+       +   '<div class="acciones" style="flex-wrap:wrap">'
+       +   ESTATUS_ORDEN_COMPRA.map(e => '<button type="button" class="btn btn-mini ' + (o.estatus === e ? 'btn-primario' : 'btn-suave') + '" data-accion="cambiar-estatus-orden-compra" data-estatus="' + e + '">' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[e]) + '</button>').join('')
+       +   '</div>'
+       + '</div>';
+  }
+
+  h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
+  if(puede) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-orden-compra">' + ICONO.lapiz + 'Editar</button>';
+  h += '<span class="espacio"></span>';
+  if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-orden-compra">' + ICONO.basura + 'Eliminar</button>';
+  h += '</div>';
+
+  return h;
+}
+
+/* ---------------------------- Modal: orden de compra ---------------------------- */
+function modalOrdenCompra(id, proveedorPresetId){
+  const o = id ? ordenCompraPorId(id) : null;
+
+  if(!datos.proveedores.length){
+    aviso('Primero da de alta un proveedor: la orden de compra cuelga de uno.', true);
+    return;
+  }
+
+  const proveedoresOrd = datos.proveedores.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const proveedorSel = o ? o.proveedorId : (proveedorPresetId || '');
+
+  /* Copia de trabajo: se toca esto y no el registro, para que Cancelar
+     cancele de verdad — mismo molde que partidasTmp en modalCotizacion. Una
+     orden nueva arranca con un renglón en blanco ya puesto, mismo pedido de
+     Victor (14-sep-2026) que ya aplica en Pólizas y Cotizaciones. */
+  let renglonesTmp = (o ? o.renglones : [normalizarRenglonOrdenCompra({})]).map(x => Object.assign({}, x));
+
+  const cuerpo =
+      '<div class="campo"><label>Proveedor *</label><select id="ocProveedor">'
+    +   (!proveedorSel ? '<option value="">— Elige uno —</option>' : '')
+    +   proveedoresOrd.map(p => '<option value="' + esc(p.id) + '"' + (p.id === proveedorSel ? ' selected' : '') + '>' + esc(p.nombre) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Folio</label>'
+    +     '<input type="text" id="ocFolio" value="' + esc(o ? o.folio : generarFolioOrdenCompra(hoyISO())) + '"></div>'
+    +   '<div class="campo"><label>Estatus</label><select id="ocEstatus">'
+    +     ESTATUS_ORDEN_COMPRA.map(e => '<option value="' + e + '"' + ((o ? o.estatus : 'borrador') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_ORDEN_COMPRA[e]) + '</option>').join('')
+    +   '</select></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Fecha *</label>'
+    +     '<input type="date" id="ocFecha" value="' + esc(o ? o.fecha : hoyISO()) + '"></div>'
+    +   '<div class="campo"><label>Fecha de entrega (opcional)</label>'
+    +     '<input type="date" id="ocFechaEntrega" value="' + esc(o ? o.fechaEntrega : '') + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Lugar de entrega</label>'
+    +   '<input type="text" id="ocLugarEntrega" placeholder="Ej. Sitio, bodega u oficina" value="' + esc(o ? o.lugarEntrega : '') + '"></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Condiciones de pago</label>'
+    +     '<input type="text" id="ocCondicionesPago" placeholder="Ej. 50% anticipo, 50% contra entrega" value="' + esc(o ? o.condicionesPago : '') + '"></div>'
+    +   '<div class="campo"><label>Solicita</label>'
+    +     '<input type="text" id="ocSolicita" value="' + esc(o ? o.solicitaNombre : nombreDe(sesion)) + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Conceptos</label>'
+    +   '<div id="listaRenglonesOC"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarRenglonOC" style="margin-top:8px">' + ICONO.mas + 'Agregar renglón</button>'
+    + '</div>'
+    + '<div class="resumen" style="margin-top:4px"><div class="r-fila r-total"><span>Total</span><span id="ocTotal"></span></div></div>'
+    + '<div class="campo"><label>Notas</label>'
+    +   '<textarea id="ocNotas" placeholder="Cualquier detalle útil…">' + esc(o ? o.notas : '') + '</textarea></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (o ? 'Guardar cambios' : 'Crear orden de compra') + '</button>';
+
+  abrirModal(o ? 'Editar orden de compra' : 'Nueva orden de compra', cuerpo, pie);
+
+  /* Mismo molde que pintarPartidas() en modalCotizacion: se repinta la tabla
+     entera solo al agregar/quitar un renglón, nunca al teclear (o se pierde
+     el foco a media captura). */
+  function pintarRenglones(){
+    const filas = renglonesTmp.map((x,i)=>
+        '<tr data-idx="' + i + '">'
+      + '<td class="mini"><input type="text" data-campo="numeroParte" value="' + esc(x.numeroParte) + '" placeholder="—"></td>'
+      + '<td><input type="text" data-campo="concepto" value="' + esc(x.concepto) + '" placeholder="Concepto"></td>'
+      + '<td class="mini"><input type="number" min="0" step="1" data-campo="cantidad" value="' + x.cantidad + '"></td>'
+      + '<td class="mini"><input type="text" data-campo="um" value="' + esc(x.um) + '" placeholder="PZA"></td>'
+      + '<td class="med"><input type="number" min="0" step="1" data-campo="precioUnitario" value="' + x.precioUnitario + '"></td>'
+      + '<td class="med"><span class="pista">' + dinero(x.cantidad * x.precioUnitario) + '</span></td>'
+      + '<td class="acc"><button type="button" class="icono-mini" data-quitar-renglon-oc="' + i + '" data-tip="Borrar">' + ICONO.basura + '</button></td>'
+      + '</tr>').join('');
+    $('listaRenglonesOC').innerHTML = renglonesTmp.length
+      ? '<div class="rodillo"><table class="tabla-renglones">'
+        + '<thead><tr><th>N° parte</th><th>Concepto</th><th>Cant.</th><th>U.M.</th><th>Precio unit.</th><th>Importe</th><th></th></tr></thead>'
+        + '<tbody>' + filas + '</tbody></table></div>'
+      : '<div class="pista">Todavía no hay conceptos. Agrega el primero.</div>';
+    refrescarTotal();
+  }
+
+  function refrescarTotal(){
+    const total = renglonesTmp.reduce((t,x)=> t + x.cantidad * x.precioUnitario, 0);
+    $('ocTotal').textContent = dinero(total);
+  }
+
+  /* Listeners delegados en #listaRenglonesOC: van UNA SOLA VEZ, fuera de
+     pintarRenglones(), o se acumulan y una tecla dispara N veces. */
+  $('listaRenglonesOC').addEventListener('input', ev=>{
+    const campo = ev.target.closest('[data-campo]');
+    if(!campo) return;
+    const x = renglonesTmp[+campo.closest('[data-idx]').dataset.idx];
+    const k = campo.dataset.campo;
+    if(k === 'cantidad') x.cantidad = Math.max(0, parseFloat(campo.value) || 0);
+    else if(k === 'precioUnitario') x.precioUnitario = Math.max(0, Math.round(Number(campo.value) || 0));
+    else x[k] = campo.value;
+    if(k === 'cantidad' || k === 'precioUnitario'){
+      campo.closest('tr').querySelector('.med .pista').textContent = dinero(x.cantidad * x.precioUnitario);
+      refrescarTotal();
+    }
+  });
+  $('listaRenglonesOC').addEventListener('click', ev=>{
+    const quitar = ev.target.closest('[data-quitar-renglon-oc]');
+    if(!quitar) return;
+    renglonesTmp.splice(+quitar.dataset.quitarRenglonOc, 1);
+    pintarRenglones();
+  });
+  $('btnAgregarRenglonOC').addEventListener('click', ()=>{
+    renglonesTmp.push(normalizarRenglonOrdenCompra({}));
+    pintarRenglones();
+    const fila = $('listaRenglonesOC').querySelector('tr[data-idx="' + (renglonesTmp.length-1) + '"]');
+    const campo = fila && fila.querySelector('[data-campo="concepto"]');
+    if(campo) campo.focus();
+  });
+
+  pintarRenglones();
+
+  cerrarModalActual = ()=>{
+    const proveedorId = $('ocProveedor').value;
+    if(!proveedorId){ aviso('Elige un proveedor.', true); return; }
+    const limpios = renglonesTmp.map(normalizarRenglonOrdenCompra).filter(x => x.concepto);
+    if(!limpios.length){ aviso('Agrega al menos un concepto.', true); return; }
+    const prov = proveedorPorId(proveedorId);
+
+    const datosComunes = {
+      proveedorId, proveedorNombre: prov ? prov.nombre : '',
+      folio: $('ocFolio').value.trim(), estatus: $('ocEstatus').value,
+      fecha: $('ocFecha').value || hoyISO(), fechaEntrega: $('ocFechaEntrega').value,
+      lugarEntrega: $('ocLugarEntrega').value.trim(), condicionesPago: $('ocCondicionesPago').value.trim(),
+      solicitaNombre: $('ocSolicita').value.trim(), renglones: limpios,
+      notas: $('ocNotas').value.trim()
+    };
+
+    let reg;
+    if(o){
+      Object.assign(o, datosComunes);
+      reg = normalizarOrdenCompra(o);
+      Object.assign(o, reg);
+    }else{
+      reg = normalizarOrdenCompra(Object.assign({ id:nuevoId() }, datosComunes));
+      datos.ordenesCompra.push(reg);
+    }
+    guardarOrdenCompra(reg, o ? 'editó' : 'creó',
+      reg.renglones.length + ' ' + plural(reg.renglones.length,'renglón','renglones') + ' · ' + dinero(calcularOrdenCompra(reg).total));
+    cerrarModal();
+    entrarOrdenCompra(reg.id);
+    aviso(o ? 'Orden de compra actualizada.' : 'Orden de compra creada.');
+  };
 }
 
 /* ---------------------------- Modal: refacción ---------------------------- */
@@ -19016,7 +19522,7 @@ function render(){
     estado.modulo = permitidos[0];
     guardarModulo();
     estado.vista = inicioDelModulo();
-    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.visitaId = null;
+    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null; estado.visitaId = null;
   }
   pintarEstadoNube();
   pintarCabecera();
@@ -19042,6 +19548,8 @@ function render(){
                                     : estado.vista === 'refaccion' ? vistaRefaccion()
                                     : estado.vista === 'cierre-refacciones' ? vistaCierreMensualRefacciones()
                                     : estado.vista === 'refacciones' ? vistaRefacciones()
+                                    : estado.vista === 'orden-compra' ? vistaOrdenCompra()
+                                    : estado.vista === 'ordenes-compra' ? vistaOrdenesCompra()
                                     : vistaGastosProveedor())
     : estado.modulo === 'organigrama'  ? vistaOrganigrama()
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
@@ -19107,6 +19615,13 @@ function render(){
   }
   const mcRf = $('mesCierreRefacciones');
   if(mcRf) mcRf.addEventListener('change', ()=>{ if(mcRf.value){ estado.mesCierreRefacciones = mcRf.value; render(); } });
+  const bpOc = $('buscaOrdenCompra');
+  if(bpOc){
+    bpOc.addEventListener('input', ()=>{ estado.busca = bpOc.value; renderConservandoFoco(bpOc, 'buscaOrdenCompra'); });
+    const fpOc = $('filtroProveedorOrdenCompra');
+    fpOc.value = estado.filtroProveedorOrdenCompra;
+    fpOc.addEventListener('change', ()=>{ estado.filtroProveedorOrdenCompra = fpOc.value; render(); });
+  }
   const bpAy = $('buscaAyuda');
   if(bpAy) bpAy.addEventListener('input', ()=>{ estado.busca = bpAy.value; renderConservandoFoco(bpAy, 'buscaAyuda'); });
   /* Subir evidencia directo desde el detalle del activo, sin abrir el modal
@@ -20663,7 +21178,7 @@ window.addEventListener('popstate', ()=>{
   }
   if(estado.vista !== inicioDelModulo()){
     estado.vista = inicioDelModulo();
-    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.visitaId = null;
+    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null; estado.visitaId = null;
     animarTarjetas = true; render();
     window.scrollTo({ top:0, behavior:'smooth' });
     return;
@@ -25251,6 +25766,36 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'registrar-entrada-refaccion-rapida'){ if(exigirGestionProveedores()) modalMovimientoRefaccion(acc.dataset.refaccion, 'entrada', acc.dataset.fechaSugerida); }
     else if(a === 'registrar-salida-refaccion-rapida'){ if(exigirGestionProveedores()) modalMovimientoRefaccion(acc.dataset.refaccion, 'salida', acc.dataset.fechaSugerida); }
     else if(a === 'descargar-excel-cierre-refacciones') descargarExcelCierreRefacciones();
+    else if(a === 'ir-ordenes-compra') irAOrdenesCompra(acc.dataset.proveedorPreset || 'todos');
+    else if(a === 'nueva-orden-compra'){ if(exigirGestionProveedores()) modalOrdenCompra(null, estado.filtroProveedorOrdenCompra !== 'todos' ? estado.filtroProveedorOrdenCompra : null); }
+    else if(a === 'editar-orden-compra'){ if(exigirGestionProveedores()) modalOrdenCompra(estado.ordenCompraId); }
+    else if(a === 'borrar-orden-compra'){
+      if(!exigirAdmin('eliminar una orden de compra')) return;
+      const oc = ordenCompraPorId(estado.ordenCompraId);
+      if(!oc) return;
+      confirmar('Eliminar orden de compra',
+        'Se va a eliminar la orden <b>' + esc(oc.folio || 'sin folio') + '</b> de ' + esc(oc.proveedorNombre || 'el proveedor') + '. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.ordenesCompra = datos.ordenesCompra.filter(x => x.id !== oc.id);
+          borrarRegistro('ordenesCompra', oc.id);
+          anotar('eliminó', 'orden de compra', (oc.folio || 'sin folio') + ' — ' + (oc.proveedorNombre || 'Proveedor'));
+          irAOrdenesCompra('todos');
+          aviso('Orden de compra eliminada.');
+        });
+    }
+    else if(a === 'cambiar-estatus-orden-compra'){
+      if(!exigirGestionProveedores()) return;
+      const oc = ordenCompraPorId(estado.ordenCompraId);
+      if(!oc) return;
+      const nuevo = acc.dataset.estatus;
+      if(!ESTATUS_ORDEN_COMPRA.includes(nuevo)) return;
+      const antes = ETIQUETA_ESTATUS_ORDEN_COMPRA[oc.estatus];
+      oc.estatus = nuevo;
+      guardarOrdenCompra(oc, 'cambió el estatus de',
+        (oc.folio || 'sin folio') + ': ' + antes + ' → ' + ETIQUETA_ESTATUS_ORDEN_COMPRA[nuevo]);
+      render(); aviso('Orden marcada como "' + ETIQUETA_ESTATUS_ORDEN_COMPRA[nuevo] + '".');
+    }
+    else if(a === 'imprimir-orden-compra') abrirDocumentoOrdenCompra(estado.ordenCompraId);
     else if(a === 'nueva-persona'){ if(exigirGestionPersonal()) modalPersona(null); }
     else if(a === 'ir-levantamientos') irALevantamientos();
     else if(a === 'nuevo-levantamiento'){ if(exigirGestionLevantamiento()) modalLevantamiento(null); }
@@ -25654,6 +26199,9 @@ $('vista').addEventListener('click', ev=>{
   const tarRf = t.closest('[data-refaccion]');
   if(tarRf){ entrarRefaccion(tarRf.dataset.refaccion); return; }
 
+  const tarOc = t.closest('[data-orden-compra]');
+  if(tarOc){ entrarOrdenCompra(tarOc.dataset.ordenCompra); return; }
+
   const tarTA = t.closest('[data-tema-ayuda]');
   if(tarTA){ entrarTemaAyuda(tarTA.dataset.temaAyuda); return; }
 
@@ -25774,6 +26322,8 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarPv){ ev.preventDefault(); entrarProveedor(tarPv.dataset.proveedor); return; }
   const tarRf = ev.target.closest('[data-refaccion]');
   if(tarRf){ ev.preventDefault(); entrarRefaccion(tarRf.dataset.refaccion); return; }
+  const tarOc = ev.target.closest('[data-orden-compra]');
+  if(tarOc){ ev.preventDefault(); entrarOrdenCompra(tarOc.dataset.ordenCompra); return; }
   const tarTA = ev.target.closest('[data-tema-ayuda]');
   if(tarTA){ ev.preventDefault(); entrarTemaAyuda(tarTA.dataset.temaAyuda); return; }
   const tarPer = ev.target.closest('[data-persona]');
@@ -25861,8 +26411,9 @@ $('archivoRestaurar').addEventListener('change', ev=>{
                   personal: (Array.isArray(d.personal) ? d.personal : datos.personal).map(normalizarPersona),
                   proveedores: (Array.isArray(d.proveedores) ? d.proveedores : datos.proveedores).map(normalizarProveedor),
                   gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : datos.gastosProveedor).map(normalizarGastoProveedor),
-                  refacciones: (Array.isArray(d.refacciones) ? d.refacciones : datos.refacciones).map(normalizarRefaccion) };
-        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null;
+                  refacciones: (Array.isArray(d.refacciones) ? d.refacciones : datos.refacciones).map(normalizarRefaccion),
+                  ordenesCompra: (Array.isArray(d.ordenesCompra) ? d.ordenesCompra : datos.ordenesCompra).map(normalizarOrdenCompra) };
+        estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
         guardarLocal();
         if(HAY_NUBE){
           /* Borra del servidor lo que ya no viene en el respaldo y sube el resto. */
@@ -26825,7 +27376,7 @@ function salirSilencioso(tambienLosDatos){
   if(tambienLosDatos){
     datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], visitas:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
-    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null;
+    estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;
   }
 }
