@@ -850,6 +850,12 @@ button.mes{cursor:pointer;}
 .codigo-barras{height:56px; max-width:100%;}
 .vista-barras.vista-qr{padding:14px;}
 .codigo-qr{width:140px; height:140px; image-rendering:pixelated;}
+/* Miniatura clicable del código en la tabla de Activos: abre el modal para
+   verlo en grande y descargarlo listo para imprimir. */
+.codigo-mini-btn{border:1px solid var(--line); background:#fff; border-radius:6px; padding:3px; cursor:pointer; display:inline-flex; line-height:0;}
+.codigo-mini-btn:hover{border-color:var(--accent);}
+.codigo-mini-btn .codigo-qr{width:30px; height:30px;}
+.codigo-mini-btn .codigo-barras{height:24px; width:70px;}
 .tipo-codigo{display:flex; gap:0; border:1px solid #d4d9e6; border-radius:9px; overflow:hidden; align-self:flex-start; height:33px; margin-top:19px;}
 .tipo-codigo button{border:none; background:#fff; padding:0 12px; font-size:12px; font-weight:600; color:var(--gray); cursor:pointer; font-family:inherit;}
 .tipo-codigo button + button{border-left:1px solid #d4d9e6;}
@@ -9618,13 +9624,14 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                     guarda la suya para que cambiar una no cambie las otras. */
                  vistaResultados:'graficas',
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
-                 vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaActivos:'tarjetas', vistaProveedores:'tarjetas',
+                 vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaProveedores:'tarjetas',
                  vistaGastosProveedor:'tarjetas', vistaRefacciones:'tarjetas',
-                 /* Órdenes de compra arranca en tabla (a diferencia de las
-                    demás, que arrancan en tarjetas): pedido explícito de
-                    Victor — para esta lista lo que importa a primera vista es
-                    comparar folio/proveedor/estatus/total de varias juntas,
-                    no la tarjeta de cada una. */
+                 /* Activos y Órdenes de compra arrancan en tabla (a diferencia
+                    de las demás, que arrancan en tarjetas): pedido explícito
+                    de Victor — en Activos lo que importa a primera vista es
+                    comparar folio/tipo/cliente/estatus/valor de muchos de un
+                    jalón, no la tarjeta de cada uno. */
+                 vistaActivos:'tabla',
                  vistaOrdenesCompra:'tabla',
                  /* Orden de la lista de pólizas: por qué columna y en qué
                     sentido. Misma naturaleza que vistaPolizas de arriba —
@@ -14173,13 +14180,23 @@ function vistaActivosListado(){
 /* Misma lista, en tabla. */
 function tablaActivos(lista){
   const seleccion = estado.seleccionActivos;
-  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1000px"><thead><tr>'
+  return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1080px"><thead><tr>'
        +   (seleccion ? '<th></th>' : '')
-       +   '<th>Folio</th><th>Nombre</th><th>Tipo</th><th>Cliente / Ubicación</th><th>Asignado a</th><th>Estatus</th><th>Valor</th><th>Fecha</th>'
+       +   '<th>Folio</th><th>Nombre</th><th>Tipo</th><th>Cliente / Ubicación</th><th>Asignado a</th><th>Estatus</th><th>Valor</th><th>Fecha</th><th>Código</th>'
        + '</tr></thead><tbody>'
        + lista.map(a=>{
            const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
            const tono = TONO_ESTATUS_ACTIVO[a.estatus] || 'neutro';
+           /* Miniatura clicable: abre modalCodigoActivo() para verlo en
+              grande y descargarlo — pedido explícito de Victor (17-sep-
+              2026): "que se pueda ver el código qr también ahí [en la
+              tabla] y el mismo código se pueda descargar para poder pasar
+              a impresión". */
+           const codigoCelda = a.codigo
+             ? '<button type="button" class="codigo-mini-btn" data-accion="ver-codigo-activo" data-codigo-activo="' + esc(a.id) + '" title="Ver y descargar el código">'
+               +   (a.tipoCodigo === 'qr' ? svgCodigoQr(a.codigo) : svgCodigoBarras(a.codigo))
+               + '</button>'
+             : '—';
            return '<tr class="fila-clic" data-activo="' + esc(a.id) + '" tabindex="0" role="button">'
                 +   (seleccion ? '<td data-activo-check="' + esc(a.id) + '"><input type="checkbox" class="chkSeleccionActivo" value="' + esc(a.id) + '"></td>' : '')
                 +   '<td>' + esc(a.folio || '—') + '</td>'
@@ -14190,9 +14207,77 @@ function tablaActivos(lista){
                 +   '<td><span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_ACTIVO[a.estatus]) + '</span></td>'
                 +   '<td>' + dinero(a.costoCompra) + '</td>'
                 +   '<td>' + fmtFecha(a.fechaCreacion) + '</td>'
+                +   '<td>' + codigoCelda + '</td>'
                 + '</tr>';
          }).join('')
        + '</tbody></table></div>';
+}
+
+/* Ver en grande el código de un activo (desde su miniatura en la tabla) y
+   descargarlo listo para imprimir — pedido explícito de Victor (17-sep-
+   2026). */
+function modalCodigoActivo(id){
+  const a = activoPorId(id);
+  if(!a || !a.codigo) return;
+  const esQr = a.tipoCodigo === 'qr';
+  const cuerpo = '<div class="vista-barras' + (esQr ? ' vista-qr' : '') + '">' + (esQr ? svgCodigoQr(a.codigo) : svgCodigoBarras(a.codigo)) + '</div>'
+    + '<p class="pista" style="text-align:center; margin:10px 0 0">' + esc(a.codigo) + '</p>';
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>'
+            + '<button type="button" class="btn btn-primario" id="btnDescargarCodigoActivo">' + ICONO.excel + 'Descargar para imprimir</button>';
+  abrirModal((a.nombre || a.folio || 'Activo') + ' — Código', cuerpo, pie);
+  $('btnDescargarCodigoActivo').addEventListener('click', ()=> descargarCodigoActivo(a.id));
+}
+
+/* Convierte el código (QR o de barras) de un activo a PNG y lo descarga —
+   una vez en el escritorio se manda a imprimir como cualquier otra imagen.
+   Se rasteriza a una resolución fija bastante por encima de pantalla (no
+   los ~140px de la vista previa) para que no se vea pixeleado al pegarlo
+   en una etiqueta física. */
+function descargarCodigoActivo(id){
+  const a = activoPorId(id);
+  if(!a || !a.codigo) return;
+  const esQr = a.tipoCodigo === 'qr';
+  const nombreArchivo = (a.folio || a.codigo || 'codigo').replace(/[^a-z0-9-]+/gi, '_') + '.png';
+  if(esQr){
+    descargarSvgComoPng(svgCodigoQr(a.codigo), 900, 900, nombreArchivo);
+  }else{
+    /* El de barras no es cuadrado: se calcula su alto real (viewBox) para
+       no deformarlo al agrandarlo. */
+    const svgTexto = svgCodigoBarras(a.codigo);
+    const m = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svgTexto);
+    const anchoOrig = m ? parseFloat(m[1]) : 300, altoOrig = m ? parseFloat(m[2]) : 57;
+    const altoFinal = 260;
+    descargarSvgComoPng(svgTexto, Math.round(anchoOrig * (altoFinal / altoOrig)), altoFinal, nombreArchivo);
+  }
+}
+
+/* Utilidad genérica: rasteriza un <svg>...</svg> (como texto) a PNG y lo
+   descarga. Nada de internet ni librerías — un <img> puede cargar un SVG
+   como cualquier otra imagen, y de ahí un <canvas> lo vuelve PNG. */
+function descargarSvgComoPng(svgTexto, ancho, alto, nombreArchivo){
+  /* Un <svg> sin su namespace se acepta al pintarlo INLINE en el HTML
+     (que es como se usa en todo el resto de la app), pero cargado como
+     imagen independiente (aquí, vía blob:) el navegador lo analiza como
+     un documento XML aparte y sin xmlns lo rechaza en silencio —
+     img.onerror, sin más pista. */
+  const conTamano = svgTexto.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" width="' + ancho + '" height="' + alto + '" ');
+  const url = URL.createObjectURL(new Blob([conTamano], { type:'image/svg+xml;charset=utf-8' }));
+  const img = new Image();
+  img.onload = () => {
+    const lienzo = document.createElement('canvas');
+    lienzo.width = ancho; lienzo.height = alto;
+    const ctx = lienzo.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, ancho, alto);
+    ctx.drawImage(img, 0, 0, ancho, alto);
+    URL.revokeObjectURL(url);
+    lienzo.toBlob(blob=>{
+      if(blob) descargar(blob, nombreArchivo);
+      else aviso('No se pudo generar la imagen del código.', true);
+    }, 'image/png');
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); aviso('No se pudo generar la imagen del código.', true); };
+  img.src = url;
 }
 
 /* Detalle de un activo. */
@@ -26744,6 +26829,7 @@ $('vista').addEventListener('click', ev=>{
           render(); aviso(numero(ids.length) + ' ' + plural(ids.length,'activo','activos') + ' eliminados.');
         });
     }
+    else if(a === 'ver-codigo-activo') modalCodigoActivo(acc.dataset.codigoActivo);
     else if(a === 'ir-gastos-proveedor') irAGastosProveedor();
     else if(a === 'ir-proveedores') irAProveedores();
     else if(a === 'nuevo-proveedor'){ if(exigirGestionProveedores()) modalProveedor(null); }
@@ -27417,6 +27503,11 @@ $('vista').addEventListener('mouseout', ev=>{
 $('vista').addEventListener('keydown', ev=>{
   if(ev.key !== 'Enter' && ev.key !== ' ') return;
   if(!ev.target.closest) return;
+  /* Un botón con su propia data-accion (ej. la miniatura de código dentro
+     de una fila-clic) ya se activa solo al llegarle Enter/Espacio — sin
+     este corte, este mismo evento ADEMÁS navegaría a la fila que lo
+     contiene, disparando las dos cosas a la vez. */
+  if(ev.target.closest('[data-accion]')) return;
   const tar = ev.target.closest('[data-cliente]');
   if(tar){ ev.preventDefault(); entrarCliente(tar.dataset.cliente); return; }
   const tarP = ev.target.closest('[data-poliza]');
