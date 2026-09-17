@@ -2730,6 +2730,34 @@ function leerArchivoComoDataURL(archivo){
   });
 }
 
+/* Un PDF guardado como "data:" URL a veces sale en blanco al abrirlo
+   directo en una pestaña nueva — bug conocido del visor de PDF de Chrome
+   con anchors "data:" (más con los que pesan varios cientos de KB, como
+   estos respaldos). Convertirlo a un Blob URL al momento del clic sí
+   renderiza bien, así que es lo que usan todas las galerías de respaldo
+   (Cotizaciones, Proveedores, Órdenes de compra, Refacciones…) en vez de
+   navegar directo al "data:" URL. */
+function abrirPdfRespaldo(dataUrl, nombre){
+  try{
+    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    const binario = atob(base64);
+    const bytes = new Uint8Array(binario.length);
+    for(let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+    const blob = new Blob([bytes], { type:'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener');
+    setTimeout(()=> URL.revokeObjectURL(url), 120000);
+  }catch(e){
+    window.open(dataUrl, '_blank', 'noopener');
+  }
+}
+document.addEventListener('click', ev=>{
+  const enlace = ev.target.closest('.respaldo-pdf-enlace');
+  if(!enlace) return;
+  ev.preventDefault();
+  abrirPdfRespaldo(enlace.getAttribute('href'), enlace.title);
+});
+
 async function leerRespaldoImagen(archivo){
   if(!archivo.type || !archivo.type.startsWith('image/')) throw new Error('Elige una imagen o un PDF para el respaldo.');
   if(archivo.size > RESPALDO_COSTO_MAX_ENTRADA) throw new Error('Esa imagen pesa más de 15 MB. Prueba con otra o reduce la calidad.');
@@ -13188,7 +13216,7 @@ function vistaCotizacion(){
             ? '<div class="galeria-evidencia">' + cot.respaldosCosto.map(r=>
                 '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
                 + (r.tipo === 'pdf'
-                    ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
+                    ? '<a href="' + esc(r.dataUrl) + '" class="respaldo-pdf-enlace" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
                     : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
                 + (puedeEditar()
                     ? '<button type="button" class="evidencia-quitar" data-accion="quitar-respaldo-costo" data-respaldo="' + esc(r.id) + '" title="Quitar">' + ICONO.basura + '</button>'
@@ -13777,7 +13805,7 @@ function vistaActivo(){
           ? '<div class="galeria-evidencia">' + a.respaldosCompra.map(r=>
               '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
               + (r.tipo === 'pdf'
-                  ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
+                  ? '<a href="' + esc(r.dataUrl) + '" class="respaldo-pdf-enlace" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
                   : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
               +   (puedeGestionarActivos()
                    ? '<button type="button" class="evidencia-quitar" data-accion="quitar-respaldo-compra-activo" data-respaldo="' + esc(r.id) + '" title="Quitar">' + ICONO.basura + '</button>'
@@ -14629,7 +14657,7 @@ function vistaGastoProveedor(){
               '<div style="display:flex; flex-direction:column; align-items:center; gap:4px; width:92px">'
               +   '<div class="evidencia-foto' + (d.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
               +     (d.tipo === 'pdf'
-                      ? '<a href="' + esc(d.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(d.nombre) + '">' + ICONO.documento + '<span>' + esc(d.nombre) + '</span></a>'
+                      ? '<a href="' + esc(d.dataUrl) + '" class="respaldo-pdf-enlace" title="' + esc(d.nombre) + '">' + ICONO.documento + '<span>' + esc(d.nombre) + '</span></a>'
                       : '<a href="' + esc(d.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(d.dataUrl) + '" alt="' + esc(d.nombre) + '" loading="lazy"></a>')
               +     (puede
                      ? '<button type="button" class="evidencia-quitar" data-accion="quitar-documento-proveedor" data-documento="' + esc(d.id) + '" title="Quitar">' + ICONO.basura + '</button>'
@@ -15316,7 +15344,7 @@ function vistaOrdenCompra(){
             ? '<div class="galeria-evidencia">' + o.respaldosCotizacion.map(r=>
                 '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
                 + (r.tipo === 'pdf'
-                    ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
+                    ? '<a href="' + esc(r.dataUrl) + '" class="respaldo-pdf-enlace" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
                     : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
                 + '</div>'
               ).join('') + '</div>'
@@ -15471,7 +15499,7 @@ function modalOrdenCompra(id, proveedorPresetId){
       ? '<div class="galeria-evidencia">' + respaldosCotizacionTmp.map(r=>
           '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
           + (r.tipo === 'pdf'
-              ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
+              ? '<a href="' + esc(r.dataUrl) + '" class="respaldo-pdf-enlace" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
               : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
           + '<button type="button" class="evidencia-quitar" data-quitar-respaldo-oc="' + esc(r.id) + '" title="Quitar">' + ICONO.basura + '</button>'
           + '</div>'
@@ -18648,7 +18676,7 @@ function vistaProyectoImagen(){
     h += '<div class="galeria-evidencia">' + p.imagenes.map(im =>
       '<div class="evidencia-foto' + (im.formato === 'pdf' ? ' respaldo-pdf' : '') + '" title="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + (im.nota ? ' · ' + esc(im.nota) : '') + '">'
       +   (im.formato === 'pdf'
-            ? '<a href="' + esc(im.dataUrl) + '" target="_blank" rel="noopener">' + ICONO.documento + '<span>' + esc(im.nombre) + '</span></a>'
+            ? '<a href="' + esc(im.dataUrl) + '" class="respaldo-pdf-enlace">' + ICONO.documento + '<span>' + esc(im.nombre) + '</span></a>'
             : '<img src="' + esc(im.dataUrl) + '" alt="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '" loading="lazy">')
       +   '<span class="evidencia-tipo">' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '</span>'
       + '</div>'
@@ -18923,7 +18951,7 @@ function modalProyectoImagen(id, datosImportados){
     $('piGaleriaImagenes').innerHTML = imagenesTmp.map(im =>
       '<div class="evidencia-foto' + (im.formato === 'pdf' ? ' respaldo-pdf' : '') + '">'
       + (im.formato === 'pdf'
-          ? '<a href="' + esc(im.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(im.nombre) + '">' + ICONO.documento + '<span>' + esc(im.nombre) + '</span></a>'
+          ? '<a href="' + esc(im.dataUrl) + '" class="respaldo-pdf-enlace" title="' + esc(im.nombre) + '">' + ICONO.documento + '<span>' + esc(im.nombre) + '</span></a>'
           : '<img src="' + esc(im.dataUrl) + '" alt="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '">')
       + '<span class="evidencia-tipo">' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '</span>'
       + '<button type="button" class="evidencia-quitar" data-quitar-img-pi="' + esc(im.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
@@ -24754,7 +24782,7 @@ function modalCotizacion(id, origenReporte){
       ? '<div class="galeria-evidencia">' + respaldosCostoTmp.map(r=>
           '<div class="evidencia-foto' + (r.tipo === 'pdf' ? ' respaldo-pdf' : '') + '">'
           + (r.tipo === 'pdf'
-              ? '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
+              ? '<a href="' + esc(r.dataUrl) + '" class="respaldo-pdf-enlace" title="' + esc(r.nombre) + '">' + ICONO.documento + '<span>' + esc(r.nombre) + '</span></a>'
               : '<a href="' + esc(r.dataUrl) + '" target="_blank" rel="noopener"><img src="' + esc(r.dataUrl) + '" alt="' + esc(r.nombre) + '" loading="lazy"></a>')
           + '<button type="button" class="evidencia-quitar" data-quitar-respaldo-cot="' + esc(r.id) + '" title="Quitar">' + ICONO.basura + '</button>'
           + '</div>'
