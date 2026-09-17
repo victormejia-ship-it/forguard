@@ -7334,17 +7334,19 @@ function condicionDesdeTextoXlsx(txt){
 
 /* Mismo criterio que vincularOCrearSitioCotizacionXlsx: si el sitio ya
    existe (por nombre) se reusa; si no, se crea el cliente (si tampoco
-   existía) y el sitio, ambos por nombre tal cual vienen en el Excel. */
+   existía) y el sitio, ambos por nombre tal cual vienen en el Excel. Solo
+   se usa cuando el renglón trae su PROPIO nombre de cliente en una
+   columna — para eso es el parámetro nombreCliente. */
 function vincularOCrearSitioActivoXlsx(nombreCliente, nombreSitio, cache){
-  const llave = normalizarTextoEncabezadoXlsx(nombreSitio);
+  const llave = 'C:' + normalizarTextoEncabezadoXlsx(nombreCliente) + '|' + normalizarTextoEncabezadoXlsx(nombreSitio);
   if(cache.has(llave)) return cache.get(llave);
-  let sitio = datos.sitios.find(s => normalizarTextoEncabezadoXlsx(s.nombre) === llave);
+  let cliente = datos.clientes.find(c => normalizarTextoEncabezadoXlsx(c.nombre) === normalizarTextoEncabezadoXlsx(nombreCliente));
+  if(!cliente){
+    cliente = normalizarCliente({ id: nuevoId(), nombre: nombreCliente, usaForpass: 'si' });
+    datos.clientes.push(cliente);
+  }
+  let sitio = datos.sitios.find(s => s.clienteId === cliente.id && normalizarTextoEncabezadoXlsx(s.nombre) === normalizarTextoEncabezadoXlsx(nombreSitio));
   if(!sitio){
-    let cliente = nombreCliente ? datos.clientes.find(c => normalizarTextoEncabezadoXlsx(c.nombre) === normalizarTextoEncabezadoXlsx(nombreCliente)) : null;
-    if(!cliente){
-      cliente = normalizarCliente({ id: nuevoId(), nombre: nombreCliente || nombreSitio, usaForpass: 'si' });
-      datos.clientes.push(cliente);
-    }
     sitio = normalizarSitio({ id: nuevoId(), clienteId: cliente.id, nombre: nombreSitio, modulos: 0, mensualidad: 0, fechaInicio: hoyISO(), meses: 12 });
     datos.sitios.push(sitio);
   }
@@ -7353,7 +7355,29 @@ function vincularOCrearSitioActivoXlsx(nombreCliente, nombreSitio, cache){
   return resultado;
 }
 
-function filaXlsxAActivo(fila, mapa, cache){
+/* Cuando el renglón trae un nombre de sitio/ubicación pero NO trae su
+   propio nombre de cliente (ej. una columna "Sitio" con valores como
+   "NGK"/"PEX" sin ninguna columna "Cliente" junto), ese sitio se crea o
+   reusa DENTRO del cliente elegido ANTES de cargar el archivo — nunca
+   como un cliente nuevo por su cuenta. Antes de este ajuste,
+   vincularOCrearSitioActivoXlsx inventaba un cliente distinto por cada
+   nombre de sitio cuando no había columna de cliente, que es justo lo que
+   Victor reportó (17-sep-2026, tercera vuelta): "los importa de manera
+   global y no los va a clasificar por cliente". */
+function resolverSitioBajoClientePorDefecto(clienteId, nombreSitio, cache){
+  const llave = 'D:' + clienteId + '|' + normalizarTextoEncabezadoXlsx(nombreSitio);
+  if(cache.has(llave)) return cache.get(llave);
+  let sitio = datos.sitios.find(s => s.clienteId === clienteId && normalizarTextoEncabezadoXlsx(s.nombre) === normalizarTextoEncabezadoXlsx(nombreSitio));
+  if(!sitio){
+    sitio = normalizarSitio({ id: nuevoId(), clienteId, nombre: nombreSitio, modulos: 0, mensualidad: 0, fechaInicio: hoyISO(), meses: 12 });
+    datos.sitios.push(sitio);
+  }
+  const resultado = { clienteId, sitioId: sitio.id, sitioNombre: sitio.nombre };
+  cache.set(llave, resultado);
+  return resultado;
+}
+
+function filaXlsxAActivo(fila, mapa, cache, clientePorDefecto){
   const val = campo => mapa[campo] !== undefined ? fila[mapa[campo]] : undefined;
   const textoDe = campo => (val(campo) === null || val(campo) === undefined ? '' : String(val(campo)).trim());
   const nombre = textoDe('nombre');
@@ -7364,10 +7388,19 @@ function filaXlsxAActivo(fila, mapa, cache){
   let clienteId = '', sitioId = '', sitioNombre = '';
   if(tipo === 'cliente'){
     const nombreSitio = textoDe('sitio');
-    if(nombreSitio){
-      const ligado = vincularOCrearSitioActivoXlsx(textoDe('cliente'), nombreSitio, cache);
-      clienteId = ligado.clienteId; sitioId = ligado.sitioId; sitioNombre = ligado.sitioNombre;
+    const nombreClienteTexto = textoDe('cliente');
+    let ligado;
+    if(nombreClienteTexto){
+      /* El renglón trae su propio cliente (ej. un archivo que la app
+         exportó antes) — se respeta tal cual, sin tocar el elegido al
+         cargar el archivo. */
+      ligado = vincularOCrearSitioActivoXlsx(nombreClienteTexto, nombreSitio || nombreClienteTexto, cache);
+    }else if(nombreSitio && clientePorDefecto){
+      ligado = resolverSitioBajoClientePorDefecto(clientePorDefecto.clienteId, nombreSitio, cache);
+    }else if(clientePorDefecto){
+      ligado = clientePorDefecto;
     }
+    if(ligado){ clienteId = ligado.clienteId; sitioId = ligado.sitioId; sitioNombre = ligado.sitioNombre; }
   }
 
   /* El número de inventario suelto (columnas "No. Inv"/"Inventario") no es
@@ -7405,15 +7438,6 @@ function filaXlsxAActivo(fila, mapa, cache){
     notas,
     registradoPor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || 'Alguien del equipo' }
   });
-}
-
-/* Igual que un folio nuevo o un nombre+serie ya usados: se omite en vez de
-   duplicar. Sin folio en el Excel (columna vacía), se compara por
-   nombre+serie — suficiente para no repetir una recarga del mismo archivo. */
-function llaveActivoImportadoXlsx(act){
-  return act.folio
-    ? 'F:' + normalizarTextoEncabezadoXlsx(act.folio)
-    : 'N:' + normalizarTextoEncabezadoXlsx(act.nombre) + '|' + normalizarTextoEncabezadoXlsx(act.serie);
 }
 
 /* A qué cliente/sitio se va a ligar el PRÓXIMO archivo que se suba —
@@ -7550,18 +7574,11 @@ async function importarActivosDesdeExcel(archivo){
   tablas.forEach(t=>{
     t.filas.forEach(fila=>{
       if(!fila.some(v => v !== null && v !== undefined && String(v).trim() !== '')){ vacias++; return; }
-      const act = filaXlsxAActivo(fila, t.mapa, cache);
-      if(!act) return;
-      /* Si el renglón ya trae su propio Cliente/Sitio (columnas del propio
-         archivo, ej. uno que la app exportó antes), se respeta tal cual —
-         filaXlsxAActivo ya lo resolvió. Si no, se liga al cliente elegido
-         ANTES de escoger el archivo. */
-      if(act.tipo === 'cliente' && !act.clienteId){
-        act.clienteId = pendiente.clienteId;
-        act.sitioId = pendiente.sitioId;
-        act.sitioNombre = pendiente.sitioNombre;
-      }
-      candidatos.push(act);
+      /* filaXlsxAActivo ya resuelve el cliente/sitio de cada renglón: si el
+         archivo trae su propia columna de Cliente la respeta tal cual; si
+         no, liga al cliente elegido ANTES de escoger el archivo. */
+      const act = filaXlsxAActivo(fila, t.mapa, cache, pendiente);
+      if(act) candidatos.push(act);
     });
   });
 
@@ -7569,43 +7586,38 @@ async function importarActivosDesdeExcel(archivo){
   continuarImportacionActivos(candidatos, vacias);
 }
 
+/* Cada renglón del archivo se da de alta, sin comparar contra lo que ya
+   existe: pedido explícito de Victor (17-sep-2026, tercera vuelta) — "no
+   debe omitir las líneas que vienen en los archivos". Antes se omitía un
+   renglón si su folio (o, sin folio, su nombre+serie) coincidía con un
+   activo ya dado de alta, pero eso también descartaba renglones
+   legítimamente distintos que comparten nombre y no traen número de
+   serie (ej. el mismo modelo de horno en dos sitios distintos). */
 function continuarImportacionActivos(candidatos, vacias){
-  const yaExisten = new Set(datos.activos.map(llaveActivoImportadoXlsx));
-  const nuevos = [], duplicados = [];
-  candidatos.forEach(act=>{
-    const llave = llaveActivoImportadoXlsx(act);
-    if(yaExisten.has(llave)) duplicados.push(act);
-    else { yaExisten.add(llave); nuevos.push(act); }
-  });
-
-  if(!nuevos.length){
-    aviso('Los ' + candidatos.length + ' ' + plural(candidatos.length,'activo','activos') + ' del archivo ya estaban dados de alta (mismo folio, o mismo nombre y serie).', true);
-    return;
-  }
+  if(!candidatos.length){ aviso('No se encontró ningún activo capturado en el archivo.', true); return; }
 
   confirmar('Importar activos desde Excel',
-      'Se van a dar de alta <b>' + nuevos.length + '</b> ' + plural(nuevos.length,'activo nuevo','activos nuevos') + '.'
-    + (duplicados.length ? '<br>' + duplicados.length + ' ' + plural(duplicados.length,'fila se omitió','filas se omitieron') + ' por ya existir.' : '')
+      'Se van a dar de alta <b>' + candidatos.length + '</b> ' + plural(candidatos.length,'activo nuevo','activos nuevos') + '.'
     + (vacias ? '<br>' + vacias + ' ' + plural(vacias,'fila vacía','filas vacías') + ' se ignoraron.' : '')
     + '<br><br>Los sitios o clientes que el archivo mencione y todavía no existan se crean automáticamente por nombre.',
     'Sí, importar', ()=>{
-      nuevos.forEach(act=>{
+      candidatos.forEach(act=>{
         if(!act.folio) act.folio = generarFolioActivo(act.fechaCreacion || hoyISO());
         if(!act.codigo){ act.codigo = act.folio; act.tipoCodigo = 'qr'; }
         datos.activos.push(act);
       });
       guardarLocal();
-      anotar('importó', 'activos', nuevos.length + ' desde Excel');
+      anotar('importó', 'activos', candidatos.length + ' desde Excel');
       const LOTE = 150;
       (async()=>{
-        for(let i = 0; i < nuevos.length; i += LOTE){
-          nuevos.slice(i, i + LOTE).forEach(act => encolar({ tipo:'poner', coleccion:'activos', id:act.id, obj:act }));
+        for(let i = 0; i < candidatos.length; i += LOTE){
+          candidatos.slice(i, i + LOTE).forEach(act => encolar({ tipo:'poner', coleccion:'activos', id:act.id, obj:act }));
           await new Promise(res => setTimeout(res, 0));
         }
       })();
       estado.modulo = 'activos'; estado.vista = 'activos';
       render();
-      aviso(nuevos.length + ' ' + plural(nuevos.length,'activo importado','activos importados') + '.');
+      aviso(candidatos.length + ' ' + plural(candidatos.length,'activo importado','activos importados') + '.');
     });
 }
 
