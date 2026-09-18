@@ -10107,6 +10107,33 @@ function entrarActivo(id){
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
+/* Lo que de verdad va DENTRO del QR de un activo (no el de barras: ver las
+   llamadas a svgCodigoQr/svgCodigoBarras más abajo). Reportado por Victor
+   (18-sep-2026): al escanear el QR con el celular, como solo llevaba el
+   texto plano del código (ej. "AC-180926-0679"), el teléfono lo trataba
+   como una búsqueda y abría Google en vez de la plataforma. Ahora el QR
+   lleva una URL real de vuelta a esta misma página con ?activo=<id>, que
+   atenderActivoPorLinkSiAplica() detecta al arrancar (ver ARRANQUE) y usa
+   para entrar directo al detalle de ESE activo. El de barras se deja tal
+   cual (solo texto): a los lectores de código de barras de almacén se les
+   usa como teclado — escriben el texto donde esté el cursor (ej. la
+   búsqueda) — y convertirlo en URL les rompería ese uso. */
+function urlActivo(a){
+  return location.origin + location.pathname + '?activo=' + encodeURIComponent(a.id);
+}
+/* Se llama una sola vez al arrancar, ya con sesión y datos cargados (ver
+   ARRANQUE): si la URL trae ?activo=<id> (por haber escaneado su QR),
+   entra directo a su detalle y limpia la URL para que un refresh normal
+   no se quede repitiendo el salto. Devuelve true si atendió el link (para
+   no pintar además el render() normal de arranque encima). */
+function atenderActivoPorLinkSiAplica(){
+  const id = new URLSearchParams(location.search).get('activo');
+  if(!id) return false;
+  history.replaceState(null, '', location.pathname);
+  if(!datos.activos.some(a => a.id === id)) return false;
+  entrarActivo(id);
+  return true;
+}
 function irAGastosProveedor(){
   if(estado.modulo !== 'proveedores'){ estado.modulo = 'proveedores'; guardarModulo(); }
   animarTarjetas = true;
@@ -14384,7 +14411,7 @@ function tablaActivos(lista){
               a impresión". */
            const codigoCelda = a.codigo
              ? '<button type="button" class="codigo-mini-btn" data-accion="ver-codigo-activo" data-codigo-activo="' + esc(a.id) + '" title="Ver y descargar el código">'
-               +   (a.tipoCodigo === 'qr' ? svgCodigoQr(a.codigo) : svgCodigoBarras(a.codigo))
+               +   (a.tipoCodigo === 'qr' ? svgCodigoQr(urlActivo(a)) : svgCodigoBarras(a.codigo))
                + '</button>'
              : '—';
            return '<tr class="fila-clic" data-activo="' + esc(a.id) + '" tabindex="0" role="button">'
@@ -14410,7 +14437,7 @@ function modalCodigoActivo(id){
   const a = activoPorId(id);
   if(!a || !a.codigo) return;
   const esQr = a.tipoCodigo === 'qr';
-  const cuerpo = '<div class="vista-barras' + (esQr ? ' vista-qr' : '') + '">' + (esQr ? svgCodigoQr(a.codigo) : svgCodigoBarras(a.codigo)) + '</div>'
+  const cuerpo = '<div class="vista-barras' + (esQr ? ' vista-qr' : '') + '">' + (esQr ? svgCodigoQr(urlActivo(a)) : svgCodigoBarras(a.codigo)) + '</div>'
     + '<p class="pista" style="text-align:center; margin:10px 0 0">' + esc(a.codigo) + '</p>';
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>'
             + '<button type="button" class="btn btn-primario" id="btnDescargarCodigoActivo">' + ICONO.excel + 'Descargar para imprimir</button>';
@@ -14429,7 +14456,7 @@ function descargarCodigoActivo(id){
   const esQr = a.tipoCodigo === 'qr';
   const nombreArchivo = (a.folio || a.codigo || 'codigo').replace(/[^a-z0-9-]+/gi, '_') + '.png';
   if(esQr){
-    descargarSvgComoPng(svgCodigoQr(a.codigo), 900, 900, nombreArchivo);
+    descargarSvgComoPng(svgCodigoQr(urlActivo(a)), 900, 900, nombreArchivo);
   }else{
     /* El de barras no es cuadrado: se calcula su alto real (viewBox) para
        no deformarlo al agrandarlo. */
@@ -14510,7 +14537,7 @@ function vistaActivo(){
 
   if(a.codigo){
     h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Código</h3><p>Para control interno: no aparece en documentos de cliente.</p></div></div>'
-       +   '<div class="vista-barras' + (a.tipoCodigo === 'qr' ? ' vista-qr' : '') + '">' + (a.tipoCodigo === 'qr' ? svgCodigoQr(a.codigo) : svgCodigoBarras(a.codigo)) + '</div>'
+       +   '<div class="vista-barras' + (a.tipoCodigo === 'qr' ? ' vista-qr' : '') + '">' + (a.tipoCodigo === 'qr' ? svgCodigoQr(urlActivo(a)) : svgCodigoBarras(a.codigo)) + '</div>'
        +   '<p class="pista" style="margin:6px 0 0">' + esc(a.codigo) + '</p>'
        + '</div>';
   }
@@ -29141,7 +29168,11 @@ async function arrancarNube(){
      En un refresh normal no aplica —ahí el primero sí se vio— y así no se anima
      dos veces, que era justo el parpadeo. */
   if($('cargando').classList.contains('abierto')) animarTarjetas = true;
-  render();
+  /* ?activo=<id> (venir de un QR escaneado, ver urlActivo()/
+     atenderActivoPorLinkSiAplica()): ya con datos.activos recién bajado es
+     el único momento en que se puede resolver — si no encontró nada aquí,
+     el render() normal de abajo sí corre. */
+  if(!atenderActivoPorLinkSiAplica()) render();
   vaciarCola();
 }
 
@@ -29675,7 +29706,7 @@ if(!HAY_NUBE){
   /* Modo local: igual que siempre, sin cuentas. Sin nube que traiga nada
      fresco, si la copia rápida se quedó sin imágenes por falta de espacio,
      se completa aquí con la copia grande de IndexedDB. */
-  render();
+  if(!atenderActivoPorLinkSiAplica()) render();
   restaurarSnapshotIndexedDB();
 }else{
   cargarSesion();
