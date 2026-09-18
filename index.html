@@ -8559,6 +8559,29 @@ function repartirEnteros(total, n){
   return partes;
 }
 
+/* Mismo espíritu que repartirEnteros(), pero el reparto es PROPORCIONAL a
+   un peso por casilla en vez de parejo — lo usa el documento de póliza
+   para prorratear el % de aumento/descuento entre los renglones (ver
+   armarPayloadPoliza) en vez de imprimirlo como una línea aparte. La suma
+   de lo que devuelve es SIEMPRE exactamente `total`: el residuo de
+   redondear cada parte se le carga a la ÚLTIMA casilla con peso, igual
+   que ahí. Una casilla sin peso (0) siempre recibe 0 — nunca le toca
+   parte de un total que no le corresponde. */
+function prorratearPorPeso(pesos, total){
+  const suma = pesos.reduce((a,b)=> a + b, 0);
+  if(!suma) return pesos.map(()=> 0);
+  let ultimoConPeso = -1;
+  pesos.forEach((p,i)=>{ if(p) ultimoConPeso = i; });
+  let acumulado = 0;
+  return pesos.map((peso,i)=>{
+    if(!peso) return 0;
+    if(i === ultimoConPeso) return total - acumulado;
+    const parte = Math.round(total * peso / suma);
+    acumulado += parte;
+    return parte;
+  });
+}
+
 /* Lo ejecutado de UN renglón. Todos pasan por aquí para que el resto del código
    no tenga que saber que `hechos` vive en la póliza y no en la partida. */
 const hechosDe = (p, x) => (p.hechos && p.hechos[x.id]) || {};
@@ -9014,6 +9037,63 @@ function armarPayloadPoliza(p){
   const c   = calcularPoliza(p);
   const cli = clientePorId(p.clienteId);
 
+  /* Con descuento o aumento (ver calcularPoliza), el documento YA NO lo
+     imprime como una línea aparte al final — pedido explícito de Victor
+     (18-sep-2026): "no muestres estos datos, tienes que prorratear todo
+     el 15% en los demás rubros". Se reparte proporcionalmente entre los
+     renglones EN ALCANCE (nunca en los de "responsabilidad del cliente":
+     a esos jamás les tocó el % desde calcularPoliza) usando
+     prorratearPorPeso(), así la suma de "Total Mtto" sigue cuadrando
+     EXACTO contra Precio Anual, solo que ya repartida renglón por
+     renglón en vez de expuesta como "Aumento 15%". */
+  const enAlcancePoliza = p.partidas.map(x => x.alcance !== 'cliente');
+  const hayAjustePoliza = !!c.descuento;
+  const totalesAjustadosPoliza = hayAjustePoliza
+    ? prorratearPorPeso(c.totales.map((t,i) => enAlcancePoliza[i] ? t : 0), c.precioAnualCent)
+    : c.totales;
+  const renglonesPoliza = p.partidas.map((x, i) => {
+    /* `total` es el intermedio que el documento imprime en su propia columna:
+       precio × cantidad. `totalMtto` viene de totalRenglon(), o sea por otro
+       camino. Que los dos cuadren (total × frecuencia === totalMtto) es la
+       aserción que el cliente va a hacer con una calculadora sobre el papel —
+       por eso, con ajuste, se escala PRIMERO precioUnitario y de ahí se
+       derivan total/totalMtto con la misma fórmula de siempre, en vez de
+       prorratear cada columna por separado (eso sí podría descuadrar la
+       multiplicación de un renglón contra sí mismo). El "Total Mtto" que de
+       verdad se imprime es el prorrateado exacto (totalesAjustadosPoliza);
+       precioUnitario/total son su lectura nominal redondeada — mismo criterio
+       que ya usa precioMensual en calcularPoliza(): la casilla exacta manda,
+       el número nominal por renglón es de lectura. */
+    const totalMttoOriginal = c.totales[i];
+    const totalMttoMostrado = enAlcancePoliza[i] ? totalesAjustadosPoliza[i] : totalMttoOriginal;
+    const factorRenglon = (hayAjustePoliza && enAlcancePoliza[i] && totalMttoOriginal) ? totalMttoMostrado / totalMttoOriginal : 1;
+    const precioUnitarioMostrado = x.precioUnitario * factorRenglon;
+    const totalMostrado = precioUnitarioMostrado * x.cantidad;
+    return {
+      n: i + 1,
+      concepto: x.concepto,
+      /* La marca va aparte aunque se imprima pegada al concepto: la plantilla
+         hace la concatenación y su <span>. El payload no mete marcado adentro
+         de un dato. */
+      marca: x.marca || '',
+      cantidad: String(x.cantidad),
+      /* Pedido explícito de Victor (15-sep-2026, ampliado luego a TODA la
+         app): dinero en pesos redondos, sin centavos. */
+      precioUnitario: dinero(precioUnitarioMostrado),
+      total:          dinero(totalMostrado),
+      frecuencia: String(x.frecuencia),
+      totalMtto:      dinero(totalMttoMostrado),
+      alcance: x.alcance,
+      alcanceEtiqueta: ETIQUETA_ALCANCE_PARTIDA_POLIZA[x.alcance],
+      /* YA son índices de columna. mesesServicio son DESFASES desde
+         fechaInicio, así que el valor guardado ES la columna: no se rota.
+         Se llama `columnas` justo para que nadie le aplique un % 12. */
+      columnas: x.mesesServicio.slice(),
+      crudo: { precioUnitario: precioUnitarioMostrado, cantidad: x.cantidad,
+               frecuencia: x.frecuencia, total: totalMostrado, totalMtto: totalMttoMostrado }
+    };
+  });
+
   return {
     meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
 
@@ -9067,36 +9147,7 @@ function armarPayloadPoliza(p){
                 telefono: p.vendedor.telefono || '' },
     contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice() },
 
-    renglones: p.partidas.map((x, i) => {
-      /* `total` es el intermedio que el documento imprime en su propia columna:
-         precio × cantidad. `totalMtto` viene de totalRenglon(), o sea por otro
-         camino. Que los dos cuadren (total × frecuencia === totalMtto) es la
-         aserción que el cliente va a hacer con una calculadora sobre el papel. */
-      const total = x.precioUnitario * x.cantidad;
-      return {
-        n: i + 1,
-        concepto: x.concepto,
-        /* La marca va aparte aunque se imprima pegada al concepto: la plantilla
-           hace la concatenación y su <span>. El payload no mete marcado adentro
-           de un dato. */
-        marca: x.marca || '',
-        cantidad: String(x.cantidad),
-        /* Pedido explícito de Victor (15-sep-2026, ampliado luego a TODA la
-           app): dinero en pesos redondos, sin centavos. */
-        precioUnitario: dinero(x.precioUnitario),
-        total:          dinero(total),
-        frecuencia: String(x.frecuencia),
-        totalMtto:      dinero(c.totales[i]),
-        alcance: x.alcance,
-        alcanceEtiqueta: ETIQUETA_ALCANCE_PARTIDA_POLIZA[x.alcance],
-        /* YA son índices de columna. mesesServicio son DESFASES desde
-           fechaInicio, así que el valor guardado ES la columna: no se rota.
-           Se llama `columnas` justo para que nadie le aplique un % 12. */
-        columnas: x.mesesServicio.slice(),
-        crudo: { precioUnitario: x.precioUnitario, cantidad: x.cantidad,
-                 frecuencia: x.frecuencia, total, totalMtto: c.totales[i] }
-      };
-    }),
+    renglones: renglonesPoliza,
 
     /* Los doce encabezados salen de fechaInicio, que trae el año. NUNCA de
        Math.min(...mesesServicio): si ningún equipo se atiende el primer mes
@@ -9126,21 +9177,24 @@ function armarPayloadPoliza(p){
       return out;
     })(),
 
-    /* Con descuento (o aumento) viajan los números ya formateados. `descuento`
-       es el porcentaje como texto listo para el papel («5%», siempre en
-       positivo), y va vacío si no hay: la plantilla decide si pinta el
-       bloque, no si calcula. `etiquetaDescuento`/`signoDescuento` son lo que
-       cambia entre uno y otro — ver esAumento en calcularPoliza(). */
+    /* El bloque de "Subtotal + Aumento/Descuento %" YA NO se imprime —
+       pedido explícito de Victor (18-sep-2026): "en la parte de las
+       pólizas no muestres estos datos, tienes que prorratear todo el 15%
+       en los demás rubros". El % ya quedó repartido renglón por renglón
+       arriba (ver renglonesPoliza), así que aquí basta con dejar
+       `descuento` vacío para que la plantilla (que solo pinta el bloque
+       cuando `POLIZA.totales.descuento` es verdadero) lo omita solo,
+       sin tocar el archivo de la plantilla. `crudo` conserva los números
+       reales por si algún consumidor interno los necesita más adelante —
+       nunca se imprimen. */
     totales: { anual:   dinero(c.precioAnual),
                mensual: dinero(c.precioMensual),
-               /* Para 'interno' la base es el costo anual, no el precio de
-                  venta — ver base/etiquetaBase en calcularPoliza(). */
-               subtotal: c.descuento ? dinero(c.base) : '',
+               subtotal: '',
                etiquetaSubtotal: c.etiquetaBase,
                etiquetaDescuento: c.esAumento ? 'Aumento' : 'Descuento',
                signoDescuento: c.esAumento ? '+' : '−',
-               descuento: c.descuento ? c.descuentoAbs + '%' : '',
-               montoDescuento: c.descuento ? dinero(c.montoDescuentoAbs) : '',
+               descuento: '',
+               montoDescuento: '',
                /* Lo que quedó fuera del precio por ser responsabilidad del
                   cliente (ver ALCANCE_PARTIDA_POLIZA) — nunca se suma a
                   "anual" ni a "mensual" de arriba. Vacío si no aplica, para
