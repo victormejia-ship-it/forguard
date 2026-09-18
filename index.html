@@ -13141,6 +13141,10 @@ function vistaPolizas(){
        póliza no cuenta como ingreso en Resultados porque la pagamos
        nosotros. Sin chip aquí, un vistazo a la lista no lo dice. */
     if(p.cargoA === 'interno') chips += '<span class="insignia i-alerta">Interno' + (p.cargoAInterno ? ' · ' + esc(p.cargoAInterno) : '') + '</span>';
+    /* Pedido de Victor (18-sep-2026): que la tarjeta ya diga si esta póliza
+       trae aumento o descuento, sin tener que entrar al detalle — mismo
+       ajuste que se captura en "Tipo de ajuste / Descuento-aumento (%)". */
+    if(p.descuento) chips += '<span class="insignia i-info">' + (c.esAumento ? 'Aumento' : 'Descuento') + ' ' + c.descuentoAbs + '%</span>';
 
     return '<div class="tarjeta tarjeta-clic t-' + c.tono + '" data-poliza="' + esc(p.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
          +   '<div class="t-cabeza">'
