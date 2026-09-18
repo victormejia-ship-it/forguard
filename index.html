@@ -14193,7 +14193,7 @@ function vistaActivosListado(){
   const idGrupo = estado.activosClienteId;
   const idsEspeciales = ['__todos__', '__interno__', '__sin_cliente__'];
   const clienteGrupo = idGrupo && !idsEspeciales.includes(idGrupo) ? clientePorId(idGrupo) : null;
-  const base = idGrupo === '__todos__' ? datos.activos
+  const baseGrupo = idGrupo === '__todos__' ? datos.activos
     : idGrupo === '__interno__' ? datos.activos.filter(a => a.tipo === 'interno')
     : idGrupo === '__sin_cliente__' ? datos.activos.filter(a => a.tipo === 'cliente' && !a.clienteId)
     : datos.activos.filter(a => a.tipo === 'cliente' && a.clienteId === idGrupo);
@@ -14206,10 +14206,21 @@ function vistaActivosListado(){
      (clienteGrupo): '__todos__'/'__interno__'/'__sin_cliente__' siguen con
      el listado plano de siempre (mezclan varios clientes/orígenes, un
      directorio de sitios ahí no tendría un "dueño" claro). */
-  const sitiosEnUso = Array.from(new Set(base.map(a => (a.sitioNombre || '').trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, 'es'));
+  const sitiosEnUso = Array.from(new Set(baseGrupo.map(a => (a.sitioNombre || '').trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, 'es'));
   if(sitiosEnUso.length < 2 && estado.sitioFiltroActivo) estado.sitioFiltroActivo = '';
   const hayDirectorioSitios = !!clienteGrupo && sitiosEnUso.length > 1;
-  if(hayDirectorioSitios && !estado.sitioFiltroActivo) return vistaActivosSitios(clienteGrupo, base, sitiosEnUso);
+  if(hayDirectorioSitios && !estado.sitioFiltroActivo) return vistaActivosSitios(clienteGrupo, baseGrupo, sitiosEnUso);
+
+  /* Con directorio de sitios, ya se eligió UNO (ver arriba): todo lo de
+     abajo —KPIs, "N activos registrados", categorías en uso, tabla— debe
+     acotarse a ESE sitio, no seguir mostrando el total del cliente entero.
+     Pedido de Victor (18-sep-2026): "necesito que cuando selecciones al
+     sitio pueda mostrar el inventario y valor de ese sitio" — reportó que
+     PROLEC MADERAS (44 activos, $35,666 en su propia tarjeta) seguía
+     mostrando el total de PROLEC completo (333, $2,492,504) al entrar. */
+  const base = hayDirectorioSitios
+    ? baseGrupo.filter(a => (a.sitioNombre || '').trim() === estado.sitioFiltroActivo)
+    : baseGrupo;
 
   const r = resumirActivos(base);
   let h = '<div style="margin-bottom:14px">'
