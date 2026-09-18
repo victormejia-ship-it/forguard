@@ -12986,7 +12986,7 @@ function thOrdenPoliza(etiqueta, clave){
 function tablaPolizas(lista){
   return '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:1400px"><thead><tr>'
        +   thOrdenPoliza('Sitio', 'sitio') + thOrdenPoliza('Cliente', 'cliente') + thOrdenPoliza('Folio', 'folio')
-       +   thOrdenPoliza('Estado', 'estado') + thOrdenPoliza('Cargo a', 'cargoA') + thOrdenPoliza('Vigencia', 'vigencia')
+       +   thOrdenPoliza('Estado', 'estado') + thOrdenPoliza('Cargo a', 'cargoA') + '<th>Ajuste</th>' + thOrdenPoliza('Vigencia', 'vigencia')
        +   thOrdenPoliza('Precio anual', 'precioAnual') + thOrdenPoliza('Precio mensual', 'precioMensual')
        +   thOrdenPoliza('Costo anual', 'costoAnual') + thOrdenPoliza('Costo mensual', 'costoMensual')
        +   thOrdenPoliza('Margen anual', 'margen') + thOrdenPoliza('Margen mensual', 'margenMensual')
@@ -13003,6 +13003,13 @@ function tablaPolizas(lista){
                 +   '<td>' + (p.cargoA === 'interno'
                        ? '<span class="insignia i-alerta">Interno' + (p.cargoAInterno ? ' · ' + esc(p.cargoAInterno) : '') + '</span>'
                        : '<span class="pista">Cliente</span>') + '</td>'
+                /* Mismo chip que ya trae la tarjeta (pedido de Victor, 18-sep-2026:
+                   "agrégalo también en la vista de tabla, porque sigue sin
+                   aparecer") — la vista de tabla no heredaba nada de la de
+                   tarjetas, así que sin esto solo se veía al cambiar a tarjetas. */
+                +   '<td>' + (p.descuento
+                       ? '<span class="insignia i-info">' + (c.esAumento ? 'Aumento' : 'Descuento') + ' ' + c.descuentoAbs + '%</span>'
+                       : '<span class="pista">—</span>') + '</td>'
                 +   '<td>' + fmtFecha(p.fechaInicio) + '</td>'
                 +   '<td>' + dinero(c.precioAnual) + '</td>'
                 +   '<td>' + dinero(c.precioMensual) + '</td>'
