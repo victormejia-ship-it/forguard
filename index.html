@@ -9598,6 +9598,13 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                     pantalla, no dato, así que no se sube a la nube. */
                  fuentesOcultasResultados:[],
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'', categoriaFiltroActivo:'',
+                 /* Filtro por sitio DENTRO del listado de Activos de un
+                    cliente (distinto de `sitioFiltro`, que es de Clientes/
+                    Forpass) — pedido explícito de Victor (17-sep-2026,
+                    séptima vuelta): un cliente con varios sitios subidos
+                    (ej. Prolec con 2) los mostraba todos juntos, sin forma
+                    de separarlos. */
+                 sitioFiltroActivo:'',
                  /* Modo de selección múltiple de Activos, para poder borrar
                     varios de un jalón (ej. limpiar todo un lote mal
                     importado o toda una categoría) — pedido explícito de
@@ -9790,7 +9797,7 @@ function irAModulo(m){
   estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null; estado.visitaId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
-  estado.activosClienteId = ''; estado.seleccionActivos = false;
+  estado.activosClienteId = ''; estado.sitioFiltroActivo = ''; estado.seleccionActivos = false;
   animarTarjetas = true;      /* lista nueva: sí anima */
   render();                   /* UN render, no dos */
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -9828,7 +9835,7 @@ function irAInicio(){
   estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null; estado.visitaId = null;
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
-  estado.activosClienteId = ''; estado.seleccionActivos = false;
+  estado.activosClienteId = ''; estado.sitioFiltroActivo = ''; estado.seleccionActivos = false;
   animarTarjetas = true;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -9951,6 +9958,7 @@ function irAActivos(){
   estado.filtro = 'todos';
   estado.busca = '';
   estado.categoriaFiltroActivo = '';
+  estado.sitioFiltroActivo = '';
   estado.seleccionActivos = false;
   animarTarjetas = true;
   render();
@@ -9975,6 +9983,7 @@ function entrarActivosGrupo(id){
   estado.filtro = 'todos';
   estado.busca = '';
   estado.categoriaFiltroActivo = '';
+  estado.sitioFiltroActivo = '';
   estado.seleccionActivos = false;
   animarTarjetas = true;
   render();
@@ -9994,6 +10003,7 @@ function verActivosDe(texto){
   estado.activoId = null;
   estado.filtro = 'todos';
   estado.categoriaFiltroActivo = '';
+  estado.sitioFiltroActivo = '';
   estado.seleccionActivos = false;
   if(cliente){
     estado.activosClienteId = cliente.id;
@@ -14095,6 +14105,13 @@ function vistaActivosListado(){
 
   const vistaTabla = estado.vistaActivos === 'tabla';
   const categoriasEnUso = Array.from(new Set(base.map(a => (a.categoria || '').trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, 'es'));
+  /* Un cliente puede traer varios sitios subidos (ej. Prolec con 2) — sin
+     este filtro quedaban todos amontonados en un solo listado, sin forma
+     de separarlos ni de generar/exportar uno a la vez. Pedido explícito de
+     Victor (17-sep-2026, séptima vuelta). Solo aparece si de verdad hay
+     más de un sitio distinto entre los activos visibles aquí. */
+  const sitiosEnUso = Array.from(new Set(base.map(a => (a.sitioNombre || '').trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, 'es'));
+  if(sitiosEnUso.length < 2 && estado.sitioFiltroActivo) estado.sitioFiltroActivo = '';
   h += '<div class="barra-busca">'
      +   '<input type="search" id="buscaActivo" placeholder="Buscar por folio, nombre, marca, serie, sitio o cliente…" value="' + esc(estado.busca) + '">'
      +   '<select id="filtroActivo">'
@@ -14111,6 +14128,12 @@ function vistaActivosListado(){
             +   categoriasEnUso.map(c => '<option value="' + esc(c) + '"' + (estado.categoriaFiltroActivo === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('')
             + '</select>'
           : '')
+     +   (sitiosEnUso.length > 1
+          ? '<select id="sitioFiltroActivo">'
+            +   '<option value="">Todos los sitios (' + sitiosEnUso.length + ')</option>'
+            +   sitiosEnUso.map(s => '<option value="' + esc(s) + '"' + (estado.sitioFiltroActivo === s ? ' selected' : '') + '>' + esc(s) + '</option>').join('')
+            + '</select>'
+          : '')
      +   controlAlternaVista('vistaActivos')
      + '</div>';
 
@@ -14122,6 +14145,7 @@ function vistaActivosListado(){
       if(!campos.some(v => (v||'').toLowerCase().includes(q))) return false;
     }
     if(estado.categoriaFiltroActivo && a.categoria !== estado.categoriaFiltroActivo) return false;
+    if(estado.sitioFiltroActivo && (a.sitioNombre || '').trim() !== estado.sitioFiltroActivo) return false;
     if(estado.filtro === 'cliente' || estado.filtro === 'interno') return a.tipo === estado.filtro;
     if(ESTATUS_ACTIVO.includes(estado.filtro)) return a.estatus === estado.filtro;
     if(estado.filtro === 'mantenimiento_pendiente'){
@@ -20729,6 +20753,8 @@ function render(){
     }
     const cfA = $('categoriaFiltroActivo');
     if(cfA) cfA.addEventListener('change', ()=>{ estado.categoriaFiltroActivo = cfA.value; render(); });
+    const sfA = $('sitioFiltroActivo');
+    if(sfA) sfA.addEventListener('change', ()=>{ estado.sitioFiltroActivo = sfA.value; render(); });
   }
   const bpGp = $('buscaGastoProveedor');
   if(bpGp){
