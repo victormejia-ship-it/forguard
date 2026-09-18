@@ -10043,6 +10043,36 @@ function entrarActivosGrupo(id){
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
+/* Entra al sitio de un cliente (desde su directorio de sitios — ver
+   vistaActivosSitios()): ahora sí el listado completo, filtrado a ese
+   sitio. Pedido de Victor (18-sep-2026): "separarlos en recuadros por
+   sitio una vez que ingresemos al cliente y ya cuando seleccionemos el
+   sitio ahora si el listado como se muestra actualmente" — mismo patrón
+   de dos niveles que ya tiene el directorio de clientes, un nivel más
+   adentro. */
+function entrarActivosSitio(nombreSitio){
+  estado.vista = 'activos';
+  estado.activoId = null;
+  estado.sitioFiltroActivo = nombreSitio;
+  estado.filtro = 'todos';
+  estado.busca = '';
+  estado.categoriaFiltroActivo = '';
+  estado.seleccionActivos = false;
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+/* Regresa del listado de UN sitio al directorio de sitios de su cliente —
+   a diferencia de irAActivos(), NO resetea a qué cliente se había
+   entrado, solo el sitio. */
+function regresarActivosSitios(){
+  estado.vista = 'activos';
+  estado.activoId = null;
+  estado.sitioFiltroActivo = '';
+  animarTarjetas = true;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
 /* Mismo puente que verReportesDe(), para consultar los activos de un
    cliente o sitio desde su ficha de Forpass. Si el texto coincide con el
    nombre de un cliente, entra directo a su apartado; si no (ej. viene de
@@ -14113,9 +14143,52 @@ function vistaActivosDirectorio(){
   return h;
 }
 
+/* Directorio de sitios de UN cliente — mismo patrón que
+   vistaActivosDirectorio(), un nivel más adentro: una tarjeta por sitio
+   distinto que ese cliente tenga subido. Entrar a una muestra su
+   inventario completo (ver entrarActivosSitio()). Solo se llega aquí
+   cuando el cliente tiene más de un sitio — con uno solo no hay nada que
+   separar y se va directo al listado, como siempre. */
+function vistaActivosSitios(clienteGrupo, baseCliente, sitiosEnUso){
+  let h = '<div style="margin-bottom:14px">'
+        + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-activos">' + ICONO.atras + 'Todos los clientes</button></div>';
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>' + esc(clienteGrupo.nombre) + '</h2>'
+     +   '<p>' + numero(baseCliente.length) + ' ' + plural(baseCliente.length,'activo','activos')
+     +     ' en ' + numero(sitiosEnUso.length) + ' ' + plural(sitiosEnUso.length,'sitio','sitios') + '</p>'
+     + '</div></div>';
+
+  const tarjetaSitio = (nombreSitio, i) => {
+    const activosSitio = baseCliente.filter(a => (a.sitioNombre || '').trim() === nombreSitio);
+    const rs = resumirActivos(activosSitio);
+    return '<div class="tarjeta tarjeta-clic" data-activos-sitio="' + esc(nombreSitio) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+         +   '<div class="t-cabeza">'
+         +     '<div class="t-avatar">' + esc(iniciales(nombreSitio)) + '</div>'
+         +     '<div style="flex:1; min-width:0">'
+         +       '<div class="t-nombre">' + esc(nombreSitio) + '</div>'
+         +       '<div class="t-sub">' + numero(activosSitio.length) + ' ' + plural(activosSitio.length,'activo','activos') + '</div>'
+         +     '</div>'
+         +   '</div>'
+         +   '<div class="t-datos">'
+         +     '<div class="t-dato"><div class="d-label">Valor</div><div class="d-valor chico">' + dinero(rs.valor) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">En operación</div><div class="d-valor chico">' + numero(rs.operacion) + '</div></div>'
+         +   '</div>'
+         +   '<div class="t-pie"><span class="pista">Ver inventario →</span></div>'
+         + '</div>';
+  };
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">'
+     + sitiosEnUso.map((s,i) => tarjetaSitio(s,i)).join('')
+     + '</div>';
+
+  return h;
+}
+
 /* Listado completo (búsqueda, filtros, tabla/tarjetas, selección múltiple)
-   ya sea de UN cliente, de los internos, o de todo sin agrupar —
-   estado.activosClienteId decide cuál. */
+   ya sea de UN cliente (o UN sitio suyo), de los internos, o de todo sin
+   agrupar — estado.activosClienteId (y estado.sitioFiltroActivo) deciden
+   cuál. */
 function vistaActivosListado(){
   const idGrupo = estado.activosClienteId;
   const idsEspeciales = ['__todos__', '__interno__', '__sin_cliente__'];
@@ -14124,11 +14197,30 @@ function vistaActivosListado(){
     : idGrupo === '__interno__' ? datos.activos.filter(a => a.tipo === 'interno')
     : idGrupo === '__sin_cliente__' ? datos.activos.filter(a => a.tipo === 'cliente' && !a.clienteId)
     : datos.activos.filter(a => a.tipo === 'cliente' && a.clienteId === idGrupo);
+
+  /* Un cliente puede traer varios sitios subidos (ej. Prolec con 2). Pedido
+     de Victor (18-sep-2026): mismo patrón que el directorio de clientes,
+     un nivel más adentro — "separarlos en recuadros por sitio una vez que
+     ingresemos al cliente y ya cuando seleccionemos el sitio ahora sí el
+     listado como se muestra actualmente". Solo aplica a un cliente REAL
+     (clienteGrupo): '__todos__'/'__interno__'/'__sin_cliente__' siguen con
+     el listado plano de siempre (mezclan varios clientes/orígenes, un
+     directorio de sitios ahí no tendría un "dueño" claro). */
+  const sitiosEnUso = Array.from(new Set(base.map(a => (a.sitioNombre || '').trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, 'es'));
+  if(sitiosEnUso.length < 2 && estado.sitioFiltroActivo) estado.sitioFiltroActivo = '';
+  const hayDirectorioSitios = !!clienteGrupo && sitiosEnUso.length > 1;
+  if(hayDirectorioSitios && !estado.sitioFiltroActivo) return vistaActivosSitios(clienteGrupo, base, sitiosEnUso);
+
   const r = resumirActivos(base);
   let h = '<div style="margin-bottom:14px">'
-        + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-activos">' + ICONO.atras + 'Todos los clientes</button></div>';
+        + '<button type="button" class="btn btn-suave btn-mini" data-accion="' + (hayDirectorioSitios ? 'regresar-activos-sitios' : 'ir-activos') + '">' + ICONO.atras
+        +   (hayDirectorioSitios ? esc(clienteGrupo.nombre) : 'Todos los clientes') + '</button></div>';
 
-  const titulo = idGrupo === '__todos__' ? 'Todos los activos'
+  /* Con directorio de sitios, ya se llegó aquí ELIGIENDO uno (ver arriba):
+     el título pasa a ser el sitio — el botón de regreso ya deja claro de
+     qué cliente es. */
+  const titulo = hayDirectorioSitios ? estado.sitioFiltroActivo
+    : idGrupo === '__todos__' ? 'Todos los activos'
     : idGrupo === '__interno__' ? 'Activos internos'
     : idGrupo === '__sin_cliente__' ? 'Sin cliente asignado'
     : (clienteGrupo ? clienteGrupo.nombre : 'Activos');
@@ -14170,13 +14262,6 @@ function vistaActivosListado(){
 
   const vistaTabla = estado.vistaActivos === 'tabla';
   const categoriasEnUso = Array.from(new Set(base.map(a => (a.categoria || '').trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, 'es'));
-  /* Un cliente puede traer varios sitios subidos (ej. Prolec con 2) — sin
-     este filtro quedaban todos amontonados en un solo listado, sin forma
-     de separarlos ni de generar/exportar uno a la vez. Pedido explícito de
-     Victor (17-sep-2026, séptima vuelta). Solo aparece si de verdad hay
-     más de un sitio distinto entre los activos visibles aquí. */
-  const sitiosEnUso = Array.from(new Set(base.map(a => (a.sitioNombre || '').trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, 'es'));
-  if(sitiosEnUso.length < 2 && estado.sitioFiltroActivo) estado.sitioFiltroActivo = '';
   h += '<div class="barra-busca">'
      +   '<input type="search" id="buscaActivo" placeholder="Buscar por folio, nombre, marca, serie, sitio o cliente…" value="' + esc(estado.busca) + '">'
      +   '<select id="filtroActivo">'
@@ -14193,7 +14278,12 @@ function vistaActivosListado(){
             +   categoriasEnUso.map(c => '<option value="' + esc(c) + '"' + (estado.categoriaFiltroActivo === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('')
             + '</select>'
           : '')
-     +   (sitiosEnUso.length > 1
+     /* Para un cliente real con más de un sitio, ese filtro ahora se hace
+        entrando/saliendo del directorio de sitios (arriba) — este select
+        solo sigue haciendo falta en los apartados especiales que mezclan
+        varios orígenes ('__todos__'/'__interno__'/'__sin_cliente__'), que
+        no tienen un directorio propio. */
+     +   (sitiosEnUso.length > 1 && !clienteGrupo
           ? '<select id="sitioFiltroActivo">'
             +   '<option value="">Todos los sitios (' + sitiosEnUso.length + ')</option>'
             +   sitiosEnUso.map(s => '<option value="' + esc(s) + '"' + (estado.sitioFiltroActivo === s ? ' selected' : '') + '>' + esc(s) + '</option>').join('')
@@ -26824,6 +26914,7 @@ $('vista').addEventListener('click', ev=>{
     }
     else if(a === 'ir-activos') irAActivos();
     else if(a === 'regresar-activos-listado') regresarActivosListado();
+    else if(a === 'regresar-activos-sitios') regresarActivosSitios();
     else if(a === 'ver-todos-activos-sin-agrupar'){ estado.activosClienteId = '__todos__'; estado.busca = ''; animarTarjetas = true; render(); }
     else if(a === 'mantenimiento-pendiente-activos'){
       estado.modulo = 'activos'; estado.vista = 'activos';
@@ -27478,6 +27569,9 @@ $('vista').addEventListener('click', ev=>{
   const tarAcg = t.closest('[data-activos-grupo]');
   if(tarAcg){ entrarActivosGrupo(tarAcg.dataset.activosGrupo); return; }
 
+  const tarAcs = t.closest('[data-activos-sitio]');
+  if(tarAcs){ entrarActivosSitio(tarAcs.dataset.activosSitio); return; }
+
   const tarGp = t.closest('[data-gasto-proveedor]');
   if(tarGp){ entrarGastoProveedor(tarGp.dataset.gastoProveedor); return; }
 
@@ -27612,6 +27706,8 @@ $('vista').addEventListener('keydown', ev=>{
   if(tarAc){ ev.preventDefault(); entrarActivo(tarAc.dataset.activo); return; }
   const tarAcg = ev.target.closest('[data-activos-grupo]');
   if(tarAcg){ ev.preventDefault(); entrarActivosGrupo(tarAcg.dataset.activosGrupo); return; }
+  const tarAcs = ev.target.closest('[data-activos-sitio]');
+  if(tarAcs){ ev.preventDefault(); entrarActivosSitio(tarAcs.dataset.activosSitio); return; }
   const tarGp = ev.target.closest('[data-gasto-proveedor]');
   if(tarGp){ ev.preventDefault(); entrarGastoProveedor(tarGp.dataset.gastoProveedor); return; }
   const tarPv = ev.target.closest('[data-proveedor]');
