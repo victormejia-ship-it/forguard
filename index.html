@@ -13258,6 +13258,12 @@ function vistaPolizas(){
          +       dinero(c.utilidadAnual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
          +     '<div class="t-dato"><div class="d-label">Margen mensual</div><div class="d-valor" style="color:' + (c.utilidadMensual >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
          +       dinero(c.utilidadMensual) + ' <span class="pista" style="display:inline">(' + c.margenPct.toFixed(1) + '%)</span></div></div>'
+         /* Pedido de Victor (21-sep-2026): "podrias colocar tambien en los
+            recuadros la vigencia de la poliza" — antes solo se veía en la
+            vista de tabla (columna "Vigencia", solo la fecha de inicio) o
+            entrando al detalle; en la tarjeta no aparecía en ningún lado. */
+         +     '<div class="t-dato" style="grid-column:1/-1"><div class="d-label">Vigencia</div><div class="d-valor chico">'
+         +       fmtFecha(p.fechaInicio) + ' – ' + fmtFecha(c.fin) + '</div></div>'
          +     '<div class="t-dato" style="grid-column:1/-1"><div class="d-label">Servicios</div><div class="d-valor">' + c.hechos + ' de ' + c.programados + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie">'
