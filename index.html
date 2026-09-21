@@ -3758,6 +3758,41 @@ const LLAVE_COLA = 'forguard_forpass_cola_v1';
 let cola = [];
 let vaciando = false, intentosFallidos = 0, temporizadorCola = null;
 
+/* ============== CAMBIOS QUE EL SERVIDOR RECHAZÓ DEFINITIVAMENTE ==============
+   Veredicto de auditoría (21-sep-2026, hallazgo Datos, 3 d-p): "El técnico
+   captura mantenimientos que el servidor rechaza: se borran solos y las
+   fotos quedan huérfanas". Causa raíz encontrada: cuando escribirNube()
+   falla con SIN_PERMISO o ERROR_PERMANENTE (ver vaciarCola), el cambio se
+   sacaba de `cola` con solo un toast — y un toast se pierde si nadie lo ve
+   justo en ese momento, muy común en campo con señal intermitente. El
+   registro seguía viviendo en `datos` en memoria, PERO refrescarDesdeNube()
+   corre sola cada 30s (index.html:27578) y en cuanto la cola queda vacía
+   vuelve a bajar bajarDeLaNube(), que REEMPLAZA `datos` entero con la copia
+   del servidor — donde este registro nunca llegó a existir. Así "se borraba
+   solo", sin que nadie lo borrara a propósito, y las fotos que ya se habían
+   subido a Storage (siempre ANTES del guardado, ver subirEvidenciaStorage)
+   se quedaban huérfanas, sin ningún documento que las referencie.
+   Esta cola guarda cada rechazo definitivo, sobrevive recargas igual que
+   `cola`, y bajarDeLaNube() la usa para no volver a pisar esos registros —
+   se quedan visibles hasta que alguien los revise y los descarte a mano
+   (ver modalCambiosRechazados()). */
+const LLAVE_COLA_RECHAZADA = 'forguard_forpass_rechazados_v1';
+let colaRechazada = [];
+function cargarColaRechazada(){
+  try{ colaRechazada = JSON.parse(localStorage.getItem(LLAVE_COLA_RECHAZADA) || '[]'); }catch(e){ colaRechazada = []; }
+}
+function guardarColaRechazada(){
+  try{ localStorage.setItem(LLAVE_COLA_RECHAZADA, JSON.stringify(colaRechazada)); }catch(e){}
+}
+/* Se llama cuando ESE MISMO registro por fin se guarda bien (el usuario lo
+   volvió a editar y esta vez sí pasó): ya no tiene caso seguir avisando de
+   un rechazo que quedó resuelto. */
+function quitarDeColaRechazada(coleccion, id){
+  const antes = colaRechazada.length;
+  colaRechazada = colaRechazada.filter(x => !(x.coleccion === coleccion && x.id === id));
+  if(colaRechazada.length !== antes) guardarColaRechazada();
+}
+
 /* La cola es lo único que de verdad no se puede perder: es la lista de
    cambios que todavía no llegan al servidor. Si el aparato se queda sin
    espacio justo para ESTA llave de localStorage (raro, porque es chica,
@@ -3832,10 +3867,19 @@ async function vaciarCola(){
              reemplazó y quitarla aquí tiraría la versión nueva sin mandarla. */
           if(cola[0] === op) cola.shift();
           guardarCola();
+          /* Se guarda en colaRechazada (ver arriba) para que no desaparezca
+             solo en el siguiente refresco de bajarDeLaNube(). */
+          if(op.tipo !== 'borrar'){
+            colaRechazada = colaRechazada.filter(x => !(x.coleccion === op.coleccion && x.id === op.id));
+            colaRechazada.push({ coleccion: op.coleccion, id: op.id, obj: op.obj,
+              motivo: 'Sin permiso para guardar esta colección.', cuando: new Date().toISOString() });
+            guardarColaRechazada();
+          }
           aviso('El servidor rechazó un cambio en «' + op.coleccion + '». Se quedó guardado aquí, pero no subió. '
               + (op.coleccion === 'catalogo'
                   ? 'Falta publicar la regla de /catalogo en Firebase.'
                   : 'Puede faltar la regla de esa colección, o tu permiso no alcanza.'), true);
+          pintarEstadoNube();
           continue;
         }
         /* Un 4xx (típicamente 400: el documento pasó del 1 MiB que permite
@@ -3850,11 +3894,23 @@ async function vaciarCola(){
           guardarCola();
           const detalle = String(e.message || '').replace('ERROR_PERMANENTE: ', '').slice(0, 180);
           const nombreRegistro = (op.obj && (op.obj.nombreProyecto || op.obj.folio)) || op.id;
+          /* Mismo cuidado que SIN_PERMISO arriba: sin esto, el próximo refresco
+             de 30s (refrescarDesdeNube → bajarDeLaNube) lo borraba de `datos`
+             sin que nadie se enterara — y si ya traía fotos subidas a Storage
+             (subirEvidenciaStorage corre ANTES de encolar el guardado), esas
+             quedaban huérfanas: ningún documento las vuelve a referenciar. */
+          if(op.tipo !== 'borrar'){
+            colaRechazada = colaRechazada.filter(x => !(x.coleccion === op.coleccion && x.id === op.id));
+            colaRechazada.push({ coleccion: op.coleccion, id: op.id, obj: op.obj,
+              motivo: detalle, cuando: new Date().toISOString() });
+            guardarColaRechazada();
+          }
           aviso('El servidor rechazó guardar «' + nombreRegistro + '» (' + op.coleccion + ') y no se va a resolver reintentando — '
               + detalle + '. '
               + (op.coleccion === 'proyectosImagen'
                   ? 'Es probable que las imágenes o PDFs juntos ya no quepan en un solo documento: quita alguna imagen del proyecto y vuelve a guardar.'
                   : 'Revisa el contenido de ese registro.'), true);
+          pintarEstadoNube();
           continue;
         }
         throw e;
@@ -3868,6 +3924,10 @@ async function vaciarCola(){
          eso y el segundo guardado se perdía sin ningún aviso. */
       if(cola[0] === op) cola.shift();
       guardarCola();
+      /* Si este mismo registro había quedado marcado como rechazo definitivo
+         y ahora sí se guardó bien (se corrigió y se volvió a intentar), ya no
+         hace falta seguir avisando de un problema resuelto. */
+      quitarDeColaRechazada(op.coleccion, op.id);
       pintarEstadoNube();
     }
     intentosFallidos = 0;
@@ -3934,6 +3994,16 @@ async function bajarDeLaNube(){
             refacciones: (rf === null ? datos.refacciones : rf.map(normalizarRefaccion)),
             ordenesCompra: (oc === null ? datos.ordenesCompra : oc.map(normalizarOrdenCompra)),
             visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)) };
+  /* Veredicto de auditoría (21-sep-2026): un registro con un rechazo
+     definitivo pendiente (ver colaRechazada arriba) nunca llegó a existir
+     del lado del servidor, así que el reemplazo de arriba lo deja fuera sin
+     que nadie lo haya borrado a propósito. Se vuelve a meter a su colección
+     tal cual estaba en memoria, para que se quede visible hasta que alguien
+     lo revise y lo descarte (ver modalCambiosRechazados()). */
+  colaRechazada.forEach(rj => {
+    const arr = datos[rj.coleccion];
+    if(Array.isArray(arr) && rj.obj && !arr.some(x => x.id === rj.id)) arr.push(rj.obj);
+  });
   guardarLocal();
   return 'ok';
 }
@@ -8012,6 +8082,21 @@ function pintarEstadoNube(){
     p.innerHTML = '<span class="punto p-neutro"></span><span class="txt">Sin sesión</span>';
     return;
   }
+  /* Veredicto de auditoría (21-sep-2026): esto va ANTES de "cola.length" y a
+     propósito no desaparece solo cuando la cola normal se vacía — es
+     justamente lo contrario de un cambio pendiente (ese si se resuelve solo
+     al volver el internet; un rechazo definitivo NO, alguien tiene que
+     revisarlo). Se queda pintado hasta que se descarte a mano en
+     modalCambiosRechazados(). */
+  if(colaRechazada.length){
+    p.className = 'pastilla n-error';
+    p.style.cursor = 'pointer';
+    p.innerHTML = '<span class="punto p-error"></span><span class="txt">' + colaRechazada.length
+                + ' ' + plural(colaRechazada.length, 'cambio rechazado', 'cambios rechazados') + '</span>';
+    p.title = 'El servidor rechazó definitivamente estos cambios. Haz clic para revisarlos.';
+    return;
+  }
+  p.style.cursor = '';
   if(cola.length){
     const err = intentosFallidos > 0;
     p.className = 'pastilla ' + (err ? 'n-error' : 'n-trabajo');
@@ -8025,6 +8110,39 @@ function pintarEstadoNube(){
   p.className = 'pastilla n-ok';
   p.innerHTML = '<span class="punto p-ok"></span><span class="txt">Guardado en la nube</span>';
   p.title = 'Todo está guardado en el servidor.';
+}
+$('estadoNube').addEventListener('click', ()=>{ if(colaRechazada.length) modalCambiosRechazados(); });
+
+/* Veredicto de auditoría (21-sep-2026): lista los cambios que el servidor
+   rechazó definitivamente (ver colaRechazada) para que alguien los revise a
+   mano — típicamente falta una regla de Firestore, o el registro ya no cabe
+   en 1 MiB — y decida si vale la pena recapturarlo, y si hace falta borrar a
+   mano alguna foto huérfana en Storage (ver subirEvidenciaStorage: las fotos
+   siempre se suben ANTES de intentar guardar el documento, así que un
+   rechazo del documento no se lleva las fotos entre las patas). "Descartar"
+   solo quita el aviso de aquí; no reintenta guardar nada. */
+function modalCambiosRechazados(){
+  if(!colaRechazada.length){ cerrarModal(); return; }
+  const filas = colaRechazada.map((rj, i) => {
+    const nombre = (rj.obj && (rj.obj.folio || rj.obj.nombreProyecto || rj.obj.titulo || rj.obj.nombre)) || rj.id;
+    return '<tr><td>' + esc(rj.coleccion) + '</td><td>' + esc(nombre) + '</td>'
+      + '<td>' + esc(rj.motivo || '') + '</td>'
+      + '<td>' + esc(new Date(rj.cuando).toLocaleString('es-MX')) + '</td>'
+      + '<td><button type="button" class="btn btn-suave btn-mini" data-descartar-rechazo="' + i + '">Descartar</button></td></tr>';
+  }).join('');
+  const cuerpo = '<p>El servidor rechazó guardar estos registros y no se va a resolver solo. '
+    + 'Se quedan visibles en esta pantalla mientras no los descartes.</p>'
+    + '<div class="rodillo"><table class="tabla"><thead><tr><th>Colección</th><th>Registro</th><th>Motivo</th><th>Cuándo</th><th></th></tr></thead>'
+    + '<tbody>' + filas + '</tbody></table></div>';
+  abrirModal('Cambios rechazados por el servidor', cuerpo, '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
+  $('modalCuerpo').querySelectorAll('[data-descartar-rechazo]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const rj = colaRechazada[Number(btn.dataset.descartarRechazo)];
+      if(rj) quitarDeColaRechazada(rj.coleccion, rj.id);
+      pintarEstadoNube();
+      if(colaRechazada.length) modalCambiosRechazados(); else cerrarModal();
+    });
+  });
 }
 
 /* Rellena valores faltantes para que un sitio viejo o importado no rompa la vista. */
@@ -29996,6 +30114,7 @@ function vistaPortalReporte(r){
 if(!arrancarFormularioPublicoReportesSiAplica()){
 cargar();
 cargarCola();
+cargarColaRechazada();
 /* Antes del primer render: la app abre en el módulo donde te quedaste, y así el
    selector no parpadea de Forpass a Pólizas al arrancar. */
 cargarModulo();
