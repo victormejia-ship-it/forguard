@@ -5366,9 +5366,16 @@ function reportesAsignadosA(uid, nombre){
     && r.tecnicos.some(t => (t.uid && uid && t.uid === uid) || (!t.uid && nombre && t.nombre === nombre)));
 }
 /* Mismo criterio doble, para visitas (ver normalizarVisita: tecnicoUid
-   queda vacío cuando se capturó el nombre a mano). */
+   queda vacío cuando se capturó el nombre a mano). (datos.visitas || [])
+   por robustez (veredicto de auditoría, 21-sep-2026): esta función es
+   justo la que tronaba "la agenda del técnico" cuando cargar()/
+   restaurarSnapshotIndexedDB() dejaban datos.visitas en undefined — el
+   hueco real ya se cerró ahí, pero esta es la función que de verdad se
+   ejecuta al recargar (Mi agenda, para un técnico), así que se blinda
+   aparte: que un futuro camino de carga vuelva a olvidar "visitas" no
+   debe tronar la agenda otra vez. */
 function visitasDeCuenta(uid, nombre){
-  return datos.visitas.filter(v => v.estatus !== 'cancelada'
+  return (datos.visitas || []).filter(v => v.estatus !== 'cancelada'
     && ((v.tecnicoUid && uid && v.tecnicoUid === uid) || (!v.tecnicoUid && nombre && v.tecnicoNombre === nombre)));
 }
 /* Sitios donde esta cuenta ya tiene algo entre manos: un reporte asignado,
