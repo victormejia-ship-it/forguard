@@ -221,7 +221,11 @@ function pintarError(msg){
 if(!PI){
   pintarError(LEIDO.error || 'No se pudo leer el documento.');
 }else{
-  const eyebrow = 'Control de Forpass · Imagen / Apertura';
+  /* Pedido de Victor (21-sep-2026): el PDF sale con precio de venta por
+     default; "PDF con costos" es la excepción rara para uso interno — este
+     distintivo evita que se comparta por error con un cliente creyendo que
+     lleva precio de venta cuando en realidad lleva el costo. */
+  const eyebrow = 'Control de Forpass · Imagen / Apertura' + (PI.esCosto ? ' · USO INTERNO (COSTOS)' : '');
   const titulo = 'Imagen / Apertura';
   document.title = titulo + ' · ' + (PI.folio || '');
 
@@ -290,15 +294,15 @@ if(!PI){
      parte de la MISMA tabla (no aparte), así que se paginan igual que
      cualquier otro renglón de costo. */
   if(filasCostoInfo.length){
-    filasCostoInfo.push({ html: '<tr class="subtotal primero"><td colspan="4" style="text-align:right">Costo de materiales</td>'
+    filasCostoInfo.push({ html: '<tr class="subtotal primero"><td colspan="4" style="text-align:right">' + esc(PI.etiquetas.materiales) + '</td>'
       + '<td class="num">' + esc(PI.costoMateriales) + '</td></tr>' });
-    filasCostoInfo.push({ html: '<tr class="subtotal"><td colspan="4" style="text-align:right">Costo de mano de obra</td>'
+    filasCostoInfo.push({ html: '<tr class="subtotal"><td colspan="4" style="text-align:right">' + esc(PI.etiquetas.manoObra) + '</td>'
       + '<td class="num">' + esc(PI.costoManoObra) + '</td></tr>' });
-    filasCostoInfo.push({ html: '<tr class="total"><td colspan="4" style="text-align:right">Monto de inversión total</td>'
+    filasCostoInfo.push({ html: '<tr class="total"><td colspan="4" style="text-align:right">' + esc(PI.etiquetas.total) + '</td>'
       + '<td class="num">' + esc(PI.totalConceptos) + '</td></tr>' });
   }
   const cabezaCostos = '<table class="costos-tabla"><thead><tr><th>Proveedor</th><th>Concepto</th>'
-    + '<th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>';
+    + '<th>Cantidad</th><th>' + esc(PI.etiquetas.columnaPrecio) + '</th><th>Subtotal</th></tr></thead><tbody>';
 
   /* Fecha de apertura/entrada/salida/duración y notas: solo en la PRIMERA
      hoja, igual que "Fecha objetivo" siempre vivió ahí — repetirlas en cada

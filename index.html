@@ -9573,9 +9573,17 @@ function abrirDocumentoLevantamiento(id){
 /* Documento de un proyecto de Imagen/Aperturas: mismo criterio exacto que
    armarPayloadLevantamiento() — solo strings ya formateados, ninguna cuenta
    se hace en la plantilla. */
-function armarPayloadProyectoImagen(p){
+/* usarCosto=false (default): el PDF sale con el PRECIO DE VENTA — pedido de
+   Victor (21-sep-2026): "que solo al momento de generar el PDF se genere en
+   automatico con los precios de venta". usarCosto=true es la excepción rara
+   ("si deseamos exportar nuestros costos... añade la opcion") que se pide a
+   propósito desde el botón secundario de la vista — ver
+   abrirDocumentoProyectoImagen(). Las etiquetas de la tabla de totales
+   cambian con el modo para no llamar "Costo de materiales" a un renglón que
+   en realidad está mostrando precio de venta. */
+function armarPayloadProyectoImagen(p, usarCosto){
   const desglose = desgloseConceptosProyecto(p);
-  const total = desglose.total;
+  const total = usarCosto ? desglose.total : desglose.totalVenta;
   return {
     meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
     contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: (sesion && sesion.correo) || '' },
@@ -9593,19 +9601,33 @@ function armarPayloadProyectoImagen(p){
     duracionDias: (p.fechaEntrada && p.fechaSalida) ? (diasEntre(p.fechaEntrada, p.fechaSalida) + 1) : null,
     responsable: p.responsable || '',
     notas: p.notas || '',
-    conceptos: p.conceptos.map(c => ({
-      proveedor: c.proveedor || '',
-      concepto: c.concepto,
-      cantidad: numero(c.cantidad),
-      precioUnitario: dinero(c.costoUnitario),
-      subtotal: dinero(c.cantidad * c.costoUnitario),
-      esManoDeObra: esConceptoManoDeObra(c)
-    })),
+    conceptos: p.conceptos.map(c => {
+      const unitario = usarCosto ? c.costoUnitario : c.precioVenta;
+      return {
+        proveedor: c.proveedor || '',
+        concepto: c.concepto,
+        cantidad: numero(c.cantidad),
+        precioUnitario: dinero(unitario),
+        subtotal: dinero(c.cantidad * unitario),
+        esManoDeObra: esConceptoManoDeObra(c)
+      };
+    }),
     totalConceptos: dinero(total),
-    /* Informativo para el estado de resultados: gasto en un rubro aparte,
-       nunca resta de la utilidad — ver calcularResultados(). */
-    costoMateriales: dinero(desglose.materiales),
-    costoManoObra: dinero(desglose.manoObra),
+    /* Con costo: informativo para el estado de resultados, gasto en un
+       rubro aparte, nunca resta de la utilidad — ver calcularResultados().
+       Con precio de venta: informativo del proyecto nada más, no toca
+       Resultados tampoco. */
+    costoMateriales: dinero(usarCosto ? desglose.materiales : desglose.materialesVenta),
+    costoManoObra: dinero(usarCosto ? desglose.manoObra : desglose.manoObraVenta),
+    /* Etiquetas de la tabla de totales: la plantilla las usa tal cual, sin
+       decidir nada — así el mismo documento sirve para los dos modos. */
+    etiquetas: {
+      columnaPrecio: usarCosto ? 'Costo unitario' : 'Precio unitario',
+      materiales: usarCosto ? 'Costo de materiales' : 'Materiales',
+      manoObra: usarCosto ? 'Costo de mano de obra' : 'Mano de obra',
+      total: usarCosto ? 'Monto de inversión total' : 'Monto total del proyecto'
+    },
+    esCosto: !!usarCosto,
     imagenes: p.imagenes.map(im => ({
       dataUrl: im.dataUrl,
       formato: im.formato,
@@ -9619,11 +9641,11 @@ function armarPayloadProyectoImagen(p){
 
 const LLAVE_DOC_PROYECTO_IMAGEN = 'forguard.documento.imagen';
 
-function abrirDocumentoProyectoImagen(id){
+function abrirDocumentoProyectoImagen(id, usarCosto){
   const p = proyectoImagenPorId(id);
   if(!p) return;
   try{
-    sessionStorage.setItem(LLAVE_DOC_PROYECTO_IMAGEN, JSON.stringify(armarPayloadProyectoImagen(p)));
+    sessionStorage.setItem(LLAVE_DOC_PROYECTO_IMAGEN, JSON.stringify(armarPayloadProyectoImagen(p, usarCosto)));
   }catch(e){
     aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
     return;
@@ -19681,7 +19703,18 @@ function vistaProyectoImagen(){
 
   h += '<div class="acciones" style="flex-wrap:wrap; margin-top:8px">';
   h += '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-proyecto-imagen" '
-    + 'title="Abre el PDF en otra pestaña, listo para guardarse o compartirse">' + ICONO.imprimir + 'Generar PDF</button>';
+    + 'title="Abre el PDF en otra pestaña, listo para guardarse o compartirse. Sale con el precio de venta.">' + ICONO.imprimir + 'Generar PDF</button>';
+  /* Excepción rara (pedido de Victor, 21-sep-2026: "sera muy rara la vez"):
+     el PDF por default siempre sale con precio de venta — este botón es
+     solo para cuando de verdad hace falta exportar el desglose de COSTO en
+     vez de precio, ej. para uso interno. A propósito discreto (mismo
+     tamaño que "Editar", no btn-primario) para no competir con el botón
+     normal de generar PDF. */
+  /* Solo Admin: el costo es información sensible (lo que de verdad paga
+     Forguard), mismo criterio que ya usa Pólizas para el % de ajuste. */
+  if(esAdmin()) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-proyecto-imagen-costo" '
+    + 'title="Excepción: genera el mismo PDF pero con el COSTO en vez del precio de venta — para uso interno.">'
+    + ICONO.imprimir + 'PDF con costos</button>';
   if(puede) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-proyecto-imagen">' + ICONO.lapiz + 'Editar</button>';
   h += '<span class="espacio"></span>';
   if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-proyecto-imagen">' + ICONO.basura + 'Eliminar</button>';
@@ -27526,6 +27559,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'nuevo-proyecto-imagen'){ if(exigirPermiso()) modalProyectoImagen(null); }
     else if(a === 'editar-proyecto-imagen'){ if(exigirPermiso()) modalProyectoImagen(estado.proyectoImagenId); }
     else if(a === 'imprimir-proyecto-imagen') abrirDocumentoProyectoImagen(estado.proyectoImagenId);
+    else if(a === 'imprimir-proyecto-imagen-costo'){ if(exigirAdmin('exportar el desglose de costos')) abrirDocumentoProyectoImagen(estado.proyectoImagenId, true); }
     else if(a === 'borrar-proyecto-imagen'){
       if(!exigirAdmin('eliminar un proyecto de imagen')) return;
       const pim = proyectoImagenPorId(estado.proyectoImagenId);
