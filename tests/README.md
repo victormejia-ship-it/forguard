@@ -72,6 +72,7 @@ node test_veredicto_sync_incremental.js
 | `test_proyecto_imagen_storage.js` | Imagen/Aperturas: las imágenes/PDFs se suben a Storage al guardar (ya no se embeben en el documento), y se pueden migrar las viejas |
 | `test_pdf_a_imagen_csp.js` | El Content-Security-Policy permite cargar pdf.js desde cdnjs.cloudflare.com (si no, un plano en PDF nunca se convertía a imagen) |
 | `test_proyecto_imagen_tarjetas.js` | Imagen/Aperturas: las tarjetas muestran costo/precio/margen (solo quien puede editar) y el logo del cliente |
+| `test_proyecto_imagen_pie_traslape.js` | El documento de Imagen/Aperturas espera a que las imágenes (ya migradas a Storage, se bajan por red) terminen de decodificar antes de paginar — si no, el pie de página se empalmaba con la última imagen de la hoja |
 
 ## Lo que falta (siguiente paso, no de esta sesión)
 

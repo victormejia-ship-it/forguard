@@ -429,14 +429,33 @@ if(!PI){
 
   /* Medir, no predecir: mismo principio que paginarHallazgos() en la
      plantilla de levantamientos — se renderizan TODAS las tarjetas fuera de
-     pantalla y se corta donde la tarjeta real choca con el pie. */
-  function paginarImagenes(){
+     pantalla y se corta donde la tarjeta real choca con el pie.
+
+     Reporte de Victor (21-sep-2026, con el plano ya convertido a imagen):
+     "está empalmando y deformando el archivo" — el pie de página
+     (.footwrap) se veía encimado sobre un render/plano. Causa raíz: a
+     diferencia de .img-pdf (alto FIJO de 2.7in, no depende de nada), una
+     imagen real (.img-foto) solo tiene un TOPE de 2.7in — su alto de
+     verdad sale de decodificar el archivo, y eso no es instantáneo ni
+     para un data: URI. Esta función media getBoundingClientRect() antes
+     de que la imagen terminara de decodificar, así que medía 0 (o casi) y
+     dejaba pasar más tarjetas de las que en realidad cabían — cuando la
+     imagen SÍ terminaba de cargar un instante después, crecía y se
+     encimaba con el pie de esa misma hoja. document.fonts.ready ya
+     protegía de este mismo problema para las fuentes; a las imágenes
+     nunca se les esperó igual. */
+  async function paginarImagenes(){
     const medidor = document.createElement('div');
     medidor.style.position = 'fixed';
     medidor.style.left = '-9999px';
     medidor.style.top = '0';
     medidor.innerHTML = paginaImagenesHTML(filasInfo.map((_,i)=>i));
     document.body.appendChild(medidor);
+
+    const imagenesDom = Array.from(medidor.querySelectorAll('img'));
+    await Promise.all(imagenesDom.map(img =>
+      img.decode ? img.decode().catch(()=>{}) : new Promise(r => { img.onload = img.onerror = r; })
+    ));
 
     const tarjetasDom = Array.from(medidor.querySelectorAll('.cuerpo > .img-card'));
     const alturas = tarjetasDom.map(el => el.getBoundingClientRect().height);
@@ -460,7 +479,7 @@ if(!PI){
     return paginas;
   }
 
-  function pintarPaginas(){
+  async function pintarPaginas(){
     const paginasCostos = paginarCostos();
     let html = paginasCostos.map((indices, i) => paginaCostosHTML(indices, i === 0)).join('');
 
@@ -475,7 +494,7 @@ if(!PI){
     }
 
     if(PI.imagenes.length){
-      const paginasImg = paginarImagenes();
+      const paginasImg = await paginarImagenes();
       html += paginasImg.map(indices => paginaImagenesHTML(indices)).join('');
 
       const colocados = paginasImg.reduce((s,p)=> s + p.length, 0);
