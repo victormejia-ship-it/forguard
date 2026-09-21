@@ -2415,7 +2415,15 @@ function cargar(){
         proveedores: (Array.isArray(d.proveedores) ? d.proveedores : []).map(normalizarProveedor),
         gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor),
         refacciones: (Array.isArray(d.refacciones) ? d.refacciones : []).map(normalizarRefaccion),
-        ordenesCompra: (Array.isArray(d.ordenesCompra) ? d.ordenesCompra : []).map(normalizarOrdenCompra) };
+        ordenesCompra: (Array.isArray(d.ordenesCompra) ? d.ordenesCompra : []).map(normalizarOrdenCompra),
+        /* Faltaba (veredicto de auditoría, 21-sep-2026): sin esta llave,
+           datos.visitas queda undefined y el módulo Visitas truena en cuanto
+           alguien lo recorre — el primer render() después de un refresh, si
+           la sesión anterior se había quedado en ese módulo. Mismo patrón
+           defensivo que las demás colecciones: un respaldo de antes de que
+           existiera Visitas no es un archivo roto, se abre con la lista
+           vacía y sigue. */
+        visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -2514,7 +2522,11 @@ async function restaurarSnapshotIndexedDB(){
       proveedores: (Array.isArray(d.proveedores) ? d.proveedores : []).map(normalizarProveedor),
       gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor),
       refacciones: (Array.isArray(d.refacciones) ? d.refacciones : []).map(normalizarRefaccion),
-      ordenesCompra: (Array.isArray(d.ordenesCompra) ? d.ordenesCompra : []).map(normalizarOrdenCompra) };
+      ordenesCompra: (Array.isArray(d.ordenesCompra) ? d.ordenesCompra : []).map(normalizarOrdenCompra),
+      /* Mismo fix que cargar() (veredicto de auditoría, 21-sep-2026): sin
+         esta llave, datos.visitas queda undefined y el módulo Visitas
+         truena en cuanto se recorre. */
+      visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
