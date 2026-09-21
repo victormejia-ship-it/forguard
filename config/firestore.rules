@@ -589,6 +589,24 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    /* --- Marcas de sincronización incremental (agregada 21-sep-2026,
+           veredicto de auditoría: hallazgo Escala 15 d-p "cada usuario baja
+           la base entera cada 30 segundos" / Integración 10 d-p) ---
+       UN documento, meta/sync, con un campo por colección: la hora del
+       último cambio ahí. No es dato de negocio —nadie lee nada sensible
+       aquí, como mucho "algo cambió en Refacciones" sin decir qué ni de
+       quién—, es la señal que evita que cada pestaña vuelva a bajar las 17
+       colecciones completas cada 30 segundos (ver coleccionesCambiadas()/
+       marcarCambio() en index.html). Por eso no hay candado por campo como
+       en el resto del archivo: cualquier cuenta interna con acceso puede
+       leerlo y tocar cualquier campo al guardar algo suyo. Mientras esta
+       regla no esté publicada, el refresco de 30s se cae de vuelta a bajar
+       todo completo —el comportamiento de antes de este cambio, nunca uno
+       peor—, así que esto se puede publicar cuando convenga sin prisa. */
+    match /meta/{doc} {
+      allow read, write: if conAcceso() && !esCliente();
+    }
+
     /* Todo lo que no esté listado arriba queda cerrado. */
     match /{documento=**} {
       allow read, write: if false;

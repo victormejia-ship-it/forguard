@@ -3745,15 +3745,104 @@ async function escribirNube(coleccion, id, obj){
   const campos = Object.assign({}, obj);
   delete campos.id;
   const mascara = Object.keys(campos).map(k => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
-  return pedirNube('/' + coleccion + '/' + encodeURIComponent(id) + '?' + mascara, {
+  const r = await pedirNube('/' + coleccion + '/' + encodeURIComponent(id) + '?' + mascara, {
     method:'PATCH', body: JSON.stringify({ fields: aCampos(campos) })
   });
+  marcarCambio(coleccion);
+  return r;
 }
 async function borrarNube(coleccion, id){
-  return pedirNube('/' + coleccion + '/' + encodeURIComponent(id), { method:'DELETE' }, true);
+  const r = await pedirNube('/' + coleccion + '/' + encodeURIComponent(id), { method:'DELETE' }, true);
+  marcarCambio(coleccion);
+  return r;
 }
 async function crearNube(coleccion, obj){
   return pedirNube('/' + coleccion, { method:'POST', body: JSON.stringify({ fields: aCampos(obj) }) });
+}
+
+/* ===================== MARCAS DE CAMBIO (sync incremental) =====================
+   Veredicto de auditoría (21-sep-2026, hallazgo Escala, 15 d-p): "Cada
+   usuario baja la base entera cada 30 segundos (index.html:27578)", y el
+   hallazgo de Integración (10 d-p) que dice que ese mismo barrido "hace
+   inviable cualquier integración por consulta encima". Antes, cada 30s
+   CADA pestaña abierta volvía a leer las 17 colecciones completas —el
+   cálculo del propio veredicto: ~122 millones de lecturas de Firestore al
+   día con la operación objetivo, ~1,600-2,200 USD/mes solo en lecturas.
+
+   La solución NO es dejar de refrescar —alguien necesita enterarse de un
+   cambio ajeno sin recargar la página— sino dejar de adivinar: en vez de
+   volver a bajar TODO "por si algo cambió", se pregunta primero, con UNA
+   sola lectura barata, QUÉ colecciones cambiaron de verdad, y solo esas se
+   vuelven a bajar completas.
+
+   Cada escritura o borrado exitoso (ver escribirNube/borrarNube arriba)
+   dispara marcarCambio(), que sella /meta/sync.<coleccion> con la hora.
+   refrescarDesdeNube() lee ESE documento (1 lectura, sea cual sea el
+   tamaño real de las 17 colecciones) y compara contra las marcas que ya
+   conoce (`marcas`, persistidas igual que `cola`): si el valor de una
+   colección no cambió desde la última vez, ni se intenta volver a leerla.
+
+   Ni hace falta que las marcas estén "sincronizadas en el tiempo" entre
+   dispositivos —cada una solo compara IGUALDAD contra lo último que vio,
+   nunca "es más nueva que"— así que un reloj desfasado en un celular no
+   rompe nada: en el peor caso, si dos escrituras casi seguidas dejan la
+   marca en el mismo valor exacto (mismo milisegundo, rarísimo), se
+   pierde un refresco de esa colección y se recupera en el siguiente tic
+   de 30s, o de plano en el próximo bajarDeLaNube() completo (login o
+   reconexión, que sigue sin usar marcas: ES la reconciliación completa
+   que atrapa cualquier cosa que las marcas se les escapara, INCLUIDOS los
+   borrados —un borrado nunca sale en una consulta de "qué cambió", pero
+   si dispara la marca, la colección completa se vuelve a bajar y el
+   borrado se ve solo—.
+
+   El debounce de 2s en marcarCambio() evita mandar una escritura a
+   /meta/sync por cada renglón de una carga masiva (una importación de 300
+   clientes marcaría 300 veces seguidas el mismo campo); solo importa la
+   última. */
+const LLAVE_MARCAS = 'forguard_forpass_marcas_v1';
+let marcas = {};
+function cargarMarcas(){
+  try{ marcas = JSON.parse(localStorage.getItem(LLAVE_MARCAS) || '{}'); }catch(e){ marcas = {}; }
+}
+function guardarMarcas(){ try{ localStorage.setItem(LLAVE_MARCAS, JSON.stringify(marcas)); }catch(e){} }
+let _temporizadoresMarca = {};
+function marcarCambio(coleccion){
+  if(!HAY_NUBE || coleccion === 'meta') return;
+  clearTimeout(_temporizadoresMarca[coleccion]);
+  _temporizadoresMarca[coleccion] = setTimeout(()=>{
+    delete _temporizadoresMarca[coleccion];
+    /* Sin esperar respuesta ni frenar nada: si esto falla (sin señal justo
+       en ese instante, o falta publicar la regla de /meta), lo peor que
+       pasa es que un refresco de más se haga completo en vez de selectivo
+       —exactamente el comportamiento de HOY, nunca uno peor—. */
+    escribirNube('meta', 'sync', { [coleccion]: new Date().toISOString() }).catch(()=>{});
+  }, 2000);
+}
+/* Colecciones que cambiaron desde la última vez que se preguntó, según
+   /meta/sync — o null si el documento no existe todavía (instalación
+   nueva, o ninguna escritura ha pasado por marcarCambio desde que se
+   agregó esto): en ese caso quien llama debe hacer una bajada completa,
+   la única manera de saber qué hay. */
+async function coleccionesCambiadas(){
+  try{
+    /* Mismo criterio que listarNubeSuave: mientras la regla de /meta no esté
+       publicada en la consola de Firestore, esto responde 403, no 404 — y un
+       403 aquí no debe apagar el ahorro para las colecciones que sí tienen
+       regla ni, peor, tumbar el refresco entero. Se cae de vuelta a "null",
+       que para quien llama significa "no sé qué cambió, baja todo" —
+       ni un pelo peor que el comportamiento de HOY, antes de este cambio. */
+    const d = await pedirNube('/meta/sync', { method:'GET' }, true);
+    if(!d || !d.fields) return null;
+    const marcasNube = deCampos(d.fields);
+    const cambiaron = new Set();
+    Object.keys(marcasNube).forEach(coleccion => {
+      if(marcasNube[coleccion] !== marcas[coleccion]) cambiaron.add(coleccion);
+    });
+    return { cambiaron, marcasNube };
+  }catch(e){
+    console.warn('No se pudieron leer las marcas de cambio; se hace bajada completa:', String(e.message || e));
+    return null;
+  }
 }
 
 /* ===================== COLA DE CAMBIOS PENDIENTES =====================
@@ -3953,8 +4042,18 @@ async function vaciarCola(){
 /* Trae del servidor y reemplaza la copia local.
    Si el servidor está completamente vacío pero aquí sí hay información, no la
    borra: devuelve 'vacia' para que quien arranca decida subirla. Así nadie
-   pierde lo que ya había capturado antes de conectar la nube. */
-async function bajarDeLaNube(){
+   pierde lo que ya había capturado antes de conectar la nube.
+
+   `soloColecciones` (veredicto de auditoría, 21-sep-2026, hallazgo Escala,
+   15 d-p): un Set opcional de colecciones a refrescar. Sin él (como en el
+   login y en cualquier reconexión completa), se baja TODO, exactamente
+   como siempre — es la reconciliación completa que sigue sirviendo de red
+   de seguridad para lo que las marcas de coleccionesCambiadas() se les
+   escape (borrados, o un reloj que raramente coincide justo al milisegundo
+   con una marca vieja). Con él (lo que ahora usa refrescarDesdeNube() cada
+   30s), SOLO se piden esas colecciones — el resto de `datos` se deja
+   intacto, sin ni un solo request de más. */
+async function bajarDeLaNube(soloColecciones){
   /* Una póliza pesa ~25 KB contra ~1.1 KB de un sitio, así que se piden de 60 en
      60 y no de 300: una página de 300 pólizas serían ~7 MB en una sola respuesta.
      listarNube pagina igual, nada más que en más viajes y más chicos. */
@@ -3965,20 +4064,32 @@ async function bajarDeLaNube(){
   /* serviciosExtras se sigue leyendo aquí (aunque el módulo ya no existe)
      solo para no perder nada que ya se hubiera subido antes de la fusión con
      Cotizaciones (28-ago-2026, ver migrarServiciosExtrasACotizaciones) — es
-     de solo lectura, ya no se le vuelve a escribir. */
+     de solo lectura, ya no se le vuelve a escribir. Nunca tiene marca propia
+     (nadie le vuelve a escribir), así que viaja pegada a la marca de
+     'cotizaciones': si esa colección se refresca, esta se refresca con ella. */
   /* proyectosImagen y serviciosExtras están cerrados a quien no puede editar
      precios (ver firestore.rules): un Viewer/Técnico/Reportero recibe un 403
      ahí. Con listarNube a secas eso tumbaba TODO el login de esos roles —
      mismo bug que ya pasó con /proveedores (ver listarNubeSuave arriba). */
+  /* Si no se pidió una colección en este refresco, ni se intenta leerla —
+     null de una vez, en vez de disparar la red y tirar la respuesta. */
+  const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
   const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf, oc, vi] = await Promise.all([
-    listarNube('clientes'), listarNube('sitios'), listarNube('polizas', 60), leerCatalogo(),
-    leerSegmentos(), leerParametros(), listarNube('cotizaciones'), listarNube('reportes', 60),
-    listarNube('levantamientos', 60), listarNubeSuave('proyectosImagen', 60),
-    listarNubeSuave('serviciosExtras', 60), listarNube('activos', 60), listarNube('personal', 200),
-    listarNubeSuave('proveedores', 100), listarNubeSuave('gastosProveedor', 100),
-    listarNubeSuave('refacciones', 100), listarNubeSuave('ordenesCompra', 100), listarNubeSuave('visitas', 100)
+    p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
+    p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
+    p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
+    p('cotizaciones', () => listarNube('cotizaciones')), p('reportes', () => listarNube('reportes', 60)),
+    p('levantamientos', () => listarNube('levantamientos', 60)),
+    p('proyectosImagen', () => listarNubeSuave('proyectosImagen', 60)),
+    p('cotizaciones', () => listarNubeSuave('serviciosExtras', 60)),
+    p('activos', () => listarNube('activos', 60)), p('personal', () => listarNube('personal', 200)),
+    p('proveedores', () => listarNubeSuave('proveedores', 100)),
+    p('gastosProveedor', () => listarNubeSuave('gastosProveedor', 100)),
+    p('refacciones', () => listarNubeSuave('refacciones', 100)),
+    p('ordenesCompra', () => listarNubeSuave('ordenesCompra', 100)),
+    p('visitas', () => listarNubeSuave('visitas', 100))
   ]);
-  if(!cl.length && !si.length && !po.length
+  if(!soloColecciones && !cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
   /* La descarga tarda —cuatro lecturas paginadas— y el guardia de quien llama
      revisa la cola ANTES de arrancarla: una captura hecha DENTRO de esa ventana
@@ -3988,14 +4099,19 @@ async function bajarDeLaNube(){
      cambios pendientes se sigue trabajando con la copia local; el siguiente
      refresco, ya con la cola vacía, descarga limpio. */
   if(cola.length || vaciando) return 'ok';
-  datos = { v:1, clientes: cl.map(normalizarCliente), sitios: si.map(normalizarSitio),
-            polizas: po.map(normalizarPoliza), catalogo: eq.map(normalizarEquipo),
-            segmentos: sg, parametros: pr,
-            cotizaciones: co.map(normalizarCotizacion).concat(migrarServiciosExtrasACotizaciones(se)),
-            reportes: rp.map(normalizarReporte), levantamientos: lv.map(normalizarLevantamiento),
+  datos = { v:1,
+            clientes: cl === null ? datos.clientes : cl.map(normalizarCliente),
+            sitios: si === null ? datos.sitios : si.map(normalizarSitio),
+            polizas: po === null ? datos.polizas : po.map(normalizarPoliza),
+            catalogo: eq === null ? datos.catalogo : eq.map(normalizarEquipo),
+            segmentos: sg === null ? datos.segmentos : sg,
+            parametros: pr === null ? datos.parametros : pr,
+            cotizaciones: co === null ? datos.cotizaciones : co.map(normalizarCotizacion).concat(migrarServiciosExtrasACotizaciones(se || [])),
+            reportes: rp === null ? datos.reportes : rp.map(normalizarReporte),
+            levantamientos: lv === null ? datos.levantamientos : lv.map(normalizarLevantamiento),
             proyectosImagen: (im === null ? datos.proyectosImagen : im.map(normalizarProyectoImagen)),
-            activos: ac.map(normalizarActivo),
-            personal: pe.map(normalizarPersona),
+            activos: ac === null ? datos.activos : ac.map(normalizarActivo),
+            personal: pe === null ? datos.personal : pe.map(normalizarPersona),
             proveedores: (pv === null ? datos.proveedores : pv.map(normalizarProveedor)),
             gastosProveedor: (gp === null ? datos.gastosProveedor : gp.map(normalizarGastoProveedor)),
             refacciones: (rf === null ? datos.refacciones : rf.map(normalizarRefaccion)),
@@ -29501,9 +29617,29 @@ async function refrescarDesdeNube(){
   if($('telon').classList.contains('abierto')) return;
   if(document.hidden) return;
   try{
+    /* Veredicto de auditoría (21-sep-2026, hallazgo Escala, 15 d-p): antes,
+       ESTA función bajaba las 17 colecciones completas cada 30 segundos,
+       sin importar si algo había cambiado. Ahora primero pregunta —con una
+       sola lectura barata, ver coleccionesCambiadas()— qué colecciones de
+       verdad cambiaron desde la última vez, y solo esas se vuelven a bajar. */
+    const resultado = await coleccionesCambiadas();
+    if(resultado && !resultado.cambiaron.size){
+      /* Nada cambió en ninguna colección: se acabó el refresco aquí mismo,
+         sin tocar ninguna de las 17 colecciones. */
+      sincronizado = true;
+      cargarNotificaciones();
+      return;
+    }
+    /* Sin marcas todavía (instalación recién llegada a esta versión, la
+       regla de /meta sin publicar, o nadie ha guardado nada desde que se
+       agregó esto): no hay de otra más que la bajada completa de siempre —
+       el único caso en el que este refresco vuelve a costar lo de antes,
+       y solo hasta la primera escritura de cualquiera. */
+    const soloColecciones = resultado ? resultado.cambiaron : undefined;
     const antes = JSON.stringify(datos);
-    await bajarDeLaNube();
+    await bajarDeLaNube(soloColecciones);
     sincronizado = true;
+    if(resultado){ marcas = resultado.marcasNube; guardarMarcas(); }
     if(JSON.stringify(datos) !== antes){
       /* Si el foco está en un buscador, el render se lo robaba: el texto
          sobrevivía (vive en estado.busca) pero el cursor se iba, a media
@@ -30146,6 +30282,7 @@ if(!arrancarFormularioPublicoReportesSiAplica()){
 cargar();
 cargarCola();
 cargarColaRechazada();
+cargarMarcas();
 /* Antes del primer render: la app abre en el módulo donde te quedaste, y así el
    selector no parpadea de Forpass a Pólizas al arrancar. */
 cargarModulo();
