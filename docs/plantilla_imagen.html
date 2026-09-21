@@ -140,6 +140,13 @@
   .banda-roja{background:#a5322e;color:#fff;font-size:11px;padding:8px 14px;text-align:center;
     font-weight:700;}
 
+  /* Hoja de cierre: solo el logo, centrado — pedido de Victor (21-sep-2026):
+     "la ultima hoja se vea como la de la portada pero sola y exclusivamente
+     con el logotipo". Va SIN cabecera/metabar/pie: es a propósito una hoja
+     distinta a las demás, no una continuación más. */
+  .pagina-cierre{height:100%;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:18px;color:var(--brand-navy);}
+
   .aviso-impresion{position:fixed;top:0;left:0;right:0;z-index:50;
     background:#0E1116;color:#fff;font-family:var(--font-body);font-size:12.5px;line-height:1.5;
     padding:9px 18px;box-shadow:0 6px 18px rgba(0,0,0,.35);
@@ -154,6 +161,14 @@
   @media print{
     body{background:#fff;}
     .page{margin:0;box-shadow:none;page-break-after:always;}
+    /* Reporte de Victor (21-sep-2026): "al momento de guardarlo emite una
+       hoja al final en blanco" — page-break-after:always en TODA .page,
+       incluida la última, le pedía al navegador un salto después de ella
+       también; Chrome lo obedece abriendo una hoja en blanco de más al
+       guardar como PDF. Sin salto después de la última hoja (que ahora es
+       siempre la de cierre, ver paginaCierreHTML) el documento ya no trae
+       esa página extra. */
+    .page:last-child{page-break-after:auto;}
     @page{size:letter;margin:0;}
     .aviso-impresion{display:none;}
   }
@@ -479,6 +494,12 @@ if(!PI){
     return paginas;
   }
 
+  function paginaCierreHTML(){
+    return '<div class="page"><div class="sheet"><div class="pagina-cierre">'
+      + isotipo(64) + logotipo(160)
+      + '</div></div></div>';
+  }
+
   async function pintarPaginas(){
     const paginasCostos = paginarCostos();
     let html = paginasCostos.map((indices, i) => paginaCostosHTML(indices, i === 0)).join('');
@@ -504,6 +525,7 @@ if(!PI){
           + '. No se envíe así — avisa para revisar la plantilla.</div>';
       }
     }
+    html += paginaCierreHTML();
     document.getElementById('doc').innerHTML = bandaRoja + html;
   }
 

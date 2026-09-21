@@ -73,6 +73,7 @@ node test_veredicto_sync_incremental.js
 | `test_pdf_a_imagen_csp.js` | El Content-Security-Policy permite cargar pdf.js desde cdnjs.cloudflare.com (si no, un plano en PDF nunca se convertía a imagen) |
 | `test_proyecto_imagen_tarjetas.js` | Imagen/Aperturas: las tarjetas muestran costo/precio/margen (solo quien puede editar) y el logo del cliente |
 | `test_proyecto_imagen_pie_traslape.js` | El documento de Imagen/Aperturas espera a que las imágenes (ya migradas a Storage, se bajan por red) terminen de decodificar antes de paginar — si no, el pie de página se empalmaba con la última imagen de la hoja |
+| `test_proyecto_imagen_hoja_cierre.js` | El documento de Imagen/Aperturas ya no imprime una hoja en blanco al final (bug de `page-break-after` en la última hoja) y en su lugar cierra con una hoja de branding solo con el logo de Forguard |
 
 ## Lo que falta (siguiente paso, no de esta sesión)
 
