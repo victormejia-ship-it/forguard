@@ -3480,8 +3480,15 @@ function limpiarSesionYDatos(){
   Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'', sitioIds:[] });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
-     y lo primero que la recorriera tronaría. */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], visitas:[] };
+     y lo primero que la recorriera tronaría. (Veredicto de auditoría,
+     21-sep-2026: faltaban justo proveedores/gastosProveedor/refacciones/
+     ordenesCompra pese a este comentario — se agregaron esos módulos y esta
+     lista nunca se actualizó. En un dispositivo compartido entre varios
+     técnicos, cerrar sesión y volver a entrar dejaba esas cuatro colecciones
+     undefined hasta que bajarDeLaNube() alcanzara a repoblarlas, y un
+     render() de por medio —con cola pendiente o sin internet— tronaba con
+     cualquier vista que las tocara.) */
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -29181,17 +29188,38 @@ $('formAcceso').addEventListener('submit', async ev=>{
     }
   }catch(e){
     const m = String(e.message || '');
+    /* Veredicto de auditoría (21-sep-2026, hallazgo Funcional, 2 d-p): "La
+       pantalla del técnico truena desde la segunda vez que abre la app: no
+       permite entrar nuevamente, los perfiles no los completa". Causa raíz:
+       entrar()+cargarPerfil() (arriba) ya habían pasado —la cuenta y el
+       perfil son válidos— cuando arrancarNube() fallaba después, típico en
+       campo con señal intermitente. Para ese momento ocultarAcceso() YA
+       había escondido el formulario: cualquier mensaje de aquí abajo,
+       incluido un SIN_PERMISO real por una regla sin publicar en alguna
+       colección nueva, se escribía en un <div> que nadie podía ver. La
+       persona se quedaba viendo una pantalla a medias, sin ningún botón
+       para reintentar —de ahí "no permite entrar nuevamente"—, sin más
+       salida que adivinar que debía recargar la página entera. */
+    const accesoVisible = $('acceso').classList.contains('abierto');
+    const avisar = accesoVisible ? errorAcceso : mostrarAcceso;
     if(/SIN_PERMISO/.test(m)){
-      errorAcceso('Tu cuenta existe pero todavía no tiene acceso concedido. Pide a un administrador que te lo dé.');
+      avisar('Tu cuenta existe pero todavía no tiene acceso concedido. Pide a un administrador que te lo dé.');
       salirSilencioso();
     }else if(/PENDIENTE_CLIENTE/.test(m)){
-      errorAcceso('Tu solicitud de acceso todavía está pendiente de aprobación. En cuanto Forguard la revise, podrás entrar con estos mismos datos.');
+      avisar('Tu solicitud de acceso todavía está pendiente de aprobación. En cuanto Forguard la revise, podrás entrar con estos mismos datos.');
       salirSilencioso();
     }else if(/BLOQUEADO/.test(m)){
-      errorAcceso('Tu cuenta está bloqueada. Pide a un administrador que la reactive.');
+      avisar('Tu cuenta está bloqueada. Pide a un administrador que la reactive.');
       /* También aquí con los datos: si intenta entrar y está bloqueada, la copia
          local de una sesión anterior no se le queda en el navegador. */
       salirSilencioso(true);
+    }else if(!accesoVisible && haySesion()){
+      /* La cuenta SÍ es válida y ya quedó dentro: en vez de dejarla varada
+         en un formulario invisible, se recupera igual que ya hace
+         manejarFalloDeArranque() para este mismo caso en el arranque
+         normal —se sigue trabajando con la copia local y se avisa con un
+         toast, que ese sí se ve. */
+      manejarFalloDeArranque(e);
     }else{
       errorAcceso(m);
     }
@@ -29220,7 +29248,10 @@ function salirSilencioso(tambienLosDatos){
   Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   if(tambienLosDatos){
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], visitas:[] };
+    /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
+       21-sep-2026): faltaban proveedores/gastosProveedor/refacciones/
+       ordenesCompra. */
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;
