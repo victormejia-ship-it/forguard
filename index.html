@@ -2311,7 +2311,28 @@ function normalizarEquipo(e){
     /* '' = sin categoría (equipos de antes de esta función, o que de plano no
        encajan en ninguna) — arranqueCalendarioEquipo() ya sabe tratarla como
        0, el default de toda la vida. */
-    categoria: CATEGORIAS_EQUIPO.includes(e.categoria) ? e.categoria : ''
+    categoria: CATEGORIAS_EQUIPO.includes(e.categoria) ? e.categoria : '',
+    /* Histórico de precios — pedido de Victor (21-sep-2026): "que exista
+       alguna sección donde nosotros podamos colocar los nuevos precios, si
+       llegará a existir un aumento en la inflación podamos aumentar los
+       costos y este a su vez vaya generando un histórico de precios". Cada
+       vez que modalEquipo() guarda un cambio de precio o costo sobre un
+       equipo YA EXISTENTE, se le agrega aquí una entrada con el antes/
+       después — nunca al crearlo ni al editar cualquier otro campo (nombre,
+       categoría, descripción…) sin tocar precio/costo. Más nuevo primero. */
+    historial: Array.isArray(e.historial) ? e.historial.map(normalizarHistorialPrecioEquipo) : []
+  };
+}
+function normalizarHistorialPrecioEquipo(h){
+  return {
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(h.fecha||'') ? h.fecha : hoyISO(),
+    quien: String(h.quien || '').trim(),
+    precioAnterior: Math.max(0, Math.round(Number(h.precioAnterior) || 0)),
+    precioNuevo: Math.max(0, Math.round(Number(h.precioNuevo) || 0)),
+    costoInsumosAnterior: Math.max(0, Math.round(Number(h.costoInsumosAnterior) || 0)),
+    costoInsumosNuevo: Math.max(0, Math.round(Number(h.costoInsumosNuevo) || 0)),
+    costoManoObraAnterior: Math.max(0, Math.round(Number(h.costoManoObraAnterior) || 0)),
+    costoManoObraNuevo: Math.max(0, Math.round(Number(h.costoManoObraNuevo) || 0))
   };
 }
 
@@ -13251,6 +13272,11 @@ function vistaPolizas(){
          +     (puedeEditar()
                 ? '<button type="button" class="btn btn-suave btn-mini" data-editar-poliza="' + esc(p.id) + '" title="Editar póliza">' + ICONO.lapiz + '</button>'
                 : '')
+         /* Duplicar: clientes que se renuevan año con año, para no volver a
+            teclear todo — mismo permiso que editar (ver duplicarPoliza()). */
+         +     (puedeEditar()
+                ? '<button type="button" class="btn btn-suave btn-mini" data-duplicar-poliza="' + esc(p.id) + '" title="Duplicar póliza (para renovar)">' + ICONO.duplicar + '</button>'
+                : '')
          /* Borrar es de Admin SIEMPRE: la regla del servidor niega todo delete
             de pólizas a quien no lo es, sin importar el estatus. El botón se le
             ofrecía a un Analyst, la póliza desaparecía de su pantalla, y el 403
@@ -20022,6 +20048,9 @@ function vistaPoliza(){
         cambia el título de portada (eso ya lo resuelve el payload). */
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-poliza" '
      +     'title="Abre el documento en otra pestaña, listo para guardarse como PDF">' + ICONO.imprimir + 'Imprimir</button>'
+     +   (puedeEditar() ? '<button type="button" class="btn btn-suave btn-mini" data-accion="duplicar-poliza" '
+         + 'title="Arranca una cotización nueva con todo esto ya prellenado — útil para renovaciones">'
+         + ICONO.duplicar + 'Duplicar</button>' : '')
      +   (puedeEditar() ? '<button type="button" class="btn btn-primario" data-accion="editar-poliza">' + ICONO.lapiz + 'Editar</button>' : '')
      + '</div></div>';
 
@@ -20353,7 +20382,9 @@ function vistaPrecios(){
            + 'Es lo que se va a sugerir la próxima vez que alguien lo cotice; en la cotización siempre se puede poner otro.<br>'
            + '<b>Ya no ofrecer</b> lo saca del buscador de equipos al cotizar, sin borrarlo. '
            + 'Sirve para lo que dejaste de vender: las pólizas que ya lo tienen siguen mostrando su nombre y su descripción, '
-           + 'y se puede volver a ofrecer cuando quieras.</p></div></div>'
+           + 'y se puede volver a ofrecer cuando quieras.<br>'
+           + '<b>Histórico</b> (solo si ya hubo algún cambio) muestra cada ajuste de precio o costo que se le ha hecho a ese '
+           + 'equipo, con fecha y quién lo hizo — útil para ver cuándo y cuánto subió por inflación.</p></div></div>'
          : '')
      + '<div class="rodillo"><table class="tabla">'
      + '<thead><tr><th>Equipo</th>'
@@ -20408,6 +20439,14 @@ function vistaPrecios(){
                    ? 'Ya no ofrecer: deja de aparecer en el buscador al cotizar. No se borra: las pólizas que ya lo usan siguen viéndolo.'
                    : 'Volver a ofrecer: vuelve a aparecer en el buscador al cotizar.') + '">'
                + (e.activo ? ICONO.ojoTachado : ICONO.ojo) + '</button>'
+             /* Solo aparece si de verdad hubo algún cambio de precio/costo
+                capturado — un equipo recién dado de alta no tiene nada que
+                mostrar todavía. Ver el histórico en modalEquipo(). */
+             + (e.historial.length
+                 ? '<button type="button" class="btn btn-suave btn-mini" data-historial-equipo="' + esc(e.id) + '" '
+                   + 'title="Ver histórico de precios (' + e.historial.length + ' ' + plural(e.historial.length,'cambio','cambios') + ')">'
+                   + ICONO.grafica + '</button>'
+                 : '')
              + '</td>'
            : '')
        + '</tr>';
@@ -20517,24 +20556,78 @@ function modalEquipo(id, duplicarDe){
   cerrarModalActual = ()=>{
     const concepto = $('eqConcepto').value.trim();
     if(!concepto){ $('eqConcepto').setAttribute('aria-invalid','true'); $('eqConcepto').focus(); aviso('El equipo necesita un nombre.', true); return; }
+    const precioNuevo = aNumero($('eqPrecio').value);
+    const costoInsumosNuevo = aNumero($('eqCostoInsumos').value);
+    const costoManoObraNuevo = aNumero($('eqCostoManoObra').value);
+    /* Histórico de precios: se compara contra el equipo YA GUARDADO (`e`),
+       nunca contra "origen" (la plantilla de un "Duplicar equipo") — uno
+       recién creado no trae historial que abrir todavía, sin importar de
+       cuál otro se haya copiado al capturarlo. Cambiar cualquier OTRO campo
+       (nombre, categoría, descripción, servicios/año…) sin tocar precio o
+       costo no genera entrada: el histórico es solo de precios/costos. */
+    const huboAjustePrecio = !!e && (e.precio !== precioNuevo || e.costoInsumos !== costoInsumosNuevo || e.costoManoObra !== costoManoObraNuevo);
+    const historial = huboAjustePrecio
+      ? [{ fecha: hoyISO(), quien: nombreDe(sesion),
+           precioAnterior: e.precio, precioNuevo,
+           costoInsumosAnterior: e.costoInsumos, costoInsumosNuevo,
+           costoManoObraAnterior: e.costoManoObra, costoManoObraNuevo
+         }].concat(e ? e.historial : [])
+      : (e ? e.historial : []);
     const nuevo = normalizarEquipo({
       id: e ? e.id : idUnicoEquipo(concepto),
-      concepto, precio: aNumero($('eqPrecio').value),
+      concepto, precio: precioNuevo,
       frecuencia: $('eqFrecuencia').value, descripcion: $('eqDescripcion').value.trim(),
-      costoInsumos: aNumero($('eqCostoInsumos').value), costoManoObra: aNumero($('eqCostoManoObra').value),
+      costoInsumos: costoInsumosNuevo, costoManoObra: costoManoObraNuevo,
       ponderacion: $('eqPonderacion').value,
       categoria: $('eqCategoria').value,
-      activo: e ? e.activo : true
+      activo: e ? e.activo : true,
+      historial
     });
     /* Si la lista todavía era la semilla, al primer cambio se materializa completa:
        guardar un solo equipo dejaría al servidor con una lista de uno. */
     if(!datos.catalogo.length) datos.catalogo = CATALOGO_SEMILLA.map(normalizarEquipo);
     const i = datos.catalogo.findIndex(x => x.id === nuevo.id);
     if(i === -1) datos.catalogo.push(nuevo); else datos.catalogo[i] = nuevo;
-    guardarCatalogo((e ? 'editó ' : (origen ? 'duplicó ' : 'agregó ')) + concepto + ' · ' + dinero(nuevo.precio));
+    guardarCatalogo((e ? 'editó ' : (origen ? 'duplicó ' : 'agregó ')) + concepto + ' · ' + dinero(nuevo.precio)
+      + (huboAjustePrecio ? ' (antes ' + dinero(e.precio) + ')' : ''));
     cerrarModal(); render();
     aviso(e ? 'Equipo actualizado.' : 'Equipo agregado.');
   };
+}
+
+/* Histórico de precios de un equipo del catálogo — pedido de Victor
+   (21-sep-2026): poder ver, con fecha y quién lo hizo, cada ajuste de
+   precio o costo (ej. un aumento por inflación), no solo el valor actual.
+   Cada entrada se genera sola al guardar un cambio en modalEquipo() (ver
+   `huboAjustePrecio` ahí); esta vista es de solo lectura. Más reciente
+   primero — así se guarda en normalizarEquipo/cerrarModalActual. */
+function modalHistorialEquipo(id){
+  const e = catalogo().find(x => x.id === id);
+  if(!e || !e.historial.length) return;
+
+  const fila = h => {
+    const cambioPrecio = h.precioNuevo - h.precioAnterior;
+    const pct = h.precioAnterior ? (cambioPrecio / h.precioAnterior * 100) : 0;
+    const costoAntes = costoTotalEquipo({ costoInsumos: h.costoInsumosAnterior, costoManoObra: h.costoManoObraAnterior });
+    const costoDespues = costoTotalEquipo({ costoInsumos: h.costoInsumosNuevo, costoManoObra: h.costoManoObraNuevo });
+    return '<tr>'
+      + '<td>' + fmtFecha(h.fecha) + '</td>'
+      + '<td>' + dinero(h.precioAnterior) + ' → <b>' + dinero(h.precioNuevo) + '</b>'
+      +   (cambioPrecio ? ' <span class="pista" style="display:inline; color:' + (cambioPrecio > 0 ? 'var(--error)' : 'var(--ok)') + '">'
+            + '(' + (cambioPrecio > 0 ? '+' : '') + pct.toFixed(1) + '%)</span>' : '') + '</td>'
+      + '<td>' + dinero(costoAntes) + ' → ' + dinero(costoDespues) + '</td>'
+      + '<td>' + esc(h.quien || '—') + '</td>'
+      + '</tr>';
+  };
+
+  const cuerpo = '<div class="rodillo"><table class="tabla">'
+    + '<thead><tr><th>Fecha</th><th>Precio</th><th>Costo total</th><th>Quién</th></tr></thead>'
+    + '<tbody>' + e.historial.map(fila).join('') + '</tbody>'
+    + '</table></div>'
+    + '<p class="pista" style="margin-top:10px">Precio y costo actuales: ' + dinero(e.precio) + ' / ' + dinero(costoTotalEquipo(e)) + '.</p>';
+
+  abrirModal('Histórico de precios — ' + e.concepto, cuerpo,
+    '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
 }
 
 /* ===================== Precios de grupo (por cliente) =====================
@@ -24225,8 +24318,51 @@ function etiquetaMesServicio(fechaInicio, i){
    igual que cualquier póliza nueva; no hay liga guardada hacia atrás como en
    reportes/cotizaciones porque una póliza no es "de" un levantamiento, nada
    más se armó a partir de uno. */
+/* Copia todos los datos de una póliza para armar una cotización nueva —
+   pedido de Victor (21-sep-2026): "existen clientes que año con año se
+   renuevan y para no teclear todo sería ideal solo copiar para modificar
+   la nueva vigencia". Arranca como cualquier cotización nueva de cero
+   (folio libre, "Inicio de la vigencia" en el mes que sigue, sin cobros ni
+   servicios ejecutados — ver el bloque `conservado` en cerrarModalActual
+   de modalPoliza, que solo arrastra eso cuando SÍ hay una póliza `p` real
+   detrás): lo único que ya viene listo es cliente, sitio, equipos con sus
+   precios/frecuencias/meses, facturación, cargo, ajuste y notas, así que
+   solo falta ajustar la vigencia y guardar. Reutiliza el mismo mecanismo
+   de "origenLevantamiento" que ya usan el levantamiento y el Excel
+   importado para prellenar una póliza nueva (ver modalPoliza) — con
+   `duplicado:true` para distinguirlo de esos dos orígenes en el título
+   del modal. */
+function duplicarPoliza(id){
+  const p = polizaPorId(id);
+  if(!p) return;
+  modalPoliza(null, {
+    duplicado: true,
+    folioOrigen: p.folio,
+    clienteId: p.clienteId,
+    sitioId: p.sitioId,
+    sitioNombre: p.sitioNombre,
+    facturacion: p.facturacion,
+    cargoA: p.cargoA,
+    cargoAInterno: p.cargoAInterno,
+    descuento: p.descuento,
+    usaPreciosGrupo: p.usaPreciosGrupo,
+    notas: p.notas,
+    /* mesesServicio se copia porque la vigencia arranca en un mes distinto
+       de todos modos (más abajo), así que los corrimientos 0..11 se
+       recalculan contra ESA fecha nueva, no contra la vieja. Sin id: cada
+       renglón necesita el suyo propio, independiente del original (ver
+       normalizarPartida), para no confundir su historial de servicios
+       ejecutados con el de la póliza de la que se copió. */
+    partidas: p.partidas.map(x => Object.assign({}, x, { id:'', mesesServicio: x.mesesServicio.slice() }))
+  });
+}
 function modalPoliza(id, origenLevantamiento){
   const p = id ? polizaPorId(id) : null;
+  /* Solo para duplicarPoliza(): varios de los campos de abajo (facturación,
+     cargo, ajuste, precios de grupo) no tenían por qué prellenarse desde
+     origenLevantamiento porque los otros dos orígenes (levantamiento, Excel)
+     nunca los traían — aquí sí. */
+  const origenDup = !p && origenLevantamiento && origenLevantamiento.duplicado ? origenLevantamiento : null;
   if(!datos.clientes.length){
     aviso('Primero da de alta un cliente: la póliza cuelga de uno.', true);
     return;
@@ -24236,12 +24372,14 @@ function modalPoliza(id, origenLevantamiento){
      de verdad. hechosDetalle viaja adentro sin que el formulario lo toque — si
      no se arrastrara, editar una póliza borraría su historial de servicios. */
   let partidasTmp = (p ? p.partidas : []).map(x => Object.assign({}, x, { mesesServicio: x.mesesServicio.slice() }));
-  /* Este mismo segundo parámetro sirve para dos orígenes de "nueva póliza ya
-     prellenada": un levantamiento (trae .hallazgos) o un Excel importado
-     (trae .partidas ya armadas, listas para normalizarPartida). Nunca los
-     dos a la vez. */
-  const esImportacionExcel = !p && origenLevantamiento && Array.isArray(origenLevantamiento.partidas);
-  if(esImportacionExcel){
+  /* Este mismo segundo parámetro sirve para tres orígenes de "nueva póliza ya
+     prellenada": un levantamiento (trae .hallazgos), un Excel importado o un
+     duplicarPoliza() (los dos últimos traen .partidas ya armadas, listas
+     para normalizarPartida — origenLevantamiento.duplicado distingue cuál de
+     los dos es, para el título del modal). Nunca más de uno a la vez. */
+  const esImportacionExcel = !p && origenLevantamiento && !origenLevantamiento.duplicado && Array.isArray(origenLevantamiento.partidas);
+  const esDuplicado = !p && origenLevantamiento && origenLevantamiento.duplicado === true;
+  if(esImportacionExcel || esDuplicado){
     partidasTmp = origenLevantamiento.partidas.map(normalizarPartida);
   }
   if(!p && origenLevantamiento && Array.isArray(origenLevantamiento.hallazgos)){
@@ -24390,18 +24528,18 @@ function modalPoliza(id, origenLevantamiento){
     +       '<div class="pista">Manda el calendario: los meses de servicio se cuentan desde aquí.</div></div>'
     +   '</div>'
     +   '<div class="campo"><label>Facturación</label><select id="pFacturacion"' + bloq + '>'
-    +     '<option value="anual"' + (p && p.facturacion === 'anual' ? ' selected' : '') + '>Anual — un solo cobro</option>'
+    +     '<option value="anual"' + ((p ? p.facturacion : (origenDup ? origenDup.facturacion : '')) === 'anual' ? ' selected' : '') + '>Anual — un solo cobro</option>'
     /* Default de una póliza nueva: mensual — es lo que se cobra casi siempre;
        anual queda como la excepción que hay que elegir a propósito. */
-    +     '<option value="mensual"' + (!p || p.facturacion === 'mensual' ? ' selected' : '') + '>Mensual — doce cobros</option>'
+    +     '<option value="mensual"' + ((p ? p.facturacion : (origenDup ? origenDup.facturacion : 'mensual')) === 'mensual' ? ' selected' : '') + '>Mensual — doce cobros</option>'
     +   '</select></div>'
     +   '<div class="campo"><label>Cargo a</label><select id="pCargoA">'
-    +     '<option value="cliente"' + (!p || p.cargoA === 'cliente' ? ' selected' : '') + '>Cliente — cuenta como ingreso</option>'
-    +     '<option value="interno"' + (p && p.cargoA === 'interno' ? ' selected' : '') + '>Interno — la absorbemos nosotros</option>'
+    +     '<option value="cliente"' + ((p ? p.cargoA : (origenDup ? origenDup.cargoA : 'cliente')) === 'cliente' ? ' selected' : '') + '>Cliente — cuenta como ingreso</option>'
+    +     '<option value="interno"' + ((p ? p.cargoA : (origenDup ? origenDup.cargoA : '')) === 'interno' ? ' selected' : '') + '>Interno — la absorbemos nosotros</option>'
     +   '</select>'
     +     '<div class="pista">Si la absorbemos nosotros, esta póliza deja de contar como ingreso en Resultados.</div></div>'
     +   '<div class="campo" id="zonaCargoAInterno" hidden><label>¿A quién se le carga?</label>'
-    +     '<input type="text" id="pCargoAInterno" placeholder="Ej. Plato Express" value="' + esc(p ? p.cargoAInterno : '') + '"></div>'
+    +     '<input type="text" id="pCargoAInterno" placeholder="Ej. Plato Express" value="' + esc(p ? p.cargoAInterno : (origenDup ? origenDup.cargoAInterno : '')) + '"></div>'
     /* El ajuste (descuento o aumento) solo lo VE quien lo puede poner. A un
        Analyst no se le enseña una casilla que el servidor le va a negar; y si
        la póliza ya trae uno, se le muestra como texto para que sepa con qué
@@ -24416,12 +24554,12 @@ function modalPoliza(id, origenLevantamiento){
     +   (esAdmin()
         ? '<div class="fila2">'
           +   '<div class="campo"><label>Tipo de ajuste</label><select id="pTipoAjuste">'
-          +     '<option value="descuento"' + (!(p && p.descuento < 0) ? ' selected' : '') + '>Descuento — resta</option>'
-          +     '<option value="aumento"' + (p && p.descuento < 0 ? ' selected' : '') + '>Aumento — suma</option>'
+          +     '<option value="descuento"' + (!((p ? p.descuento : (origenDup ? origenDup.descuento : 0)) < 0) ? ' selected' : '') + '>Descuento — resta</option>'
+          +     '<option value="aumento"' + ((p ? p.descuento : (origenDup ? origenDup.descuento : 0)) < 0 ? ' selected' : '') + '>Aumento — suma</option>'
           +   '</select></div>'
           +   '<div class="campo"><label>Descuento / aumento (%)</label>'
           +     '<input type="number" id="pDescuento" min="0" max="500" step="0.01" '
-          +       'value="' + (p && p.descuento ? Math.abs(p.descuento) : '') + '" placeholder="0"></div>'
+          +       'value="' + ((p ? p.descuento : (origenDup ? origenDup.descuento : 0)) ? Math.abs(p ? p.descuento : origenDup.descuento) : '') + '" placeholder="0"></div>'
           + '</div>'
           + '<div class="pista">Se aplica sobre el subtotal (el costo anual si "Cargo a" es Interno) — descuento resta, '
           +   'aumento suma. Se imprime como renglón aparte y <b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.</div>'
@@ -24463,7 +24601,7 @@ function modalPoliza(id, origenLevantamiento){
        puede querer que unos usen el precio negociado y otros no. Solo cambia
        lo que se SUGIERE al agregar un equipo nuevo (ver agregarDelEquipo);
        los renglones que ya estaban en la tabla no se tocan solos. */
-    +   '<label class="casilla"><input type="checkbox" id="pUsaPreciosGrupo"' + (p && p.usaPreciosGrupo ? ' checked' : '') + '> '
+    +   '<label class="casilla"><input type="checkbox" id="pUsaPreciosGrupo"' + ((p ? p.usaPreciosGrupo : (origenDup && origenDup.usaPreciosGrupo)) ? ' checked' : '') + '> '
     +     'Usar precios de grupo de este cliente</label>'
     +   '<div class="pista" id="pPistaPreciosGrupo"></div>'
     +   '<div class="equipos-scroll">'
@@ -24495,7 +24633,8 @@ function modalPoliza(id, origenLevantamiento){
             + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (p ? 'Guardar cambios' : 'Crear cotización') + '</button>';
 
   abrirModal(p ? 'Editar póliza' : (esImportacionExcel ? 'Nueva póliza importada de Excel'
-    : (origenLevantamiento ? 'Nueva póliza desde el levantamiento ' + (origenLevantamiento.folio || '') : 'Nueva cotización de póliza')), cuerpo, pie);
+    : (origenLevantamiento && origenLevantamiento.duplicado ? 'Duplicar póliza' + (origenLevantamiento.folioOrigen ? ' ' + origenLevantamiento.folioOrigen : '')
+    : (origenLevantamiento ? 'Nueva póliza desde el levantamiento ' + (origenLevantamiento.folio || '') : 'Nueva cotización de póliza'))), cuerpo, pie);
   $('modal').classList.add('enorme');
 
   /* Si la cuenta no trae teléfono, se dice de frente y se sigue: la póliza guarda
@@ -27338,6 +27477,7 @@ $('vista').addEventListener('click', ev=>{
         'Sí, sugerir', sugerirCategoriasCatalogo);
     }
     else if(a === 'editar-poliza'){ if(exigirPermiso()) modalPoliza(estado.polizaId); }
+    else if(a === 'duplicar-poliza'){ if(exigirPermiso()) duplicarPoliza(estado.polizaId); }
     else if(a === 'calendario-poliza') modalCalendario(estado.polizaId);
     else if(a === 'migrar-fotos-poliza') migrarFotosPolizaAStorage(estado.polizaId);
     else if(a === 'diagnostico-fotos-poliza') diagnosticarFotosPoliza(estado.polizaId);
@@ -27497,6 +27637,9 @@ $('vista').addEventListener('click', ev=>{
   const dupE = t.closest('[data-duplicar-equipo]');
   if(dupE){ modalEquipo(null, dupE.dataset.duplicarEquipo); return; }
 
+  const histE = t.closest('[data-historial-equipo]');
+  if(histE){ modalHistorialEquipo(histE.dataset.historialEquipo); return; }
+
   const apE = t.closest('[data-apagar-equipo]');
   if(apE){
     if(!exigirAdmin('cambiar la lista de precios')) return;
@@ -27526,6 +27669,12 @@ $('vista').addEventListener('click', ev=>{
 
   const edP = t.closest('[data-editar-poliza]');
   if(edP){ if(exigirPermiso()) modalPoliza(edP.dataset.editarPoliza); return; }
+
+  /* "Duplicar": arranca una cotización nueva con todo lo de esta ya
+     prellenado — pedido de Victor (21-sep-2026): clientes que se renuevan
+     año con año, para no volver a teclear todo. Ver duplicarPoliza(). */
+  const dupP = t.closest('[data-duplicar-poliza]');
+  if(dupP){ if(exigirPermiso()) duplicarPoliza(dupP.dataset.duplicarPoliza); return; }
 
   /* "Actualizar al de grupo": homologa UN renglón al precio de grupo vigente
      del cliente (ver puedePolizaCorregirPrecios y el botón en vistaPoliza).
