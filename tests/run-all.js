@@ -6,7 +6,7 @@
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
-const { spawn, spawnSync } = require('child_process');
+const { spawn } = require('child_process');
 
 const RAIZ_REPO = path.join(__dirname, '..');
 const CARPETA_PRUEBAS = __dirname;
@@ -64,13 +64,25 @@ function arrancarServidorPropio(){
   const resultados = [];
   for(const archivo of archivos){
     process.stdout.write('▶ ' + archivo + ' … ');
-    const r = spawnSync('node', [path.join(CARPETA_PRUEBAS, archivo)], {
-      env: Object.assign({}, process.env, { URL_BASE }),
-      encoding: 'utf8'
+    /* spawn() async, NUNCA spawnSync(): el servidor estático de arriba
+       vive en ESTE MISMO proceso — spawnSync() bloquea TODO el proceso
+       (no solo el código que la llama) hasta que el hijo termina, así que
+       el servidor jamás llega a atender ninguna petición mientras corre
+       una prueba, y cada page.goto() truena por timeout. Con spawn()
+       async, el bucle de eventos de este proceso sigue vivo y el
+       servidor sí responde. */
+    const r = await new Promise(resolve => {
+      let stdout = '', stderr = '';
+      const hijo = spawn('node', [path.join(CARPETA_PRUEBAS, archivo)], {
+        env: Object.assign({}, process.env, { URL_BASE })
+      });
+      hijo.stdout.on('data', d => { stdout += d; });
+      hijo.stderr.on('data', d => { stderr += d; });
+      hijo.on('close', codigo => resolve({ status: codigo, stdout, stderr }));
     });
     const ok = r.status === 0;
     console.log(ok ? 'OK' : 'FALLÓ');
-    if(!ok) console.log((r.stdout || '') + (r.stderr || ''));
+    if(!ok) console.log(r.stdout + r.stderr);
     resultados.push({ archivo, ok });
   }
 
