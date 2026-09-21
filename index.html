@@ -28087,12 +28087,18 @@ function descargar(blob, nombre){
 }
 function selloFecha(){ return hoyISO().replace(/-/g,''); }
 
+/* Faltaban 8 de las 18 colecciones de `datos` (veredicto de auditoría,
+   21-sep-2026: "El respaldo que baja un Admin omite 7 de 16 colecciones —
+   activos, refacciones, gastos"). Esta función no se actualizó al mismo
+   ritmo que se fueron agregando módulos nuevos (Activos, Proveedores,
+   Refacciones, Órdenes de Compra, Visitas, Imagen/Aperturas, Personal) —
+   el listener de "archivoRestaurar" de abajo sí las trae todas, así que
+   un respaldo viejo se podía restaurar completo pero no volver a bajar
+   completo. Ahora vuelca TODO el objeto `datos` tal cual, sin listar las
+   claves a mano: así un módulo nuevo que se agregue después no se puede
+   volver a "olvidar" aquí. */
 function descargarRespaldo(){
-  const blob = new Blob([JSON.stringify({ v:1, generado:new Date().toISOString(),
-                          clientes:datos.clientes, sitios:datos.sitios, polizas:datos.polizas,
-                          catalogo:datos.catalogo, segmentos:datos.segmentos, parametros:datos.parametros,
-                          cotizaciones:datos.cotizaciones, reportes:datos.reportes,
-                          levantamientos:datos.levantamientos }, null, 2)],
+  const blob = new Blob([JSON.stringify(Object.assign({ generado:new Date().toISOString() }, datos), null, 2)],
                         { type:'application/json' });
   descargar(blob, 'Respaldo_Control_Forpass_' + selloFecha() + '.json');
   aviso('Respaldo descargado.');
