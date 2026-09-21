@@ -69,6 +69,7 @@ node test_veredicto_sync_incremental.js
 | `test_precios_historial.js` | Historial de cambios de precio |
 | `test_proyecto_imagen_*.js` | Imagen/Aperturas: costo vs. precio de venta, documento y PDF |
 | `test_proyecto_imagen_aumento_iva.js` | Imagen/Aperturas: aumento/descuento % a costo o precio de venta (solo Admin), e IVA en el total del documento |
+| `test_proyecto_imagen_storage.js` | Imagen/Aperturas: las imágenes/PDFs se suben a Storage al guardar (ya no se embeben en el documento), y se pueden migrar las viejas |
 
 ## Lo que falta (siguiente paso, no de esta sesión)
 

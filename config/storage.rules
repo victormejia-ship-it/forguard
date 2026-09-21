@@ -84,6 +84,33 @@ service firebase.storage {
       allow delete: if conAcceso() && rol() != 'cliente';
     }
 
+    /* --- Imágenes/PDFs de proyectos de Imagen/Aperturas (agregado
+           21-sep-2026) ---
+       Mismo problema que ya resolvió /evidencias/polizas y /evidencias/reportes:
+       hasta ahora, renders/planos/fotos de un proyecto se guardaban completos
+       en base64 DENTRO del documento de Firestore, con un presupuesto
+       compartido de 800 KB entre los 12 archivos posibles — el mismo síntoma
+       exacto que ya tronó a POL-024 (el veredicto de auditoría, 21-sep-2026,
+       lo marca como hallazgo de Escala: "Tope de 1 MB por registro"). Ahora
+       cada archivo vive aquí y el documento solo guarda la URL.
+
+       Mismo candado que /proyectosImagen en firestore.rules: leer y escribir,
+       cualquiera con acceso que pueda editar precios (puedeEditar()) — el
+       portal de clientes NUNCA llega aquí, proyectosImagen está cerrado por
+       completo para ese rol. A diferencia de /evidencias/reportes, no hace
+       falta una segunda cláusula para Auth anónimo: no existe ningún
+       formulario público que suba a esta carpeta. Acepta imágenes Y PDF
+       (a diferencia de las otras dos, aquí un plano puede quedarse como PDF
+       de verdad si la conversión a imagen falla — ver convertirPdfAImagen()/
+       el catch de agregarImagenPISiCabe en index.html). */
+    match /evidencias/proyectosImagen/{proyectoId}/{archivo} {
+      allow read: if conAcceso() && rol() != 'cliente';
+      allow write: if conAcceso() && rol() in ['owner', 'admin', 'analyst']
+                   && request.resource.size < 5 * 1024 * 1024
+                   && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf');
+      allow delete: if conAcceso() && rol() in ['owner', 'admin', 'analyst'];
+    }
+
     /* Candado general: cualquier ruta que no se haya marcado explícito
        arriba queda cerrada. */
     match /{allPaths=**} {

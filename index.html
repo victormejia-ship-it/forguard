@@ -3268,7 +3268,7 @@ async function subirEvidenciaStorage(dataUrl, carpeta, idArchivo){
   const binario = atob(m[2]);
   const bytes = new Uint8Array(binario.length);
   for(let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
-  const ext = tipo === 'image/png' ? 'png' : tipo === 'image/webp' ? 'webp' : 'jpg';
+  const ext = tipo === 'image/png' ? 'png' : tipo === 'image/webp' ? 'webp' : tipo === 'application/pdf' ? 'pdf' : 'jpg';
   const ruta = carpeta + '/' + idArchivo + '.' + ext;
   const token = await tokenVigente();
   let r;
@@ -6423,19 +6423,17 @@ const TONO_ESTATUS_PROYECTO_IMAGEN = { diseno:'info', cotizacion:'info', aprobad
 const TIPO_IMAGEN_PROYECTO = ['render', 'plano', 'foto'];
 const ETIQUETA_TIPO_IMAGEN_PROYECTO = { render:'Render', plano:'Plano / layout', foto:'Foto' };
 const IMAGENES_MAX_POR_PROYECTO = 12;
-/* Firestore rechaza un documento de más de 1 MiB completo — y con
-   IMAGENES_MAX_POR_PROYECTO=12, varias imágenes convertidas de un PDF (más
-   pesadas que una foto normal) sí lo pueden rebasar sin este tope. Se
-   valida AQUÍ, al agregar, para avisar de inmediato ("ya no cabe") en vez
-   de descubrirlo después con un guardado que la nube rechaza en silencio
-   —eso mismo pasó en producción el 27-ago-2026, un proyecto se quedó
-   "Sin conexión" para siempre porque en realidad el documento ya no cabía,
-   no porque faltara internet. 800 KB dejando margen para el resto de los
-   campos del proyecto (conceptos, notas, etc.) dentro del 1 MiB. */
-const IMAGENES_PRESUPUESTO_TOTAL = 800 * 1024;
-function tamanoImagenesProyecto(lista){
-  return lista.reduce((s, im) => s + (im.dataUrl ? im.dataUrl.length : 0), 0);
-}
+/* Hasta el 21-sep-2026 esto se guardaba embebido en base64 dentro del
+   documento de Firestore, con un presupuesto compartido de 800 KB entre
+   las 12 imágenes/PDFs posibles — el mismo síntoma exacto que ya tronó a
+   POL-024 en Pólizas ("Tope de 1 MB por registro", veredicto de auditoría):
+   un proyecto con varias imágenes de un plano convertido se quedaba "Sin
+   conexión" para siempre porque el documento en realidad ya no cabía, no
+   porque faltara internet (bug real de producción, 27-ago-2026). Ahora cada
+   imagen/PDF se sube aparte a Storage al guardar (ver subirEvidenciaStorage,
+   cerrarModalActual de modalProyectoImagen), mismo criterio que ya usan
+   reportes y pólizas — el documento solo guarda la URL de descarga, así que
+   ese presupuesto compartido ya no aplica. */
 
 /* Un concepto de costo es INFORMATIVO a propósito (decisión de Victor,
    27-ago-2026): el desglose de lo que cuesta la remodelación/apertura, para
@@ -6567,6 +6565,55 @@ function guardarProyectoImagen(p, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'proyectosImagen', id:p.id, obj:p });
   anotar(accion || 'editó', 'proyecto de imagen', p.folio || p.nombreProyecto || 'sin folio', detalle);
+}
+
+/* ¿Este proyecto todavía trae alguna imagen/PDF guardada a la antigua —
+   completa, en base64, dentro del propio documento—? Mismo problema exacto
+   que ya tronó a POL-024 en Pólizas: hasta el 21-sep-2026, TODAS las
+   imágenes de un proyecto se guardaban así, con un presupuesto compartido
+   de 800 KB entre las 12 posibles (ver el comentario de IMAGENES_MAX_POR_PROYECTO).
+   Los proyectos guardados desde ese cambio ya suben cada una a Storage al
+   crearse/editarse; esto es para lo que ya se había guardado antes. */
+function proyectoImagenTieneImagenesSinMigrar(p){
+  return (p.imagenes || []).some(im => im.dataUrl && im.dataUrl.startsWith('data:'));
+}
+/* Sube a Storage, una por una, las imágenes/PDFs que este proyecto todavía
+   trae embebidos, y deja en su lugar la URL — mismo camino exacto que
+   migrarFotosReporteAStorage()/migrarFotosPolizaAStorage(). `silencioso` es
+   el modo que usa autoMigrarImagenesProyectoImagenSiHaceFalta(). */
+async function migrarImagenesProyectoImagenAStorage(id, silencioso){
+  const p = proyectoImagenPorId(id);
+  if(!p) return;
+  const pendientes = p.imagenes.filter(im => im.dataUrl && im.dataUrl.startsWith('data:'));
+  if(!pendientes.length){ if(!silencioso) aviso('Este proyecto ya no tiene imágenes/PDFs guardados dentro del documento.'); return; }
+  if(!silencioso && !window.confirm(
+    'Se van a subir ' + pendientes.length + ' ' + plural(pendientes.length,'archivo','archivos') + ' a Storage y a quitarlos '
+    + 'del documento del proyecto (nunca se borran, solo cambian de lugar). Puede tardar un momento.\n\n¿Continuar?'
+  )) return;
+  if(!silencioso) aviso('Subiendo ' + pendientes.length + ' ' + plural(pendientes.length,'archivo','archivos') + '…');
+  let ok = 0, fallo = 0;
+  for(const im of pendientes){
+    try{ im.dataUrl = await subirEvidenciaStorage(im.dataUrl, 'evidencias/proyectosImagen/' + p.id, im.id); ok++; }
+    catch(err){ fallo++; }
+  }
+  if(ok){
+    guardarProyectoImagen(p, 'migró imágenes/PDFs de', ok + ' ' + plural(ok,'archivo','archivos') + ' a Storage' + (fallo ? ' · ' + fallo + ' no se pudieron subir' : ''));
+    render();
+  }
+  if(!silencioso || fallo){
+    aviso(ok + ' ' + plural(ok,'archivo','archivos') + ' subidos a Storage.'
+      + (fallo ? ' ' + fallo + ' no se pudieron subir — vuelve a intentar.' : ''), fallo > 0);
+  }
+}
+/* Un intento por proyecto por sesión — mismo candado que
+   _reportesAutoMigrandoFotos, misma razón: sin esto cada render() de
+   vistaProyectoImagen() volvería a disparar la subida de las mismas imágenes. */
+const _proyectosImagenAutoMigrando = new Set();
+function autoMigrarImagenesProyectoImagenSiHaceFalta(p){
+  if(!esAdmin() || !HAY_NUBE || !haySesion()) return;
+  if(_proyectosImagenAutoMigrando.has(p.id) || !proyectoImagenTieneImagenesSinMigrar(p)) return;
+  _proyectosImagenAutoMigrando.add(p.id);
+  migrarImagenesProyectoImagenAStorage(p.id, true);
 }
 
 /* ===================== Importar Excel (Imagen/Aperturas) =====================
@@ -20024,6 +20071,7 @@ function vistaProyectosImagen(){
 function vistaProyectoImagen(){
   const p = proyectoImagenPorId(estado.proyectoImagenId);
   if(!p){ estado.vista = 'proyectos-imagen'; return vistaProyectosImagen(); }
+  autoMigrarImagenesProyectoImagenSiHaceFalta(p);
   const puede = puedeEditar();
   const desglose = desgloseConceptosProyecto(p);
   const total = desglose.total;
@@ -20154,6 +20202,15 @@ function vistaProyectoImagen(){
   if(esAdmin() && p.conceptos.length) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="ajuste-proyecto-imagen" '
     + 'title="Sube o baja de un jalón el costo o el precio de venta de todos los conceptos, por porcentaje.">'
     + 'Aumento / descuento</button>';
+  /* Solo aparece si de verdad hay algo que migrar: imágenes/PDFs guardados
+     ANTES del 21-sep-2026, todavía embebidos en base64 dentro de este
+     documento — el mismo problema que tronó a POL-024 al pasarse del 1 MiB
+     de Firestore. autoMigrarImagenesProyectoImagenSiHaceFalta() ya lo
+     intenta solo al abrir el proyecto; este botón es el respaldo manual por
+     si esa subida automática falló (sin internet, por ejemplo). */
+  if(esAdmin() && proyectoImagenTieneImagenesSinMigrar(p)) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="migrar-imagenes-proyecto-imagen" '
+    + 'title="Sube a Storage las imágenes/PDFs que todavía están guardados dentro del documento">'
+    + ICONO.respaldo + 'Migrar imágenes a Storage</button>';
   if(puede) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-proyecto-imagen">' + ICONO.lapiz + 'Editar</button>';
   h += '<span class="espacio"></span>';
   if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-proyecto-imagen">' + ICONO.basura + 'Eliminar</button>';
@@ -20452,16 +20509,16 @@ function modalProyectoImagen(id, datosImportados){
      recomprimir desde el navegador, así que se guarda tal cual (de ahí su
      tope de entrada más chico) y solo se valida su tamaño; una imagen sigue
      el camino de siempre (comprimirEvidencia). */
-  /* Empuja a imagenesTmp SOLO si el proyecto completo sigue cabiendo en el
-     1 MiB de Firestore (ver IMAGENES_PRESUPUESTO_TOTAL). Si no cabe, avisa
-     de inmediato ("ya no cabe") en vez de guardarlo y descubrir después,
-     con la nube rechazando el documento en silencio, que en realidad nunca
-     cupo — eso fue justo el bug de producción del 27-ago-2026. */
+  /* Veredicto de auditoría (21-sep-2026): hasta aquí, empujar a imagenesTmp
+     exigía que TODO el proyecto siguiera cabiendo en el 1 MiB de Firestore
+     —un presupuesto compartido de 800 KB entre las 12 imágenes/PDFs
+     posibles, el mismo síntoma exacto que ya tronó a POL-024 en Pólizas—.
+     Ahora cada imagen/PDF se sube aparte a Storage al guardar de verdad
+     (ver cerrarModalActual más abajo), así que ese candado ya no aplica:
+     solo cuenta el tope de la propia entrada del archivo (EVIDENCIA_MAX_ENTRADA/
+     RESPALDO_COSTO_PDF_MAX_ENTRADA, arriba) y el de cuántos archivos en
+     total (IMAGENES_MAX_POR_PROYECTO). */
   function agregarImagenPISiCabe(datosImagen){
-    const restante = IMAGENES_PRESUPUESTO_TOTAL - tamanoImagenesProyecto(imagenesTmp);
-    if(datosImagen.dataUrl.length > restante){
-      throw new Error('Este proyecto ya no tiene espacio para otra imagen/PDF (el documento no puede pasar de ' + Math.round(IMAGENES_PRESUPUESTO_TOTAL/1024) + ' KB entre todas). Quita alguna imagen o guarda este archivo aparte.');
-    }
     imagenesTmp.push(normalizarImagenProyecto(datosImagen));
   }
   $('piArchivoImagen').addEventListener('change', async ev=>{
@@ -20485,7 +20542,6 @@ function modalProyectoImagen(id, datosImportados){
             const dataUrl = await convertirPdfAImagen(archivo);
             agregarImagenPISiCabe({ dataUrl, tipo, formato:'imagen', nota: archivo.name, subioNombre: nombreDe(sesion) || '' });
           }catch(e){
-            if(/ya no tiene espacio/.test(e.message)) throw e;
             if(archivo.size > RESPALDO_COSTO_PDF_MAX_ENTRADA){
               throw new Error('No se pudo convertir ese PDF a imagen (' + e.message + '), y pesa más de 600 KB para guardarlo tal cual. Prueba a comprimirlo o sube solo la hoja del plano.');
             }
@@ -20504,7 +20560,7 @@ function modalProyectoImagen(id, datosImportados){
     pintarGaleriaPI();
   });
 
-  cerrarModalActual = ()=>{
+  cerrarModalActual = async ()=>{
     const clienteId = $('piCliente').value;
     const cliente = clienteId ? clientePorId(clienteId) : null;
     const sitioId = clienteId ? $('piSitio').value : '';
@@ -20535,8 +20591,34 @@ function modalProyectoImagen(id, datosImportados){
       return;
     }
 
+    /* Veredicto de auditoría (21-sep-2026): imágenes/PDFs embebidos en base64
+       dentro del documento — el mismo problema, mismo síntoma exacto, que ya
+       tronó a POL-024 en Pólizas ("Tope de 1 MB por registro"). Ahora se
+       suben a Storage al guardar de verdad, mismo criterio que ya usan
+       modalReporte()/"Registrar servicio" de pólizas: el proyecto ya no
+       tiene un presupuesto compartido de 800 KB entre todas sus imágenes —
+       cada una vive aparte, con su propio archivo. proyectoId se calcula
+       AQUÍ, antes de existir el registro (nuevoId() en vez de esperar a
+       normalizarProyectoImagen), para que la carpeta de Storage sea la
+       misma sin importar si el proyecto es nuevo o ya existía. */
+    const proyectoId = p ? p.id : nuevoId();
+    const btnGuardarPI = $('modalPie') && $('modalPie').querySelector('[data-modal="guardar"]');
+    const pendientesPI = imagenesTmp.filter(im => im.dataUrl.startsWith('data:'));
+    if(pendientesPI.length){
+      if(btnGuardarPI){ btnGuardarPI.disabled = true; btnGuardarPI.textContent = 'Subiendo archivos…'; }
+      try{
+        for(const im of pendientesPI){
+          im.dataUrl = await subirEvidenciaStorage(im.dataUrl, 'evidencias/proyectosImagen/' + proyectoId, im.id);
+        }
+      }catch(err){
+        if(btnGuardarPI){ btnGuardarPI.disabled = false; btnGuardarPI.textContent = p ? 'Guardar cambios' : 'Crear proyecto'; }
+        aviso('No se pudieron subir las imágenes/PDFs: ' + err.message, true);
+        return;
+      }
+    }
+
     const datosProyecto = {
-      id: p ? p.id : nuevoId(),
+      id: proyectoId,
       folio: p ? p.folio : generarFolioProyectoImagen($('piFecha').value),
       clienteId, clienteNombre, sitioId, sitioNombre,
       nombreProyecto,
@@ -28000,6 +28082,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'imprimir-proyecto-imagen') abrirDocumentoProyectoImagen(estado.proyectoImagenId);
     else if(a === 'imprimir-proyecto-imagen-costo'){ if(exigirAdmin('exportar el desglose de costos')) abrirDocumentoProyectoImagen(estado.proyectoImagenId, true); }
     else if(a === 'ajuste-proyecto-imagen'){ if(exigirAdmin('ajustar costos o precios de un proyecto')) modalAjusteConceptosProyectoImagen(estado.proyectoImagenId); }
+    else if(a === 'migrar-imagenes-proyecto-imagen') migrarImagenesProyectoImagenAStorage(estado.proyectoImagenId);
     else if(a === 'borrar-proyecto-imagen'){
       if(!exigirAdmin('eliminar un proyecto de imagen')) return;
       const pim = proyectoImagenPorId(estado.proyectoImagenId);
