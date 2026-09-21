@@ -6137,6 +6137,11 @@ function tamanoImagenesProyecto(lista){
    el cliente, eso se arma aparte con el motor de Cotizaciones, sin que cada
    concepto de aquí tenga que generar un renglón allá. */
 function normalizarConceptoProyecto(x){
+  /* costoUnitario: lo que factura el proveedor por esa unidad. Antes se
+     guardaba en un campo llamado "precioUnitario" —nombre engañoso: nunca
+     fue precio de venta, siempre fue el costo— así que un renglón guardado
+     antes de este cambio sigue leyéndose de ahí. */
+  const costoUnitario = Math.max(0, numDef(x && (x.costoUnitario !== undefined ? x.costoUnitario : x.precioUnitario), 0));
   return {
     id: (x && x.id) || nuevoId(),
     /* Opcional: quién lo surte. No se exige porque un concepto capturado a
@@ -6146,11 +6151,20 @@ function normalizarConceptoProyecto(x){
     proveedor: (x && x.proveedor ? String(x.proveedor) : '').trim(),
     concepto: aOracion((x && x.concepto ? String(x.concepto) : '').trim()),
     cantidad: Math.max(0, numDef(x && x.cantidad, 1)),
-    precioUnitario: Math.max(0, numDef(x && x.precioUnitario, 0))
+    costoUnitario,
+    /* precioVenta: lo que se le cobra al cliente por este concepto — pedido
+       de Victor (21-sep-2026): "añadiremos una columna de costo y otra de
+       precio... calcula el margen de la utilidad de esos proyectos". Si no
+       se definió (renglón guardado antes de este cambio, o uno nuevo que
+       nadie ha cotizado todavía), arranca IGUAL al costo — margen 0%, nada
+       se ve como pérdida por default — en vez de en $0. Se ajusta a mano por
+       renglón, o de un jalón al importar con un % de margen (ver
+       modalMargenImportacionProyectoImagen). */
+    precioVenta: Math.max(0, numDef(x && x.precioVenta, costoUnitario))
   };
 }
 function totalConceptosProyecto(p){
-  return p.conceptos.reduce((s,c)=> s + c.cantidad * c.precioUnitario, 0);
+  return p.conceptos.reduce((s,c)=> s + c.cantidad * c.costoUnitario, 0);
 }
 /* Un renglón es MANO DE OBRA si su proveedor viene marcado literalmente como
    "Servicios" o "Servicios / IT" (así llega en los desgloses reales: la
@@ -6162,13 +6176,24 @@ function esConceptoManoDeObra(c){
   const norm = (c.proveedor || '').toLowerCase().trim().replace(/\s*\/\s*/g, '/').replace(/\s+/g, ' ');
   return norm === 'servicios' || norm === 'servicios/it';
 }
+/* costo* = lo que factura el proveedor (como siempre); venta* = lo que se le
+   cobra al cliente por esos mismos renglones (21-sep-2026). utilidad/margenPct
+   comparan los dos totales — mismo criterio que Pólizas (precio de venta vs.
+   costo), aplicado aquí a un proyecto de Imagen/Aperturas. */
 function desgloseConceptosProyecto(p){
-  let materiales = 0, manoObra = 0;
+  let materiales = 0, manoObra = 0, materialesVenta = 0, manoObraVenta = 0;
   p.conceptos.forEach(c=>{
-    const monto = c.cantidad * c.precioUnitario;
-    if(esConceptoManoDeObra(c)) manoObra += monto; else materiales += monto;
+    const montoCosto = c.cantidad * c.costoUnitario;
+    const montoVenta = c.cantidad * c.precioVenta;
+    if(esConceptoManoDeObra(c)){ manoObra += montoCosto; manoObraVenta += montoVenta; }
+    else{ materiales += montoCosto; materialesVenta += montoVenta; }
   });
-  return { materiales, manoObra, total: materiales + manoObra };
+  const total = materiales + manoObra;
+  const totalVenta = materialesVenta + manoObraVenta;
+  const utilidad = totalVenta - total;
+  return { materiales, manoObra, total,
+           materialesVenta, manoObraVenta, totalVenta,
+           utilidad, margenPct: totalVenta ? (utilidad / totalVenta * 100) : 0 };
 }
 
 /* Mismo molde que normalizarEvidencia (dataUrl/nota/subioNombre/cuando), con
@@ -6453,7 +6478,7 @@ function extraerConceptosXlsx(hoja, tabla){
       proveedor: tabla.columnas.proveedor !== undefined ? fila[tabla.columnas.proveedor] : '',
       concepto: concepto.trim(),
       cantidad: typeof cantidad === 'number' ? cantidad : 1,
-      precioUnitario: typeof precioUnitario === 'number' ? precioUnitario : 0
+      costoUnitario: typeof precioUnitario === 'number' ? precioUnitario : 0
     }));
   }
   return conceptos;
@@ -6515,16 +6540,43 @@ async function importarProyectoImagenDesdeExcel(archivo){
     return;
   }
   const meta = extraerMetadatosXlsx(hoja);
-  modalProyectoImagen(null, {
+  modalMargenImportacionProyectoImagen(conceptos, {
     nombreProyecto: meta.nombreProyecto,
     fecha: meta.fecha,
     responsable: meta.responsable,
     notas: (meta.notas ? meta.notas + '\n' : '')
-      + 'Importado de ' + archivo.name + ' (hoja "' + tabla.hoja + '", ' + conceptos.length + ' ' + plural(conceptos.length, 'concepto', 'conceptos') + ').',
-    conceptos
-  });
-  aviso('Se importaron ' + conceptos.length + ' ' + plural(conceptos.length, 'concepto', 'conceptos')
-    + ' desde ' + archivo.name + '. Revisa cliente, sitio, tipo y estatus antes de guardar.');
+      + 'Importado de ' + archivo.name + ' (hoja "' + tabla.hoja + '", ' + conceptos.length + ' ' + plural(conceptos.length, 'concepto', 'conceptos') + ').'
+  }, archivo.name);
+}
+
+/* Antes de abrir el modal del proyecto ya prellenado, pregunta si se quiere
+   aplicar un % de margen sobre el costo de cada renglón importado para
+   calcular su precio de venta de un jalón — pedido de Victor (21-sep-2026):
+   "estas columnas podran ser aumentadas desde la importación si decidimos
+   agregar el % desde inicio". Dejarlo en blanco importa igual que antes de
+   este cambio: precio de venta = costo (margen 0%), ajustable renglón por
+   renglón después en el modal del proyecto. */
+function modalMargenImportacionProyectoImagen(conceptos, datosPrellenados, nombreArchivo){
+  const cuerpo = '<p class="pista" style="margin-top:0">Se encontraron ' + conceptos.length + ' '
+      + plural(conceptos.length, 'concepto', 'conceptos') + ' en ' + esc(nombreArchivo) + '. Si ya sabes cuánto le vas a '
+      + 'cobrar al cliente por encima del costo, captúralo aquí y se aplica a todos de un jalón — cada renglón se puede '
+      + 'ajustar después uno por uno, ya dentro del proyecto.</p>'
+    + '<div class="campo"><label>Margen a aplicar sobre el costo (%, opcional)</label>'
+    +   '<input type="number" id="piMargenImport" min="0" max="500" step="0.01" placeholder="0"></div>'
+    + '<p class="pista">Déjalo en blanco para importar el precio de venta igual al costo (margen 0%) y decidirlo después.</p>';
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar importación</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Continuar</button>';
+  abrirModal('Margen de venta para lo importado', cuerpo, pie);
+  cerrarModalActual = ()=>{
+    const pct = parseFloat($('piMargenImport').value) || 0;
+    const conMargen = pct
+      ? conceptos.map(c => Object.assign({}, c, { precioVenta: Math.round(c.costoUnitario * (1 + pct/100)) }))
+      : conceptos;
+    cerrarModal();
+    modalProyectoImagen(null, Object.assign({ conceptos: conMargen }, datosPrellenados));
+    aviso('Se importaron ' + conceptos.length + ' ' + plural(conceptos.length, 'concepto', 'conceptos')
+      + ' desde ' + nombreArchivo + (pct ? ', con ' + pct + '% de margen ya aplicado' : '') + '. Revisa cliente, sitio, tipo y estatus antes de guardar.');
+  };
 }
 
 /* ------------------- Importar una póliza desde Excel (hoja "BASE") -------------------
@@ -9545,8 +9597,8 @@ function armarPayloadProyectoImagen(p){
       proveedor: c.proveedor || '',
       concepto: c.concepto,
       cantidad: numero(c.cantidad),
-      precioUnitario: dinero(c.precioUnitario),
-      subtotal: dinero(c.cantidad * c.precioUnitario),
+      precioUnitario: dinero(c.costoUnitario),
+      subtotal: dinero(c.cantidad * c.costoUnitario),
       esManoDeObra: esConceptoManoDeObra(c)
     })),
     totalConceptos: dinero(total),
@@ -19550,16 +19602,24 @@ function vistaProyectoImagen(){
   }else{
     cronoValor = 'Sin definir'; cronoPie = '';
   }
+  /* Costo total = lo que factura el proveedor (ya existía, va a Resultados
+     como gasto aparte — ver calcularResultados). Precio de venta / Utilidad
+     son nuevos (21-sep-2026, pedido de Victor): lo que se le cobra al
+     cliente por el proyecto y qué tanto deja — puramente informativas de
+     ESTE proyecto, mismo criterio que ya usa Pólizas para costo vs. precio
+     de venta, sin tocar el estado de resultados general. */
   h += '<div class="kpis">'
      + tarjetaKpi('Sitio / ubicación', esc(p.sitioNombre || 'Sin especificar'), '', 'k-texto')
      + tarjetaKpi('Fecha de apertura', p.fechaObjetivo ? fmtFecha(p.fechaObjetivo) : 'Sin definir', '')
      + tarjetaKpi('Cronograma de obra', cronoValor, cronoPie)
-     + tarjetaKpi('Monto de inversión total', dinero(total), numero(p.conceptos.length) + ' ' + plural(p.conceptos.length,'concepto','conceptos'))
-     + tarjetaKpi('Costo de materiales', dinero(desglose.materiales), '')
-     + tarjetaKpi('Costo de mano de obra', dinero(desglose.manoObra), '')
+     + tarjetaKpi('Costo total', dinero(total), numero(p.conceptos.length) + ' ' + plural(p.conceptos.length,'concepto','conceptos'))
+     + tarjetaKpi('Precio de venta total', dinero(desglose.totalVenta), '')
+     + tarjetaKpi('Utilidad', dinero(desglose.utilidad), desglose.margenPct.toFixed(1) + '% de margen',
+         desglose.utilidad >= 0 ? 'k-ok' : 'k-error')
      + '</div>';
-  h += '<p class="pista" style="margin:-10px 0 16px">Es un gasto informativo para el estado de resultados: '
-     + 'se muestra aparte y no afecta la utilidad.</p>';
+  h += '<p class="pista" style="margin:-10px 0 16px">El costo es un gasto informativo para el estado de resultados '
+     + '(se muestra aparte y no afecta la utilidad general). El precio de venta y la utilidad de aquí son solo de '
+     + 'este proyecto — si hace falta cobrarlo formalmente, la cotización se arma aparte en el módulo Cotizaciones.</p>';
 
   if(p.responsable){
     h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Responsable</h3></div></div>'
@@ -19582,15 +19642,25 @@ function vistaProyectoImagen(){
        abajo. Pasado el umbral, se limita el alto y el encabezado se queda
        fijo arriba (rodillo-alto) — la tabla completa sigue ahí, nada más se
        ve por partes, como cualquier lista larga del resto de la app. */
-    h += '<div class="rodillo' + (p.conceptos.length > 12 ? ' rodillo-alto' : '') + '"><table class="tabla"><thead><tr><th>Proveedor</th><th>Concepto</th><th>Cantidad</th><th>Precio unitario</th><th>Subtotal</th></tr></thead><tbody>'
-       + p.conceptos.map(c => '<tr><td>' + esc(c.proveedor || '—') + '</td><td>' + esc(c.concepto) + '</td><td>' + numero(c.cantidad) + '</td>'
-           + '<td>' + dinero(c.precioUnitario) + '</td><td><b>' + dinero(c.cantidad * c.precioUnitario) + '</b></td></tr>').join('')
+    h += '<div class="rodillo' + (p.conceptos.length > 12 ? ' rodillo-alto' : '') + '"><table class="tabla">'
+       + '<thead><tr><th>Proveedor</th><th>Concepto</th><th>Cantidad</th><th>Costo unitario</th><th>Precio unitario</th>'
+       +   '<th>Subtotal costo</th><th>Subtotal precio</th></tr></thead><tbody>'
+       + p.conceptos.map(c => {
+           const subCosto = c.cantidad * c.costoUnitario, subVenta = c.cantidad * c.precioVenta;
+           return '<tr><td>' + esc(c.proveedor || '—') + '</td><td>' + esc(c.concepto) + '</td><td>' + numero(c.cantidad) + '</td>'
+             + '<td>' + dinero(c.costoUnitario) + '</td><td>' + dinero(c.precioVenta) + '</td>'
+             + '<td>' + dinero(subCosto) + '</td><td><b>' + dinero(subVenta) + '</b></td></tr>';
+         }).join('')
        + '</tbody></table></div>'
        + '<div class="resumen" style="margin-top:10px">'
        +   '<div class="r-fila"><span>Costo de materiales</span><span>' + dinero(desglose.materiales) + '</span></div>'
        +   '<div class="r-fila"><span>Costo de mano de obra</span><span>' + dinero(desglose.manoObra) + '</span></div>'
-       +   '<div class="r-fila r-total"><span>Monto de inversión total</span>'
-       +     '<span style="font-size:18px; font-weight:800">' + dinero(total) + '</span></div></div>';
+       +   '<div class="r-fila"><span>Costo total</span><span>' + dinero(total) + '</span></div>'
+       +   '<div class="r-fila"><span>Precio de venta total</span><span>' + dinero(desglose.totalVenta) + '</span></div>'
+       +   '<div class="r-fila r-total"><span>Utilidad</span>'
+       +     '<span style="font-size:18px; font-weight:800; color:' + (desglose.utilidad >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
+       +       dinero(desglose.utilidad) + ' <span class="pista" style="display:inline; font-size:13px; font-weight:400">('
+       +       desglose.margenPct.toFixed(1) + '%)</span></span></div></div>';
   }
   h += '</div>';
 
@@ -19708,7 +19778,7 @@ function modalProyectoImagen(id, datosImportados){
     + '<div class="campo"><label>Costos / conceptos (opcional, informativo)</label>'
     +   '<div id="listaConceptosPI"></div>'
     +   '<button type="button" class="btn btn-suave btn-mini" id="piBtnAgregarConcepto">' + ICONO.mas + 'Agregar concepto</button>'
-    +   '<div id="resumenConceptosPI" style="margin-top:8px"></div>'
+    +   '<div class="resumen" id="resumenConceptosPI" style="margin-top:8px"></div>'
     + '</div>'
 
     + '<div class="campo"><label>Imágenes y planos (renders, fotos, o un PDF con el layout)</label>'
@@ -19725,6 +19795,14 @@ function modalProyectoImagen(id, datosImportados){
             + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (p ? 'Guardar cambios' : 'Crear proyecto') + '</button>';
 
   abrirModal(p ? 'Editar proyecto' : 'Nuevo proyecto de imagen', cuerpo, pie);
+  /* Pedido de Victor (21-sep-2026): "que se pueda ver un poco mas amplio,
+     no de toda la pagina completa pero si mas amplio de lo que
+     actualmente se tiene" — con costo Y precio por renglón (antes solo
+     una columna de precio) la tabla de conceptos ya no respiraba en el
+     ancho default (620px); .ancho (860px) es el intermedio que ya usa el
+     resto de la app, no el .enorme de 1320px que se siente de página
+     completa. */
+  $('modal').classList.add('ancho');
 
   /* Duración = días en sitio entre entrada y salida. Se muestra en vivo para
      que la fecha de apertura capturada arriba se pueda contrastar contra lo
@@ -19827,23 +19905,29 @@ function modalProyectoImagen(id, datosImportados){
         + '<td class="mini"><input type="text" data-campo="proveedor" value="' + esc(c.proveedor) + '" placeholder="Opcional"></td>'
         + '<td><input type="text" data-campo="concepto" value="' + esc(c.concepto) + '" placeholder="Ej. Rótulo iluminado"></td>'
         + '<td class="mini"><input type="number" min="0" step="1" data-campo="cantidad" value="' + c.cantidad + '"></td>'
-        + '<td class="med"><input type="text" inputmode="decimal" data-campo="precioUnitario" value="' + numero(c.precioUnitario) + '"></td>'
+        + '<td class="med"><input type="text" inputmode="decimal" data-campo="costoUnitario" value="' + numero(c.costoUnitario) + '" title="Lo que factura el proveedor"></td>'
+        + '<td class="med"><input type="text" inputmode="decimal" data-campo="precioVenta" value="' + numero(c.precioVenta) + '" title="Lo que se le cobra al cliente"></td>'
         + '<td class="acc"><button type="button" class="icono-mini" data-quitar-concepto-pi="' + i + '" data-tip="Quitar">' + ICONO.basura + '</button></td>'
         + '</tr>').join('');
       $('listaConceptosPI').innerHTML =
           '<div class="rodillo"><table class="tabla-renglones">'
-        + '<thead><tr><th>Proveedor</th><th>Concepto</th><th>Cant.</th><th>Precio unitario</th><th></th></tr></thead>'
+        + '<thead><tr><th>Proveedor</th><th>Concepto</th><th>Cant.</th><th>Costo unitario</th><th>Precio unitario</th><th></th></tr></thead>'
         + '<tbody>' + filas + '</tbody></table></div>';
     }
     pintarResumenConceptosPI();
   }
-  /* Monto de inversión total = costo de materiales + costo de mano de obra
-     (ver esConceptoManoDeObra): un proveedor "Servicios"/"Servicios / IT" es
-     mano de obra, cualquier otro (o vacío) es material. */
+  /* Costo total = costo de materiales + costo de mano de obra (ver
+     esConceptoManoDeObra): un proveedor "Servicios"/"Servicios / IT" es
+     mano de obra, cualquier otro (o vacío) es material. Precio de venta y
+     utilidad son nuevos (21-sep-2026, pedido de Victor) — mismo criterio
+     que ya usa Pólizas para comparar costo vs. precio de venta. */
   function pintarResumenConceptosPI(){
     const d = desgloseConceptosProyecto({ conceptos: conceptosTmp });
-    $('resumenConceptosPI').innerHTML = '<b>Monto de inversión total: ' + dinero(d.total) + '</b>'
-      + '<div class="pista">Costo de materiales: ' + dinero(d.materiales) + ' · Costo de mano de obra: ' + dinero(d.manoObra) + '</div>';
+    $('resumenConceptosPI').innerHTML = '<div class="r-fila"><span>Costo total</span><span>' + dinero(d.total) + '</span></div>'
+      + '<div class="r-fila"><span>Precio de venta total</span><span>' + dinero(d.totalVenta) + '</span></div>'
+      + '<div class="r-fila r-total"><span>Utilidad</span><span style="color:' + (d.utilidad >= 0 ? 'var(--ok)' : 'var(--error)') + '">'
+      +   dinero(d.utilidad) + ' (' + d.margenPct.toFixed(1) + '%)</span></div>'
+      + '<div class="pista" style="margin-top:4px">Costo de materiales: ' + dinero(d.materiales) + ' · Costo de mano de obra: ' + dinero(d.manoObra) + '</div>';
   }
   pintarConceptosPI();
   $('listaConceptosPI').addEventListener('input', ev=>{
@@ -19852,7 +19936,7 @@ function modalProyectoImagen(id, datosImportados){
     const c = conceptosTmp[+campo.closest('[data-idx]').dataset.idx];
     const k = campo.dataset.campo;
     if(k === 'cantidad') c.cantidad = Math.max(0, parseFloat(campo.value) || 0);
-    else if(k === 'precioUnitario'){ formatearMiles(campo); c.precioUnitario = aNumero(campo.value); }
+    else if(k === 'costoUnitario' || k === 'precioVenta'){ formatearMiles(campo); c[k] = aNumero(campo.value); }
     else c[k] = campo.value;
     pintarResumenConceptosPI();
   });
