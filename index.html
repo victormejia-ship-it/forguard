@@ -3744,11 +3744,21 @@ async function consultarNubePorCampo(coleccion, campo, valor){
 async function escribirNube(coleccion, id, obj){
   const campos = Object.assign({}, obj);
   delete campos.id;
+  /* Veredicto de auditoría (21-sep-2026, hallazgo Datos, 15 d-p): "Dos
+     personas capturando el mismo registro: el último en guardar borra el
+     trabajo del otro, sin aviso". Este sello es lo que después compara
+     huboConflictoDeEdicion() contra la versión que tenía cada quien al
+     ABRIR el registro — ver el bloque VERSIONES POR REGISTRO más abajo.
+     'meta' queda afuera a propósito: sus campos YA SON las marcas por
+     colección (ver marcarCambio) — sellarlo también habría metido un
+     campo "actualizadoEn" de más ahí adentro, que coleccionesCambiadas()
+     leería como si fuera una colección real llamada así. */
+  if(coleccion !== 'meta') campos.actualizadoEn = new Date().toISOString();
   const mascara = Object.keys(campos).map(k => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
   const r = await pedirNube('/' + coleccion + '/' + encodeURIComponent(id) + '?' + mascara, {
     method:'PATCH', body: JSON.stringify({ fields: aCampos(campos) })
   });
-  marcarCambio(coleccion);
+  marcarCambio(coleccion, campos.actualizadoEn);
   return r;
 }
 async function borrarNube(coleccion, id){
@@ -3806,8 +3816,15 @@ function cargarMarcas(){
 }
 function guardarMarcas(){ try{ localStorage.setItem(LLAVE_MARCAS, JSON.stringify(marcas)); }catch(e){} }
 let _temporizadoresMarca = {};
-function marcarCambio(coleccion){
+let _ultimoValorMarca = {};
+function marcarCambio(coleccion, valor){
   if(!HAY_NUBE || coleccion === 'meta') return;
+  /* `valor`, cuando lo manda escribirNube(), es el MISMO actualizadoEn que
+     acaba de quedar en el registro — así la marca de la colección y la
+     versión del registro nunca se desincronizan entre sí. Sin `valor`
+     (p.ej. desde borrarNube(), donde no hay registro al que pegarle un
+     sello) se genera una propia. */
+  _ultimoValorMarca[coleccion] = valor || new Date().toISOString();
   clearTimeout(_temporizadoresMarca[coleccion]);
   _temporizadoresMarca[coleccion] = setTimeout(()=>{
     delete _temporizadoresMarca[coleccion];
@@ -3815,7 +3832,7 @@ function marcarCambio(coleccion){
        en ese instante, o falta publicar la regla de /meta), lo peor que
        pasa es que un refresco de más se haga completo en vez de selectivo
        —exactamente el comportamiento de HOY, nunca uno peor—. */
-    escribirNube('meta', 'sync', { [coleccion]: new Date().toISOString() }).catch(()=>{});
+    escribirNube('meta', 'sync', { [coleccion]: _ultimoValorMarca[coleccion] }).catch(()=>{});
   }, 2000);
 }
 /* Colecciones que cambiaron desde la última vez que se preguntó, según
@@ -3843,6 +3860,74 @@ async function coleccionesCambiadas(){
     console.warn('No se pudieron leer las marcas de cambio; se hace bajada completa:', String(e.message || e));
     return null;
   }
+}
+
+/* ===================== VERSIONES POR REGISTRO (aviso de conflicto) =====================
+   Veredicto de auditoría (21-sep-2026, hallazgo Datos, 15 d-p): "Dos
+   personas capturando el mismo registro: el último en guardar borra el
+   trabajo del otro, sin aviso". Antes, guardar un reporte/póliza/etc. no
+   comparaba nada: quien guardaba último ganaba, sin importar si alguien
+   más había cambiado el mismo registro un minuto antes.
+
+   `versiones` guarda, por colección e id, el `actualizadoEn` que trajo la
+   última sincronización con el servidor (ver registrarVersiones(), llamada
+   desde bajarDeLaNube() con los documentos crudos, ANTES de normalizarlos —
+   normalizarX() no conoce actualizadoEn, así que si se leyera DESPUÉS del
+   .map() ya se habría perdido). Es a propósito solo en memoria, no
+   persistida: al recargar la página, bajarDeLaNube() la vuelve a llenar
+   de inmediato, y no vale la pena arrastrar una versión vieja entre
+   sesiones.
+
+   El uso pensado es: cuando una pantalla abre un registro para editarlo
+   (p.ej. modalReporte(id)), guarda aparte `versiones[coleccion][id]` en
+   ese momento. Al guardar, huboConflictoDeEdicion() compara esa foto
+   contra el valor ACTUAL en `versiones` —que el refresco de 30s (ver
+   refrescarDesdeNube) habrá actualizado mientras tanto SI alguien más
+   guardó ese mismo registro— y si cambiaron, confirmarConflicto() avisa
+   antes de sobrescribir. No es a prueba de balas (dos guardados en la
+   misma ventana de 30s, o mientras se está sin internet, no se detectan:
+   ver bajarDeLaNube/refrescarDesdeNube, que son quienes de verdad traen
+   la novedad), pero es exactamente lo que pedía el hallazgo: un aviso en
+   el caso común, en vez de silencio siempre. */
+let versiones = {};
+function registrarVersiones(coleccion, crudos){
+  if(!Array.isArray(crudos)) return;
+  if(!versiones[coleccion]) versiones[coleccion] = {};
+  crudos.forEach(o => { if(o && o.id && o.actualizadoEn) versiones[coleccion][o.id] = o.actualizadoEn; });
+}
+/* `versionAlAbrir` viene de donde quien llama guardó versiones[coleccion][id]
+   al abrir el registro para editar. Sin ella (registro nuevo, o una
+   colección/registro que esta sesión nunca llegó a sincronizar) no hay
+   con qué comparar — se deja pasar, igual que el comportamiento de
+   siempre, en vez de inventar un conflicto que no se puede probar. */
+function huboConflictoDeEdicion(coleccion, id, versionAlAbrir){
+  if(!versionAlAbrir) return false;
+  const actual = versiones[coleccion] && versiones[coleccion][id];
+  return !!actual && actual !== versionAlAbrir;
+}
+/* Modal de conflicto, con sus DOS botones fuera del delegate genérico de
+   #modalPie a propósito (ni data-modal="cancelar" ni "guardar"): ese
+   delegate reparte "cancelar" a cerrarModal() directo, sin pasar por
+   cerrarModalActual — si este helper hubiera usado ese camino, la
+   promesa se habría quedado colgada para siempre en esa rama. Con
+   guardarBorradorAlSalir cubre además la X, el fondo y Escape (los tres
+   pasan por cerrarModalPorFuera, ver más abajo en el archivo), así que
+   CUALQUIER forma de cerrar este modal resuelve la promesa. */
+function confirmarConflicto(nombreCosa){
+  return new Promise(resolve => {
+    let resuelto = false;
+    const terminar = valor => { if(resuelto) return; resuelto = true; resolve(valor); cerrarModal(); };
+    abrirModal('Alguien más ya guardó cambios aquí',
+      '<p style="font-size:13.5px; color:#3a4256; line-height:1.65">Mientras tenías abierto '
+        + esc(nombreCosa) + ', se actualizó desde otra sesión. Si continúas, tu versión puede '
+        + 'reemplazar esos cambios sin que esa persona se entere. Se recomienda cancelar, revisar '
+        + 'qué cambió, y volver a editar con la versión más reciente.</p>',
+      '<button type="button" class="btn btn-suave" id="btnConflictoCancelar">Cancelar, quiero revisar</button>'
+      + '<button type="button" class="btn btn-peligro" id="btnConflictoGuardar">Guardar de todos modos</button>');
+    guardarBorradorAlSalir = () => terminar(false);
+    $('btnConflictoCancelar').addEventListener('click', () => terminar(false));
+    $('btnConflictoGuardar').addEventListener('click', () => terminar(true));
+  });
 }
 
 /* ===================== COLA DE CAMBIOS PENDIENTES =====================
@@ -4099,6 +4184,15 @@ async function bajarDeLaNube(soloColecciones){
      cambios pendientes se sigue trabajando con la copia local; el siguiente
      refresco, ya con la cola vacía, descarga limpio. */
   if(cola.length || vaciando) return 'ok';
+  /* Veredicto de auditoría (21-sep-2026, hallazgo Datos, 15 d-p): guarda el
+     actualizadoEn de cada documento CRUDO, antes de normalizarlo —
+     normalizarX() no conoce ese campo y lo tiraría (ver VERSIONES POR
+     REGISTRO más arriba). Es lo que huboConflictoDeEdicion() compara para
+     avisar si alguien más ya guardó encima mientras se editaba. */
+  [['clientes',cl],['sitios',si],['polizas',po],['cotizaciones',co],['reportes',rp],
+   ['levantamientos',lv],['proyectosImagen',im],['activos',ac],['personal',pe],
+   ['proveedores',pv],['gastosProveedor',gp],['refacciones',rf],['ordenesCompra',oc],
+   ['visitas',vi]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
   datos = { v:1,
             clientes: cl === null ? datos.clientes : cl.map(normalizarCliente),
             sitios: si === null ? datos.sitios : si.map(normalizarSitio),
@@ -17791,6 +17885,11 @@ function modalReporte(id){
     aviso('Primero da de alta un cliente: el reporte cuelga de un sitio suyo.', true);
     return;
   }
+  /* Veredicto de auditoría (21-sep-2026, hallazgo Datos, 15 d-p): foto de
+     qué versión de este reporte se conocía AL ABRIRLO, para poder avisar
+     en cerrarModalActual() si alguien más ya lo guardó mientras tanto
+     (ver huboConflictoDeEdicion()/confirmarConflicto()). */
+  const versionAlAbrir = rp ? versiones.reportes && versiones.reportes[rp.id] : null;
 
   let evidenciasTmp = rp ? rp.evidencias.slice() : [];
   const clientesOrd = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
@@ -17968,6 +18067,46 @@ function modalReporte(id){
     if(!sitioId){ aviso('Elige un sitio: el reporte necesita saber dónde fue.', true); return; }
     if(!titulo){ $('rTitulo').setAttribute('aria-invalid','true'); $('rTitulo').focus(); aviso('El reporte necesita un título.', true); return; }
 
+    /* Todo lo que hace falta leer del formulario, ANTES de cualquier efecto
+       secundario (subir fotos) o de mutar `rp` — así el aviso de conflicto
+       de más abajo puede salir (y, si se cancela, no dejar nada a medias)
+       sin que el resto del formulario ya se haya perdido o mutado. */
+    const equipoId = $('rEquipoId').value;
+    let equipoCatalogoId = '', equipoNombre = '';
+    if(equipoId === '__otro__'){
+      equipoNombre = $('rEquipoTexto').value.trim();
+    }else if(equipoId){
+      const eq = catalogo().find(e => e.id === equipoId);
+      equipoCatalogoId = equipoId;
+      equipoNombre = eq ? eq.concepto : '';
+    }
+    const descripcionNueva = $('rDescripcion').value.trim();
+    const prioridadNueva = $('rPrioridad').value;
+    const sitio = sitioPorId(sitioId);
+    let cambios;
+    if(rp){
+      /* Antes de pisar los datos viejos, se anota qué cambió: es lo que le
+         da sentido al seguimiento del reporte — no solo "se editó", sino
+         qué se editó. */
+      cambios = [];
+      if(rp.titulo !== titulo) cambios.push('título: "' + rp.titulo + '" → "' + titulo + '"');
+      if(rp.sitioId !== sitioId) cambios.push('sitio: ' + (rp.sitioNombre || 'sin sitio') + ' → ' + (sitio ? sitio.nombre : 'sin sitio'));
+      if(rp.equipoNombre !== equipoNombre) cambios.push('equipo: ' + (rp.equipoNombre || '—') + ' → ' + (equipoNombre || '—'));
+      if(rp.prioridad !== prioridadNueva) cambios.push('prioridad: ' + ETIQUETA_PRIORIDAD[rp.prioridad] + ' → ' + ETIQUETA_PRIORIDAD[prioridadNueva]);
+      if(rp.descripcion !== descripcionNueva) cambios.push('descripción actualizada');
+      if(rp.evidencias.length !== evidenciasTmp.length) cambios.push('fotos: ' + rp.evidencias.length + ' → ' + evidenciasTmp.length);
+    }
+
+    /* Veredicto de auditoría (21-sep-2026, hallazgo Datos, 15 d-p): se
+       revisa aquí —ya con TODO lo del formulario leído, pero antes de
+       subir fotos o de mutar `rp`— para que cancelar no deje ningún
+       efecto secundario a medias. Si acepta "guardar de todos modos", el
+       resto sigue exactamente igual que siempre. */
+    if(rp && huboConflictoDeEdicion('reportes', rp.id, versionAlAbrir)){
+      const continuar = await confirmarConflicto('el reporte «' + (rp.folio || rp.titulo || 'sin folio') + '»');
+      if(!continuar) return;
+    }
+
     /* Las fotos nuevas (staging, todavía en base64) se suben a Storage justo
        aquí, al guardar de verdad — mismo criterio que "Registrar servicio"
        de pólizas (ver subirEvidenciaStorage()): un reporte que guardara las
@@ -17979,47 +18118,23 @@ function modalReporte(id){
        carpeta de Storage sea la misma sin importar si el reporte es nuevo o
        ya existía. */
     const reporteId = rp ? rp.id : nuevoId();
-    const btnGuardar = $('modalPie').querySelector('[data-modal="guardar"]');
+    const btnGuardar = $('modalPie') && $('modalPie').querySelector('[data-modal="guardar"]');
     const pendientes = evidenciasTmp.filter(e => e.dataUrl.startsWith('data:'));
     if(pendientes.length){
-      btnGuardar.disabled = true; btnGuardar.textContent = 'Subiendo fotos…';
+      if(btnGuardar){ btnGuardar.disabled = true; btnGuardar.textContent = 'Subiendo fotos…'; }
       try{
         for(const e of pendientes){
           e.dataUrl = await subirEvidenciaStorage(e.dataUrl, 'evidencias/reportes/' + reporteId, e.id);
         }
       }catch(err){
-        btnGuardar.disabled = false; btnGuardar.textContent = rp ? 'Guardar cambios' : 'Levantar reporte';
+        if(btnGuardar){ btnGuardar.disabled = false; btnGuardar.textContent = rp ? 'Guardar cambios' : 'Levantar reporte'; }
         aviso('No se pudieron subir las fotos: ' + err.message, true);
         return;
       }
     }
 
-    const equipoId = $('rEquipoId').value;
-    let equipoCatalogoId = '', equipoNombre = '';
-    if(equipoId === '__otro__'){
-      equipoNombre = $('rEquipoTexto').value.trim();
-    }else if(equipoId){
-      const eq = catalogo().find(e => e.id === equipoId);
-      equipoCatalogoId = equipoId;
-      equipoNombre = eq ? eq.concepto : '';
-    }
-
-    const sitio = sitioPorId(sitioId);
-    let reg, cambios;
+    let reg;
     if(rp){
-      /* Antes de pisar los datos viejos, se anota qué cambió: es lo que le
-         da sentido al seguimiento del reporte — no solo "se editó", sino
-         qué se editó. */
-      const descripcionNueva = $('rDescripcion').value.trim();
-      const prioridadNueva = $('rPrioridad').value;
-      cambios = [];
-      if(rp.titulo !== titulo) cambios.push('título: "' + rp.titulo + '" → "' + titulo + '"');
-      if(rp.sitioId !== sitioId) cambios.push('sitio: ' + (rp.sitioNombre || 'sin sitio') + ' → ' + (sitio ? sitio.nombre : 'sin sitio'));
-      if(rp.equipoNombre !== equipoNombre) cambios.push('equipo: ' + (rp.equipoNombre || '—') + ' → ' + (equipoNombre || '—'));
-      if(rp.prioridad !== prioridadNueva) cambios.push('prioridad: ' + ETIQUETA_PRIORIDAD[rp.prioridad] + ' → ' + ETIQUETA_PRIORIDAD[prioridadNueva]);
-      if(rp.descripcion !== descripcionNueva) cambios.push('descripción actualizada');
-      if(rp.evidencias.length !== evidenciasTmp.length) cambios.push('fotos: ' + rp.evidencias.length + ' → ' + evidenciasTmp.length);
-
       Object.assign(rp, {
         clienteId, sitioId, sitioNombre: sitio ? sitio.nombre : rp.sitioNombre,
         equipoCatalogoId, equipoNombre,
@@ -18033,7 +18148,7 @@ function modalReporte(id){
         id:reporteId, folio: generarFolioReporte(hoyISO()),
         clienteId, sitioId, sitioNombre: sitio ? sitio.nombre : '',
         equipoCatalogoId, equipoNombre, titulo,
-        descripcion: $('rDescripcion').value.trim(), prioridad: $('rPrioridad').value,
+        descripcion: descripcionNueva, prioridad: prioridadNueva,
         estatus:'abierto', fechaCreacion: hoyISO(),
         reportadoPor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || 'Alguien del equipo' },
         evidencias: evidenciasTmp,
