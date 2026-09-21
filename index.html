@@ -6885,6 +6885,56 @@ function modalMargenImportacionProyectoImagen(conceptos, datosPrellenados, nombr
   };
 }
 
+/* Pedido de Victor (21-sep-2026): poder reajustar de un jalón el costo o
+   el precio de venta de TODOS los conceptos de un proyecto YA CREADO —no
+   solo al importarlo (ver modalMargenImportacionProyectoImagen arriba),
+   sino en cualquier momento: el proveedor avisa un aumento de precio, o
+   hace falta subir/bajar el margen ya cotizado sin editar renglón por
+   renglón. "Aplicar a" decide el campo (costo o precio de venta, nunca
+   los dos a la vez — mismo criterio que "Cargo a" en Pólizas: uno decide
+   la base, el tipo de ajuste decide el signo); un descuento nunca deja el
+   campo en menos de $0 (Math.max(0, ...), mismo candado que el % de
+   ajuste de Pólizas). Modifica los conceptos DIRECTO y los guarda —a
+   diferencia del ajuste de Pólizas, que se imprime como renglón aparte y
+   nunca toca los precios de los equipos, aquí no existe ese renglón
+   aparte: el % solo sirve para no capturar concepto por concepto. */
+function modalAjusteConceptosProyectoImagen(id){
+  const p = proyectoImagenPorId(id);
+  if(!p || !p.conceptos.length) return;
+  const cuerpo = '<p class="pista" style="margin-top:0">Se aplica a los ' + p.conceptos.length + ' '
+      + plural(p.conceptos.length, 'concepto', 'conceptos') + ' de este proyecto de un jalón. Cada renglón se '
+      + 'puede seguir ajustando después uno por uno, editando el proyecto.</p>'
+    + '<div class="campo"><label>Aplicar a</label><select id="piAjusteCampo">'
+    +   '<option value="costoUnitario">Costo</option>'
+    +   '<option value="precioVenta">Precio de venta</option>'
+    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Tipo de ajuste</label><select id="piAjusteTipo">'
+    +     '<option value="aumento">Aumento — suma</option>'
+    +     '<option value="descuento">Descuento — resta</option>'
+    +   '</select></div>'
+    +   '<div class="campo"><label>Porcentaje (%)</label>'
+    +     '<input type="number" id="piAjustePct" min="0" max="500" step="0.01" placeholder="0"></div>'
+    + '</div>'
+    + '<div class="pista">Un descuento nunca deja el campo en menos de $0.</div>';
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Aplicar</button>';
+  abrirModal('Aumento / descuento a los conceptos', cuerpo, pie);
+  cerrarModalActual = ()=>{
+    const campo = $('piAjusteCampo').value;
+    const signo = $('piAjusteTipo').value === 'descuento' ? -1 : 1;
+    const pct = Math.max(0, parseFloat($('piAjustePct').value) || 0);
+    if(!pct){ aviso('Captura un porcentaje mayor a 0.', true); return; }
+    p.conceptos.forEach(c => { c[campo] = Math.max(0, Math.round(c[campo] * (1 + signo * pct/100))); });
+    const etiquetaCampo = campo === 'costoUnitario' ? 'el costo' : 'el precio de venta';
+    guardarProyectoImagen(p, 'ajustó', (signo > 0 ? '+' : '−') + pct + '% a ' + etiquetaCampo + ' de sus conceptos');
+    cerrarModal();
+    render();
+    aviso((signo > 0 ? 'Aumento' : 'Descuento') + ' de ' + pct + '% aplicado a ' + etiquetaCampo + ' de los '
+      + p.conceptos.length + ' ' + plural(p.conceptos.length, 'concepto', 'conceptos') + '.');
+  };
+}
+
 /* ------------------- Importar una póliza desde Excel (hoja "BASE") -------------------
    El formato real de Victor trae tres hojas — BASE (portada + tabla de
    equipos), DESCRIP. TRAB y Equipos (el catálogo de costos/descripciones) —
@@ -9938,6 +9988,12 @@ function abrirDocumentoLevantamiento(id){
 function armarPayloadProyectoImagen(p, usarCosto){
   const desglose = desgloseConceptosProyecto(p);
   const total = usarCosto ? desglose.total : desglose.totalVenta;
+  /* Pedido de Victor (21-sep-2026): que el documento incluya el IVA, pero
+     solo hasta el total final —cada concepto se sigue viendo tal cual,
+     sin IVA por renglón—, mismo criterio y misma tasa que ya usan
+     Cotizaciones/Órdenes de Compra (ver IVA_COTIZACION, calcularOrdenCompra). */
+  const iva = Math.round(total * IVA_COTIZACION * 100) / 100;
+  const totalConIva = Math.round((total + iva) * 100) / 100;
   return {
     meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
     contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: (sesion && sesion.correo) || '' },
@@ -9967,6 +10023,9 @@ function armarPayloadProyectoImagen(p, usarCosto){
       };
     }),
     totalConceptos: dinero(total),
+    iva: dinero(iva),
+    totalConIva: dinero(totalConIva),
+    ivaPct: (IVA_COTIZACION * 100) + '%',
     /* Con costo: informativo para el estado de resultados, gasto en un
        rubro aparte, nunca resta de la utilidad — ver calcularResultados().
        Con precio de venta: informativo del proyecto nada más, no toca
@@ -20090,6 +20149,11 @@ function vistaProyectoImagen(){
   if(esAdmin()) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-proyecto-imagen-costo" '
     + 'title="Excepción: genera el mismo PDF pero con el COSTO en vez del precio de venta — para uso interno.">'
     + ICONO.imprimir + 'PDF con costos</button>';
+  /* Solo Admin, mismo criterio que "PDF con costos": puede tocar el costo,
+     información sensible de lo que de verdad paga Forguard. */
+  if(esAdmin() && p.conceptos.length) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="ajuste-proyecto-imagen" '
+    + 'title="Sube o baja de un jalón el costo o el precio de venta de todos los conceptos, por porcentaje.">'
+    + 'Aumento / descuento</button>';
   if(puede) h += '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-proyecto-imagen">' + ICONO.lapiz + 'Editar</button>';
   h += '<span class="espacio"></span>';
   if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-proyecto-imagen">' + ICONO.basura + 'Eliminar</button>';
@@ -27935,6 +27999,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'editar-proyecto-imagen'){ if(exigirPermiso()) modalProyectoImagen(estado.proyectoImagenId); }
     else if(a === 'imprimir-proyecto-imagen') abrirDocumentoProyectoImagen(estado.proyectoImagenId);
     else if(a === 'imprimir-proyecto-imagen-costo'){ if(exigirAdmin('exportar el desglose de costos')) abrirDocumentoProyectoImagen(estado.proyectoImagenId, true); }
+    else if(a === 'ajuste-proyecto-imagen'){ if(exigirAdmin('ajustar costos o precios de un proyecto')) modalAjusteConceptosProyectoImagen(estado.proyectoImagenId); }
     else if(a === 'borrar-proyecto-imagen'){
       if(!exigirAdmin('eliminar un proyecto de imagen')) return;
       const pim = proyectoImagenPorId(estado.proyectoImagenId);

@@ -298,8 +298,16 @@ if(!PI){
       + '<td class="num">' + esc(PI.costoMateriales) + '</td></tr>' });
     filasCostoInfo.push({ html: '<tr class="subtotal"><td colspan="4" style="text-align:right">' + esc(PI.etiquetas.manoObra) + '</td>'
       + '<td class="num">' + esc(PI.costoManoObra) + '</td></tr>' });
-    filasCostoInfo.push({ html: '<tr class="total"><td colspan="4" style="text-align:right">' + esc(PI.etiquetas.total) + '</td>'
+    filasCostoInfo.push({ html: '<tr class="subtotal"><td colspan="4" style="text-align:right">' + esc(PI.etiquetas.total) + '</td>'
       + '<td class="num">' + esc(PI.totalConceptos) + '</td></tr>' });
+    /* IVA solo hasta el total final —cada renglón de arriba se sigue viendo
+       tal cual, sin IVA por concepto—, mismo molde que ya usan Cotizaciones
+       y Órdenes de Compra (Subtotal / IVA / Total). Pedido de Victor,
+       21-sep-2026. */
+    filasCostoInfo.push({ html: '<tr class="subtotal"><td colspan="4" style="text-align:right">IVA ' + esc(PI.ivaPct) + '</td>'
+      + '<td class="num">' + esc(PI.iva) + '</td></tr>' });
+    filasCostoInfo.push({ html: '<tr class="total"><td colspan="4" style="text-align:right">' + esc(PI.etiquetas.total) + ' con IVA</td>'
+      + '<td class="num">' + esc(PI.totalConIva) + '</td></tr>' });
   }
   const cabezaCostos = '<table class="costos-tabla"><thead><tr><th>Proveedor</th><th>Concepto</th>'
     + '<th>Cantidad</th><th>' + esc(PI.etiquetas.columnaPrecio) + '</th><th>Subtotal</th></tr></thead><tbody>';
