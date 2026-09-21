@@ -1,0 +1,79 @@
+# Pruebas de `index.html`
+
+Veredicto de auditoría (21-sep-2026): *"Cero pruebas automatizadas y ningún
+cambio pasa por revisión humana"*. Esta carpeta es el primer paso real
+contra esa parte — son las pruebas de extremo a extremo (Playwright, sobre
+un Chromium de verdad) escritas mientras se cerraban los hallazgos del
+veredicto y los cambios de otras sesiones recientes. No son cobertura
+completa de las 32 pantallas del tablero, pero cubren los escenarios que sí
+llegaron a tronar en producción — y quedan aquí para que la próxima persona
+que toque algo relacionado sepa si lo rompió, sin tener que probarlo a mano.
+
+## Cómo correrlas
+
+```bash
+cd tests
+npm install
+npm test
+```
+
+`npm test` levanta un servidor estático propio (sirve la raíz del repo,
+para que `index.html` cargue igual que en producción), corre cada
+`test_*.js` en su propio Chromium, y al final imprime cuántas pasaron y
+cuáles fallaron.
+
+Para correr una sola prueba mientras se depura algo puntual:
+
+```bash
+cd /ruta/al/repo
+python3 -m http.server 9811 &      # o cualquier servidor estático
+cd tests
+node test_veredicto_sync_incremental.js
+```
+
+## Cómo están escritas
+
+- **Nunca tocan Firebase de verdad.** Todo lo que hablaría con
+  `identitytoolkit`/`securetoken`/`firestore.googleapis.com` se intercepta
+  (`page.route()`) o se reemplaza directo (`window.pedirNube = ...`,
+  `window.escribirNube = ...`) — así corren sin internet, sin cuentas
+  reales, y sin poder tronar nada en el proyecto de Firebase de producción.
+  Cuál de las dos formas usa cada prueba depende de qué tan a fondo hay que
+  fingir la respuesta del servidor; los archivos más nuevos (`test_veredicto_*`)
+  explican en un comentario por qué eligieron una sobre la otra.
+- Arrancan la app real (`page.goto(...)`), simulan una sesión ya con
+  permiso (`sesion.correo = ...; ocultarAcceso();`) en vez de pasar por el
+  formulario de login en cada prueba, y de ahí llaman directo a las
+  funciones globales del archivo (`guardarReporte(...)`, `bajarDeLaNube(...)`,
+  `modalReporte(...)`) o interactúan con botones reales cuando el propio
+  flujo de UI es lo que se está probando.
+- Cada prueba imprime `OK`/`FAIL` por cada verificación (no solo un
+  pasó/falló global) y termina con `process.exit(0)` o `process.exit(1)` —
+  así `run-all.js` (o CI, el día que exista) puede darle seguimiento.
+- `lib/entorno.js` centraliza la URL base y cómo se lanza Chromium, para no
+  tener que tocar 20 archivos si cambia el puerto o el entorno.
+
+## Qué cubren
+
+| Archivo | Qué prueba |
+|---|---|
+| `test_veredicto_visitas_arranque.js` | `cargar()`/`restaurarSnapshotIndexedDB()` restauran `datos.visitas` |
+| `test_veredicto_agenda_tecnico.js` | La agenda del técnico no truena al recargar |
+| `test_veredicto_respaldo_completo.js` | El respaldo del Admin incluye las 16 colecciones |
+| `test_veredicto_mantenimiento_rechazado.js` | Un rechazo definitivo del servidor no borra el registro solo |
+| `test_veredicto_login_no_completa.js` | El login no deja al técnico varado si falla la sincronización |
+| `test_veredicto_sync_incremental.js` | El refresco de 30s solo baja colecciones que de verdad cambiaron |
+| `test_veredicto_conflicto_edicion.js` | Aviso cuando dos personas editan el mismo reporte |
+| `test_smoke_arranque.js` | Ningún módulo principal truena al abrirlo |
+| `test_poliza_*.js` | Duplicar póliza, importar Excel, vigencia en tarjetas |
+| `test_precios_historial.js` | Historial de cambios de precio |
+| `test_proyecto_imagen_*.js` | Imagen/Aperturas: costo vs. precio de venta, documento y PDF |
+
+## Lo que falta (siguiente paso, no de esta sesión)
+
+- Correrlas en CI (GitHub Actions) en cada push/PR — hoy son manuales.
+- Cobertura de los módulos que nunca se tocaron en una sesión con pruebas:
+  Cotizaciones a fondo, Activos, Órdenes de Compra, Personal/Organigrama,
+  el portal de clientes, y el panel de Admin.
+- Un modo "revisión humana obligatoria" (regla de rama protegida en GitHub)
+  es configuración del repositorio, no algo que estas pruebas resuelvan.

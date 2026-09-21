@@ -1,0 +1,12 @@
+{
+  "name": "control-forpass-tests",
+  "private": true,
+  "description": "Pruebas end-to-end (Playwright) para index.html, sueltas de cara a la auditoría del 21-sep-2026 — ver tests/README.md",
+  "scripts": {
+    "test": "node run-all.js",
+    "pretest": "npx --yes playwright install chromium --with-deps"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}

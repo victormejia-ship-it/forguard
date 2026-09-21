@@ -1,8 +1,13 @@
 # Control de Forpass (copia propia)
 
 Tablero para administrar kioskos Forpass instalados: por cliente, por sitio,
-con su mensualidad, vigencia y estatus de pago. Además de pólizas de
-mantenimiento preventivo como segundo módulo.
+con su mensualidad, vigencia y estatus de pago. Nació con Forpass y Pólizas
+de mantenimiento preventivo como sus dos módulos, y desde entonces creció a
+una operación más completa: Reportes (tickets), Levantamientos, Visitas,
+Cotizaciones, Activos, Proveedores, Organigrama e Imagen/Aperturas, además
+del portal externo para clientes y el panel de Admin (cuentas, catálogo de
+precios, segmentos y parámetros). Los módulos activos, según el rol de cada
+cuenta, se ven en la barra de arriba del tablero.
 
 Es una sola página (`index.html`), sin servidor: las fuentes, el logo y el
 generador de Excel van embebidos en el archivo. Se conecta a un **proyecto de
@@ -51,8 +56,10 @@ computadora que la captura. Para moverla: **Respaldo JSON** descarga todo y
 
 **Modo servidor** — ya configurado con el proyecto propio de Firebase
 (`forguard-soft-services`): pide correo y contraseña, guarda en el servidor,
-todos ven lo mismo, hay cuatro permisos (Owner, Admin, Analyst, Viewer) y
-queda historial de quién cambió qué. Las reglas de seguridad están en
+todos ven lo mismo, hay ocho roles (Owner, Admin, Analyst, Viewer, Técnico,
+Reportero, Control de activos, Cliente — cada uno acotado a lo suyo, ver
+[config/firestore.rules](config/firestore.rules)) y queda historial de quién
+cambió qué. Las reglas de seguridad están en
 [config/firestore.rules](config/firestore.rules) — se publican con
 `firebase deploy --only firestore:rules --project forguard-soft-services`.
 
@@ -61,8 +68,19 @@ En los dos modos, **Descargar Excel** genera un `.xlsx` con el formato de
 
 ## Publicar
 
-Está pensado para GitHub Pages sobre la rama `main`, carpeta raíz.
+Es GitHub Pages, con dominio propio (`forguardfacilities.com.mx`, ver
+[docs/DOMINIO-PROPIO.md](docs/DOMINIO-PROPIO.md)) — pero **no desde `main`**:
+esa rama solo tiene este README, sin `index.html` ni el resto del proyecto
+(verificado 21-sep-2026, veredicto de auditoría: "el README contradice la
+realidad"). El tablero en producción se sirve desde la rama de trabajo
+activa (hoy `claude/webpage-build-6vodst`) — confirma cuál es la rama real
+en **Settings → Pages** del repo antes de dar por bueno cualquier cambio
+aquí, porque el nombre puede volver a cambiar.
 
 ```bash
 git add -A && git commit -m "Actualiza el control de Forpass" && git push
 ```
+
+Pendiente (no urgente, pero real): mover el contenido a `main` y publicar
+desde ahí es lo normal para un repo de GitHub Pages — hoy no se ha hecho
+porque `main` nunca se actualizó después del commit inicial.
