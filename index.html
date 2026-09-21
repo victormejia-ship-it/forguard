@@ -20051,11 +20051,22 @@ function vistaProyectosImagen(){
     return h;
   }
 
+  /* Pedido de Victor (21-sep-2026): que la tarjeta traiga también costo,
+     margen y el logo del cliente, no solo la inversión (costo) y el
+     conteo de imágenes. Costo y margen quedan detrás de puedeEditar() —
+     mismo candado que el resto de precios de este módulo (el botón
+     "PDF con costos"/"Aumento-descuento" son solo Admin porque tocan
+     ESCRITURA; aquí es solo lectura, así que el candado es el mismo que
+     ya usa el módulo completo para VER precios). El logo no es dato
+     sensible, se ve siempre que haya uno cargado — mismo avatarCliente()
+     que ya usan las tarjetas de Clientes. */
+  const puedeVerPrecios = puedeEditar();
   h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((p,i)=>{
-    const total = totalConceptosProyecto(p);
+    const clienteObj = p.clienteId ? clientePorId(p.clienteId) : null;
+    const desglosePi = desgloseConceptosProyecto(p);
     return '<div class="tarjeta tarjeta-clic t-' + tonoTarjetaProyectoImagen(p.estatus) + '" data-proyecto-imagen="' + esc(p.id) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
          +   '<div class="t-cabeza">'
-         +     '<div class="t-avatar">' + esc(iniciales(p.nombreProyecto || p.clienteNombre || 'Proyecto')) + '</div>'
+         +     (clienteObj ? avatarCliente(clienteObj) : '<div class="t-avatar">' + esc(iniciales(p.nombreProyecto || p.clienteNombre || 'Proyecto')) + '</div>')
          +     '<div style="flex:1; min-width:0">'
          +       '<div class="t-nombre">' + esc(p.nombreProyecto || 'Proyecto') + '</div>'
          +       '<div class="t-sub">' + esc(p.clienteNombre || 'Prospecto') + (p.folio ? ' · ' + esc(p.folio) : '') + '</div>'
@@ -20066,7 +20077,11 @@ function vistaProyectosImagen(){
          +     '<span class="insignia i-neutro">' + esc(ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo]) + '</span>'
          +   '</div>'
          +   '<div class="t-datos">'
-         +     '<div class="t-dato"><div class="d-label">Inversión total</div><div class="d-valor chico">' + dinero(total) + '</div></div>'
+         +     (puedeVerPrecios
+               ? '<div class="t-dato"><div class="d-label">Costo total</div><div class="d-valor chico">' + dinero(desglosePi.total) + '</div></div>'
+                 + '<div class="t-dato"><div class="d-label">Precio de venta</div><div class="d-valor chico">' + dinero(desglosePi.totalVenta) + '</div></div>'
+                 + '<div class="t-dato"><div class="d-label">Margen</div><div class="d-valor chico ' + (desglosePi.utilidad >= 0 ? 'ok' : 'error') + '">' + desglosePi.margenPct.toFixed(1) + '%</div></div>'
+               : '')
          +     '<div class="t-dato"><div class="d-label">Imágenes</div><div class="d-valor chico">' + numero(p.imagenes.length) + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie"><span class="pista">' + esc(p.sitioNombre || 'Sin sitio') + '</span></div>'

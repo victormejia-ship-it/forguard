@@ -71,6 +71,7 @@ node test_veredicto_sync_incremental.js
 | `test_proyecto_imagen_aumento_iva.js` | Imagen/Aperturas: aumento/descuento % a costo o precio de venta (solo Admin), e IVA en el total del documento |
 | `test_proyecto_imagen_storage.js` | Imagen/Aperturas: las imágenes/PDFs se suben a Storage al guardar (ya no se embeben en el documento), y se pueden migrar las viejas |
 | `test_pdf_a_imagen_csp.js` | El Content-Security-Policy permite cargar pdf.js desde cdnjs.cloudflare.com (si no, un plano en PDF nunca se convertía a imagen) |
+| `test_proyecto_imagen_tarjetas.js` | Imagen/Aperturas: las tarjetas muestran costo/precio/margen (solo quien puede editar) y el logo del cliente |
 
 ## Lo que falta (siguiente paso, no de esta sesión)
 
