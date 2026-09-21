@@ -20,7 +20,15 @@
      Si algún día esto se sirve desde Firebase Hosting (que sí permite
      configurar cabeceras) vale la pena moverlos ahí para bloquear que
      alguien empotre el sitio en un iframe ajeno (clickjacking). -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://firebasestorage.googleapis.com; font-src 'self' data:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://firebasestorage.googleapis.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<!-- script-src incluye cdnjs.cloudflare.com por pdf.js (ver PDFJS_CDN_BASE/
+     cargarPdfJs() en el bloque de script principal, usado para convertir a
+     imagen el plano en PDF de un proyecto de Imagen/Aperturas): sin este origen,
+     el CSP bloqueaba SIEMPRE la carga de pdf.min.js —tanto el script como
+     su worker, que sin worker-src propio cae aquí— y convertirPdfAImagen()
+     fallaba en silencio para CUALQUIER PDF, no por archivo, degradando
+     siempre al PDF guardado tal cual (bug reportado por Victor, 21-sep-2026,
+     con un plano que sí abría bien en el visor nativo del navegador). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://firebasestorage.googleapis.com; font-src 'self' data:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com https://firebasestorage.googleapis.com; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 
 <!-- Permite "Agregar a pantalla de inicio" en Android/Chrome (con manifest)
