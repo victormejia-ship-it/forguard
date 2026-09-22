@@ -74,6 +74,7 @@ node test_veredicto_sync_incremental.js
 | `test_proyecto_imagen_tarjetas.js` | Imagen/Aperturas: las tarjetas muestran costo/precio/margen (solo quien puede editar) y el logo del cliente |
 | `test_proyecto_imagen_pie_traslape.js` | El documento de Imagen/Aperturas espera a que las imágenes (ya migradas a Storage, se bajan por red) terminen de decodificar antes de paginar — si no, el pie de página se empalmaba con la última imagen de la hoja |
 | `test_proyecto_imagen_hoja_cierre.js` | El documento de Imagen/Aperturas ya no imprime una hoja en blanco al final (bug de `page-break-after` en la última hoja) y en su lugar cierra con una hoja de branding solo con el logo de Forguard |
+| `test_seguridad_politica_clave.js` | Política de contraseña (12 caracteres normal, 15 Owner/Admin) y que "¿Olvidaste tu contraseña?" ya no delata qué correos tienen cuenta (enumeración de usuarios) |
 
 ## Lo que falta (siguiente paso, no de esta sesión)
 

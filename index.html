@@ -1749,7 +1749,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
     </div>
     <div class="campo">
       <label for="scClave">Contraseña</label>
-      <input type="password" id="scClave" autocomplete="new-password" placeholder="Mínimo 6 caracteres" required>
+      <input type="password" id="scClave" autocomplete="new-password" placeholder="Mínimo 12 caracteres" required>
     </div>
     <button type="submit" class="btn btn-primario" id="scEnviar">Enviar solicitud</button>
     <p class="acceso-pie"><button type="button" id="scVolver">← Volver a entrar</button></p>
@@ -3089,6 +3089,14 @@ function normalizarRol(r){
   return ROLES[x] ? x : 'viewer';
 }
 
+/* Auditoría de seguridad externa (22-sep-2026): "Mínimo 6 caracteres" es
+   débil para una plataforma con acceso a clientes, pólizas, cotizaciones y
+   activos. Sube a 12 para cualquier cuenta, 15 para Owner/Admin (mayor
+   privilegio, mayor exigencia) — mismo criterio en las 4 pantallas que
+   piden una contraseña (crear cuenta interna, crear cuenta de cliente,
+   autoservicio "Solicita tu acceso" y "Cambiar mi contraseña"). */
+function minimoClave(rol){ return (rol === 'owner' || rol === 'admin') ? 15 : 12; }
+
 /* Saca un nombre presentable del correo: santiago.garza@… → «Santiago Garza».
    Sirve para no andar mostrando correos crudos en pantalla. */
 function nombreDeCorreo(correo){
@@ -3190,7 +3198,16 @@ async function pedirAuth(metodo, cuerpo){
     method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(cuerpo)
   });
   const d = await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error(traducirAuth(d && d.error && d.error.message));
+  if(!r.ok){
+    const codigoCrudo = d && d.error && d.error.message;
+    const err = new Error(traducirAuth(codigoCrudo));
+    /* Código de Firebase tal cual, sin traducir — para el único caso donde
+       hace falta distinguirlo (evitar enumeración de correos en
+       "¿Olvidaste tu contraseña?", ver el manejador de #aOlvide). Todo lo
+       demás sigue leyendo solo err.message como siempre. */
+    err.codigoAuth = String(codigoCrudo || '');
+    throw err;
+  }
   return d;
 }
 function traducirAuth(codigo){
@@ -3201,7 +3218,7 @@ function traducirAuth(codigo){
   if(/USER_DISABLED/.test(c)) return 'Esta cuenta está deshabilitada. Pide a un administrador que la reactive.';
   if(/TOO_MANY_ATTEMPTS/.test(c)) return 'Demasiados intentos fallidos. Espera unos minutos y vuelve a probar.';
   if(/EMAIL_EXISTS/.test(c)) return 'Ya existe una cuenta con ese correo.';
-  if(/WEAK_PASSWORD/.test(c)) return 'La contraseña debe tener al menos 6 caracteres.';
+  if(/WEAK_PASSWORD/.test(c)) return 'Esa contraseña es demasiado corta o débil para Firebase.';
   if(/INVALID_EMAIL/.test(c)) return 'Ese correo no tiene un formato válido.';
   if(/OPERATION_NOT_ALLOWED/.test(c)) return 'Falta activar el acceso por correo y contraseña en Firebase.';
   return c ? 'No se pudo completar la operación (' + c + ').' : 'No se pudo conectar con el servidor.';
@@ -22490,10 +22507,15 @@ function fechaHora(iso, soloFecha){
 }
 
 /* Contraseña temporal fácil de dictar por teléfono. */
+/* Tres sílabas (no dos): con dos, el mínimo posible eran 12 caracteres —
+   exacto para una cuenta normal pero corto para Owner/Admin (15, ver
+   minimoClave()), así que una temporal sugerida podía nacer ya inválida
+   para ese permiso. Con tres, el mínimo posible es 16: alcanza para
+   cualquier rol sin tener que alargarla a mano. */
 function claveSugerida(){
   const silabas = ['for','pass','guard','kio','sco','mex','nova','ter','lum','vera','sol','rio'];
   const s = () => silabas[Math.floor(Math.random()*silabas.length)];
-  return s() + '-' + s() + '-' + String(Math.floor(Math.random()*9000) + 1000);
+  return s() + '-' + s() + '-' + s() + '-' + String(Math.floor(Math.random()*9000) + 1000);
 }
 
 /* ------------------------- Modal: crear cuenta ------------------------- */
@@ -22531,10 +22553,15 @@ function modalCuenta(){
     + '<div class="campo"><label>Permiso *</label><select id="uRol">' + opciones + '</select></div>'
     + '<div class="campo"><label>Contraseña temporal *</label>'
     +   '<input type="text" id="uClave" value="' + esc(sugerida) + '">'
-    +   '<div class="pista">Mínimo 6 caracteres. Se la pasas a la persona y ella puede cambiarla después '
+    +   '<div class="pista" id="uClavePista">Mínimo 12 caracteres (15 para Owner/Admin). Se la pasas a la persona y ella puede cambiarla después '
     +   'con el enlace de «¿Olvidaste tu contraseña?». Tú no la vas a poder volver a ver.</div></div>',
       '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
     + '<button type="button" class="btn btn-primario" data-modal="guardar">Crear cuenta</button>');
+
+  $('uRol').addEventListener('change', ()=>{
+    $('uClavePista').textContent = 'Mínimo ' + minimoClave($('uRol').value) + ' caracteres. Se la pasas a la persona y ella puede '
+      + 'cambiarla después con el enlace de «¿Olvidaste tu contraseña?». Tú no la vas a poder volver a ver.';
+  });
 
   function pintarFotoUsuario(){
     $('fotoUsuarioCaja').innerHTML = fotoTmp
@@ -22569,7 +22596,8 @@ function modalCuenta(){
     const nombre = $('uNombre').value.trim();
     const telefono = $('uTelefono').value.trim();
     if(!correo){ $('uCorreo').setAttribute('aria-invalid','true'); $('uCorreo').focus(); aviso('Falta el correo.', true); return; }
-    if(clave.length < 6){ $('uClave').setAttribute('aria-invalid','true'); aviso('La contraseña necesita al menos 6 caracteres.', true); return; }
+    const minClaveUsuario = minimoClave(rol);
+    if(clave.length < minClaveUsuario){ $('uClave').setAttribute('aria-invalid','true'); aviso('La contraseña necesita al menos ' + minClaveUsuario + ' caracteres para este permiso.', true); return; }
 
     const btn = $('modalPie').querySelector('[data-modal="guardar"]');
     btn.disabled = true; btn.textContent = 'Creando…';
@@ -22649,7 +22677,7 @@ function modalCrearCuentaCliente(){
     +   '<div id="listaSitiosCC"></div></div>'
     + '<div class="campo"><label>Contraseña temporal *</label>'
     +   '<input type="text" id="ccClave" value="' + esc(sugerida) + '">'
-    +   '<div class="pista">Mínimo 6 caracteres. Se la pasas a la persona y ella puede cambiarla después '
+    +   '<div class="pista">Mínimo 12 caracteres. Se la pasas a la persona y ella puede cambiarla después '
     +   'con el enlace de «¿Olvidaste tu contraseña?». Tú no la vas a poder volver a ver.</div></div>',
       '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
     + '<button type="button" class="btn btn-primario" data-modal="guardar">Crear cuenta</button>');
@@ -22687,7 +22715,7 @@ function modalCrearCuentaCliente(){
     const telefono = $('ccTelefono').value.trim();
     const sel = $('ccCliente').value;
     if(!correo){ $('ccCorreo').setAttribute('aria-invalid','true'); $('ccCorreo').focus(); aviso('Falta el correo.', true); return; }
-    if(clave.length < 6){ $('ccClave').setAttribute('aria-invalid','true'); aviso('La contraseña necesita al menos 6 caracteres.', true); return; }
+    if(clave.length < 12){ $('ccClave').setAttribute('aria-invalid','true'); aviso('La contraseña necesita al menos 12 caracteres.', true); return; }
     if(!sel){ aviso('Elige a cuál cliente pertenece.', true); return; }
     let nombreClienteNuevo = '';
     if(sel === '__nuevo__'){
@@ -27325,7 +27353,7 @@ function modalPerfil(){
     + '<div class="campo"><label for="pfActual">Tu contraseña actual</label>'
     +   '<input type="password" id="pfActual" autocomplete="current-password" placeholder="••••••••"></div>'
     + '<div class="campo"><label for="pfNueva">Nueva contraseña</label>'
-    +   '<input type="password" id="pfNueva" autocomplete="new-password" placeholder="Al menos 6 caracteres"></div>'
+    +   '<input type="password" id="pfNueva" autocomplete="new-password" placeholder="Al menos ' + minimoClave(rol) + ' caracteres"></div>'
     + '<div class="campo"><label for="pfRepite">Repite la nueva</label>'
     +   '<input type="password" id="pfRepite" autocomplete="new-password" placeholder="La misma otra vez"></div>'
     + '<p class="pista" style="margin-top:10px">Se te pide la actual por seguridad: así nadie que encuentre '
@@ -27375,7 +27403,8 @@ function modalPerfil(){
     const marcarError = (m)=>{ const e = $('pfError'); e.textContent = m; e.classList.add('visible'); };
     $('pfError').classList.remove('visible');
     if(!actual) return marcarError('Escribe tu contraseña actual.');
-    if(nueva.length < 6) return marcarError('La nueva debe tener al menos 6 caracteres.');
+    const minClavePropia = minimoClave(normalizarRol(sesion.rol));
+    if(nueva.length < minClavePropia) return marcarError('La nueva debe tener al menos ' + minClavePropia + ' caracteres.');
     if(nueva !== repite) return marcarError('Las dos nuevas no coinciden.');
     if(nueva === actual) return marcarError('La nueva tiene que ser distinta de la que ya usas.');
 
@@ -29670,14 +29699,28 @@ $('aOtraCuenta').addEventListener('click', ()=>{
   $('aCorreo').focus();
 });
 
+/* Auditoría de seguridad externa (22-sep-2026): esta pantalla no exige
+   sesión y acepta cualquier correo escrito a mano, así que la respuesta
+   NUNCA puede delatar si ese correo tiene cuenta o no — si no, cualquiera
+   puede usarla para ir probando correos y armar un padrón de clientes/
+   personal de Forguard (enumeración de usuarios). Antes, un correo sin
+   cuenta (EMAIL_NOT_FOUND) sí se distinguía de uno con cuenta: el primero
+   mostraba un error y el segundo el aviso de "Te mandamos un correo…".
+   Ahora EMAIL_NOT_FOUND se atrapa aparte y se responde con el MISMO aviso
+   genérico que un envío real — un error de verdad (correo mal escrito, sin
+   conexión) sí se sigue mostrando tal cual, porque ese no delata nada. */
 $('aOlvide').addEventListener('click', async ()=>{
   const correo = $('aCorreo').value.trim();
   if(!correo){ errorAcceso('Escribe primero tu correo y vuelve a darle.'); $('aCorreo').focus(); return; }
+  const avisoGenerico = 'Si existe una cuenta con ese correo, te llegará un correo para poner una contraseña nueva.';
   try{
     await pedirAuth('sendOobCode', { requestType:'PASSWORD_RESET', email:correo });
     errorAcceso('');
-    aviso('Te mandamos un correo a ' + correo + ' para poner una contraseña nueva.');
-  }catch(e){ errorAcceso(e.message); }
+    aviso(avisoGenerico);
+  }catch(e){
+    if(e.codigoAuth === 'EMAIL_NOT_FOUND'){ errorAcceso(''); aviso(avisoGenerico); return; }
+    errorAcceso(e.message);
+  }
 });
 
 /* ------------------- Alta de cliente (autoservicio, con aprobación) -------------------
@@ -29710,7 +29753,7 @@ $('formSolicitudCliente').addEventListener('submit', async ev=>{
   const correo  = $('scCorreo').value.trim();
   const clave   = $('scClave').value;
   if(!empresa || !nombre || !correo){ errorSolicitud('Faltan datos.'); return; }
-  if(clave.length < 6){ errorSolicitud('La contraseña necesita al menos 6 caracteres.'); return; }
+  if(clave.length < 12){ errorSolicitud('La contraseña necesita al menos 12 caracteres.'); return; }
 
   const btn = $('scEnviar');
   btn.disabled = true; btn.textContent = 'Enviando…';
