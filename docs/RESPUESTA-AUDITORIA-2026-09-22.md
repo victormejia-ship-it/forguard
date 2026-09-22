@@ -30,8 +30,10 @@ respuesta directa, no con un "no se pudo confirmar".
 | `.well-known/security.txt` (nuevo) | Contacto de seguridad público, formato estándar (RFC 9116) |
 | `.nojekyll` (nuevo) | Sin este archivo, GitHub Pages no serviría `.well-known/` (Jekyll ignora carpetas que empiezan con punto) |
 | `tests/test_seguridad_politica_clave.js` (nuevo) | Prueba automatizada de los dos puntos de arriba — falla si algo de esto se revierte por accidente |
+| `index.html` | Cierre automático de sesión a las 8 horas de inactividad (ver punto 4) |
+| `tests/test_seguridad_inactividad.js` (nuevo) | Prueba automatizada del cierre por inactividad, al arrancar y con la pestaña abierta |
 
-Suite completa: **24/24 pruebas pasaron** después de estos cambios.
+Suite completa: **25/25 pruebas pasaron** después de estos cambios.
 
 ## Los 26 puntos, uno por uno
 
@@ -49,7 +51,7 @@ Settings → Password Policy** (subirlo ahí a 12, "Enforce uppercase/number",
 etc.). Es el mismo tipo de paso manual que ya hicimos con las reglas de
 Firestore/Storage: código no basta, hay que publicarlo en la consola.
 
-### 4. Persistencia de sesión (JWT en localStorage) — ⚠️ PENDIENTE, decisión de Victor
+### 4. Persistencia de sesión (JWT en localStorage) — ✅ MITIGADO HOY (sin backend no se puede cerrar del todo)
 Confirmado: `guardarSesion()` (index.html) guarda `sesion` completo —
 incluido `idToken` y `refreshToken` — en `localStorage`. Es real, y es el
 riesgo #2 que la propia auditoría marca como el que más preocupa.
@@ -57,14 +59,33 @@ riesgo #2 que la propia auditoría marca como el que más preocupa.
 El arreglo de libro (cookies `Secure + HttpOnly + SameSite`, gestionadas por
 un backend/BFF) **no se puede hacer sin agregar un servidor** — hoy no hay
 ninguno; todo habla directo del navegador a Firebase. Añadir ese backend
-(una Cloud Function, por ejemplo) es un cambio de arquitectura de fondo, no
-un ajuste de una tarde, y cambia cómo funciona el login en todo el tablero.
+(una Cloud Function, por ejemplo) sigue siendo un cambio de arquitectura de
+fondo, no un ajuste de una tarde, y cambiaría cómo funciona el login en todo
+el tablero — Victor decidió no entrarle a eso todavía.
 
-Mientras se decide si vale la pena ese proyecto aparte, la defensa real que
-sí existe hoy es **que nunca haya un XSS que pueda leer ese localStorage**
-— por eso el punto 10 (XSS) importa más de lo que parece a simple vista en
-esta arquitectura. Si quieres, lo dejamos como tarea de una sesión aparte
-con su propio plan.
+Lo que SÍ se hizo hoy, con su visto bueno: **cierre automático de sesión a
+las 8 horas sin actividad** (`LIMITE_INACTIVIDAD_MS`/`sesionInactivaDemasiado()`/
+`marcarActividad()` en `index.html`). Antes, una sesión guardada en
+localStorage duraba viva PARA SIEMPRE — `renovarToken()` la refrescaba sola
+sin límite mientras nadie diera "Cerrar sesión". Ahora:
+- Si nadie toca la app (clic, tecla) en 8 horas, la próxima vez que se
+  abra la pestaña o pase el reloj de vigilancia (`revisarCuenta()`, cada 2
+  minutos con la pestaña visible) se cierra sola, con aviso explícito.
+- Se revisa ANTES de gastar una lectura de red o de intentar renovar el
+  token — un dispositivo perdido/olvidado con la sesión abierta, o un
+  refreshToken robado por un eventual XSS, dejan de servir después de 8
+  horas sin uso, en vez de para siempre.
+- Se eligió NO cambiar a `sessionStorage` (que cerraría la sesión con solo
+  cerrar la pestaña): Victor prefirió no añadir esa fricción a quien
+  trabaja en campo, y el cierre por inactividad ya acota el riesgo real sin
+  ese costo.
+
+Esto NO vuelve el token invisible a un XSS mientras la sesión sigue viva
+—eso solo lo da una cookie HttpOnly, y esa necesita el backend que no
+existe— pero si Firestore/Storage/Auth por sí solos no verían movimiento en
+8h, ya no hay sesión que robar. Por lo mismo, el punto 10 (XSS) sigue
+importando: mientras la sesión SÍ está activa, `esc()`/CSP siguen siendo la
+única defensa real.
 
 ### 5. Broken Access Control / IDOR / BOLA — ✅ YA RESUELTO (verificado hoy)
 Este es el que la auditoría marca como el más crítico, y aquí SÍ se pudo
@@ -212,8 +233,10 @@ Los 4 riesgos que la auditoría marca como los que más preocupan, con su
 estado real:
 1. "Cliente A puede consultar información de Cliente B" → **verificado que
    NO puede** (punto 5).
-2. "JWT persistente en localStorage" → **confirmado, sigue pendiente**
-   (punto 4).
+2. "JWT persistente en localStorage" → **confirmado y mitigado hoy**: sigue
+   en localStorage (decisión de Victor, no se movió a `sessionStorage`),
+   pero ya no dura viva para siempre — se cierra sola a las 8h sin
+   actividad (punto 4).
 3. "Permisos de Admin controlados solo desde frontend" → **verificado que
    NO es así**: los aplica Firestore, no la interfaz (puntos 5 y 6).
 4. "Contraseñas de 6 caracteres sin MFA ni rate limiting" → **contraseña ya
@@ -234,10 +257,10 @@ la validación real contra el código que esa revisión no podía hacer sola.
 ## Lo que sigue, en orden de importancia real
 
 1. **Firebase Console → Authentication → Password Policy**: subir el
-   mínimo del lado del servidor a 12 (paso manual, 5 minutos).
-2. **Decidir sobre el punto 4** (dónde vive la sesión) — si vale la pena el
-   proyecto de agregar un backend ligero, o si por ahora se refuerza nada
-   más la disciplina de `esc()`/CSP como mitigación.
+   mínimo del lado del servidor a 12 (paso manual, 5 minutos) — **pendiente,
+   Victor decidió no activarlo todavía**.
+2. ~~Decidir sobre el punto 4~~ — **hecho**: cierre por inactividad a las 8h,
+   sin mover la sesión a `sessionStorage` ni agregar un backend.
 3. **MFA para Owner/Admin** (punto 15) — depende de subir a Identity
    Platform.
 4. Si se quiere, una sesión dedicada a auditar `esc()`/`innerHTML` en las

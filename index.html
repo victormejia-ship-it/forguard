@@ -3122,13 +3122,44 @@ function etiquetaRol(rol){
    sitios/pólizas/cotizaciones/reportes de su clienteId, igual que antes de
    que existiera esto — así ninguna cuenta ya vinculada pierde acceso solo
    porque se agregó el campo. */
-const sesion = { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'', sitioIds:[] };
+const sesion = { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'', sitioIds:[], ultimaActividad:0 };
 
 function guardarSesion(){ try{ localStorage.setItem(LLAVE_SESION, JSON.stringify(sesion)); }catch(e){} }
 function cargarSesion(){
   try{ Object.assign(sesion, JSON.parse(localStorage.getItem(LLAVE_SESION) || '{}')); }catch(e){}
 }
 function haySesion(){ return !!(sesion.idToken && sesion.refreshToken); }
+
+/* ==================== Cierre por inactividad ====================
+   Auditoría de seguridad externa (22-sep-2026): el JWT/refreshToken vive en
+   localStorage (no hay backend propio para pasarlos a una cookie HttpOnly,
+   ver docs/RESPUESTA-AUDITORIA-2026-09-22.md) y, sin esto, una sesión dura
+   viva PARA SIEMPRE mientras nadie le dé "Cerrar sesión" — renovarToken()
+   la refresca sola sin límite. Un dispositivo perdido, robado, o un
+   refreshToken robado por algún XSS, quedaban con acceso indefinido. Esto
+   no vuelve el token invisible a un XSS (nada del lado del navegador
+   puede, sin backend) pero sí le pone un tope de cuánto le sirve: 8 horas
+   sin que la persona TOQUE la app (decisión de Victor, 22-sep-2026, entre
+   varias opciones — prefirió no perder la sesión solo por cerrar la
+   pestaña o el navegador, que es lo normal en campo). */
+const LIMITE_INACTIVIDAD_MS = 8 * 60 * 60 * 1000;
+function sesionInactivaDemasiado(){
+  return !!sesion.ultimaActividad && (Date.now() - sesion.ultimaActividad) > LIMITE_INACTIVIDAD_MS;
+}
+/* Guardar en localStorage en cada click/tecla sería un desperdicio — se
+   actualiza el reloj en memoria siempre, pero solo se persiste cuando ya
+   pasó un rato desde el último guardado (igual de preciso para un límite
+   de horas, muchísimo más barato). */
+let _ultimoGuardadoActividad = 0;
+function marcarActividad(){
+  if(!HAY_NUBE || !haySesion()) return;
+  sesion.ultimaActividad = Date.now();
+  if(sesion.ultimaActividad - _ultimoGuardadoActividad > 60000){
+    _ultimoGuardadoActividad = sesion.ultimaActividad;
+    guardarSesion();
+  }
+}
+['click','keydown','pointerdown','touchstart'].forEach(ev => document.addEventListener(ev, marcarActividad, { passive:true }));
 
 /* ===================== Vista previa de rol (solo Owner) =====================
    Le deja al Owner ver exactamente lo que ve cada rol —qué módulos aparecen,
@@ -3502,7 +3533,7 @@ function pintarPuntoClave(){
 
 function limpiarSesionYDatos(){
   detenerVigilancia();
-  Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'', sitioIds:[] });
+  Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'', sitioIds:[], ultimaActividad:0 });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. (Veredicto de auditoría,
@@ -3520,10 +3551,18 @@ function limpiarSesionYDatos(){
   estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
   sincronizado = false;
 }
-function salir(porVencimiento){
+/* `motivo` acepta lo de siempre (true/false, vencimiento normal de sesión)
+   O un mensaje propio en texto — lo usa salirPorInactividad() más abajo. */
+function salir(motivo){
   limpiarSesionYDatos();
-  mostrarAcceso(porVencimiento ? 'Tu sesión expiró. Vuelve a entrar.' : '');
+  const mensaje = motivo === true ? 'Tu sesión expiró. Vuelve a entrar.'
+                : typeof motivo === 'string' ? motivo
+                : '';
+  mostrarAcceso(mensaje);
   render();
+}
+function salirPorInactividad(){
+  salir('Cerramos tu sesión por inactividad de más de 8 horas. Vuelve a entrar.');
 }
 
 /* El perfil dice el rol. Si no existe, la cuenta no tiene acceso concedido. */
@@ -3583,6 +3622,13 @@ let vigilando = false;
 
 async function revisarCuenta(){
   if(!HAY_NUBE || !haySesion() || vigilando) return;
+  /* Se checa ANTES de gastar una lectura de red: si ya pasó el límite de
+     inactividad no hace falta preguntarle nada a Firestore, se sale
+     directo. Corre en el mismo disparador que ya vigilaba bloqueos —
+     cada VIGILAR_CUENTA_MS y al volver a la pestaña (visibilitychange) —
+     así que una pestaña dejada abierta toda la noche se cierra sola sin
+     esperar a que alguien la vuelva a tocar. */
+  if(sesionInactivaDemasiado()){ salirPorInactividad(); return; }
   vigilando = true;
   try{
     const d = await pedirNube('/usuarios/' + encodeURIComponent(sesion.uid), { method:'GET' }, true);
@@ -29676,7 +29722,7 @@ $('formAcceso').addEventListener('submit', async ev=>{
        error nuestro le quitaría su respaldo sin deberla. */
 function salirSilencioso(tambienLosDatos){
   detenerVigilancia();
-  Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'' });
+  Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', ultimaActividad:0 });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
   if(tambienLosDatos){
     /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
@@ -30624,7 +30670,13 @@ if(!HAY_NUBE){
   restaurarSnapshotIndexedDB();
 }else{
   cargarSesion();
-  if(haySesion()){
+  if(haySesion() && sesionInactivaDemasiado()){
+    /* Se abrió la pestaña/el navegador después de más de 8 horas sin
+       actividad — no se intenta ni renovar el token, se manda derecho a
+       la pantalla de acceso (ver LIMITE_INACTIVIDAD_MS más arriba). */
+    salirPorInactividad();
+  }else if(haySesion()){
+    marcarActividad();              /* reinicia el reloj: se está usando de nuevo */
     render();                       /* pinta ya con la copia local, sin esperar la red */
     cargarPerfil()
       .then(arrancarNube)
