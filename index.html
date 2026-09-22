@@ -1655,6 +1655,15 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
   <button type="button" class="btn btn-mini" id="btnSalirVistaPrevia">Salir de vista previa</button>
 </div>
 
+<!-- Recordatorio de MFA para Owner/Admin (auditoría de seguridad externa,
+     22-sep-2026, sección 15) — antes de MFA_OBLIGATORIO_DESDE. Después de
+     esa fecha ya no se pinta esta banda: se fuerza directo modalActivarMfa(true). -->
+<div class="banda-vista-previa" id="bandaMfaRecordatorio" hidden>
+  <span>Tu permiso requiere activar la verificación en dos pasos antes del <b id="bandaMfaFecha"></b>.</span>
+  <button type="button" class="btn btn-mini" id="btnActivarMfaBanda">Activarla ahora</button>
+  <button type="button" class="btn btn-mini btn-suave" id="btnOcultarBandaMfa">Recuérdamelo después</button>
+</div>
+
 <div class="wrap">
   <div id="vista"></div>
 </div>
@@ -1753,6 +1762,23 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
     </div>
     <button type="submit" class="btn btn-primario" id="scEnviar">Enviar solicitud</button>
     <p class="acceso-pie"><button type="button" id="scVolver">← Volver a entrar</button></p>
+  </form>
+
+  <!-- Segundo paso del login cuando la cuenta tiene verificación en dos
+       pasos (MFA/TOTP) activada — ver entrar()/mostrarFormMfa() y la
+       auditoría de seguridad externa (22-sep-2026), sección 15. Usuario y
+       contraseña YA se comprobaron para llegar aquí; falta solo el código
+       de la app autenticadora. -->
+  <form class="acceso-caja" id="formMfa" autocomplete="off" style="display:none">
+    <h2>Verificación en dos pasos</h2>
+    <p class="intro">Abre tu app autenticadora y escribe el código de 6 dígitos para <b id="mfaCorreo"></b>.</p>
+    <div class="acceso-error" id="mfaError" role="alert"></div>
+    <div class="campo">
+      <label for="mfaCodigo">Código de 6 dígitos</label>
+      <input type="text" id="mfaCodigo" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" placeholder="000000" required>
+    </div>
+    <button type="submit" class="btn btn-primario" id="mfaVerificar">Verificar</button>
+    <p class="acceso-pie"><button type="button" id="mfaCancelar">← Volver a entrar con otra cuenta</button></p>
   </form>
 </div>
 
@@ -3097,6 +3123,17 @@ function normalizarRol(r){
    autoservicio "Solicita tu acceso" y "Cambiar mi contraseña"). */
 function minimoClave(rol){ return (rol === 'owner' || rol === 'admin') ? 15 : 12; }
 
+/* Auditoría de seguridad externa (22-sep-2026), sección 15: MFA obligatorio
+   para Owner/Admin, con periodo de gracia — decisión de Victor,
+   22-sep-2026. Antes de esta fecha, a quien le falte MFA se le recuerda
+   con un aviso que puede posponer; desde esta fecha, ya no puede seguir
+   usando el tablero sin activarlo. Victor puede recorrer esta fecha —es
+   el ÚNICO lugar que hay que tocar— si Identity Platform tarda más en
+   activarse en Firebase Console (requisito previo, ver pedirMfa()). */
+const MFA_OBLIGATORIO_DESDE = '2026-09-29';
+function mfaYaEsObligatorio(){ return new Date() >= new Date(MFA_OBLIGATORIO_DESDE + 'T00:00:00'); }
+function mfaAplicaA(rol){ return rol === 'owner' || rol === 'admin'; }
+
 /* Saca un nombre presentable del correo: santiago.garza@… → «Santiago Garza».
    Sirve para no andar mostrando correos crudos en pantalla. */
 function nombreDeCorreo(correo){
@@ -3252,11 +3289,64 @@ function traducirAuth(codigo){
   if(/WEAK_PASSWORD/.test(c)) return 'Esa contraseña es demasiado corta o débil para Firebase.';
   if(/INVALID_EMAIL/.test(c)) return 'Ese correo no tiene un formato válido.';
   if(/OPERATION_NOT_ALLOWED/.test(c)) return 'Falta activar el acceso por correo y contraseña en Firebase.';
+  /* Códigos de la verificación en dos pasos (MFA/TOTP) — ver pedirMfa(). */
+  if(/INVALID_CODE|invalid.*verification.*code/i.test(c)) return 'El código no es válido o ya venció. Escribe el código actual de tu app autenticadora.';
+  if(/SECOND_FACTOR_LIMIT_EXCEEDED/.test(c)) return 'Esta cuenta ya tiene el máximo de segundos factores permitidos.';
+  if(/SECOND_FACTOR_EXISTS_IN_ANOTHER_ACCOUNT/.test(c)) return 'Ese segundo factor ya está registrado en otra cuenta.';
+  if(/UNSUPPORTED_FIRST_FACTOR|CONFIGURATION_NOT_FOUND|UNSUPPORTED_TENANT_OPERATION/.test(c))
+    return 'La verificación en dos pasos todavía no está disponible en este proyecto de Firebase (falta activar Identity Platform en la consola).';
   return c ? 'No se pudo completar la operación (' + c + ').' : 'No se pudo conectar con el servidor.';
+}
+
+/* ==================== MFA (verificación en dos pasos, TOTP) ====================
+   Auditoría de seguridad externa (22-sep-2026), sección 15. A diferencia de
+   pedirAuth() (Identity Toolkit v1), enrolar/verificar un segundo factor
+   vive en la API v2 — endpoints y forma de payload documentados, no un
+   invento: se verificaron contra el cliente Go oficial de Google
+   (googleapis/google-api-go-client, identitytoolkit/v2), porque la
+   documentación interactiva de Identity Platform no es alcanzable desde
+   este entorno de trabajo.
+
+   REQUIERE que el proyecto de Firebase esté subido a Identity Platform
+   (Authentication → upgrade, paso manual de Victor en la consola,
+   pendiente al escribir esto) — mientras no lo esté, cualquier llamada de
+   aquí abajo regresa un error que traducirAuth() ya sabe explicar en vez
+   de tronar. */
+function urlMfa(metodo){
+  return 'https://identitytoolkit.googleapis.com/v2/accounts/' + metodo + '?key=' + encodeURIComponent(CONFIG_NUBE.apiKey);
+}
+async function pedirMfa(metodo, cuerpo){
+  const r = await fetchConTimeout(urlMfa(metodo), {
+    method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(cuerpo)
+  });
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok){
+    const codigoCrudo = d && d.error && d.error.message;
+    const err = new Error(traducirAuth(codigoCrudo));
+    err.codigoAuth = String(codigoCrudo || '');
+    throw err;
+  }
+  return d;
 }
 
 async function entrar(correo, contrasena){
   const d = await pedirAuth('signInWithPassword', { email:correo, password:contrasena, returnSecureToken:true });
+  /* Auditoría de seguridad externa (22-sep-2026), MFA para Owner/Admin: con
+     verificación en dos pasos activada, signInWithPassword YA NO entrega
+     idToken/refreshToken de una vez — usuario y contraseña ya se
+     comprobaron, pero regresa mfaPendingCredential (+ mfaInfo, con el
+     mfaEnrollmentId del segundo factor) en su lugar. correo/uid SÍ vienen
+     en esta respuesta ("Always present"), y hacen falta para terminar el
+     login después de mfaSignIn:finalize (ver #formMfa), que ya no los
+     vuelve a mandar. */
+  if(d.mfaPendingCredential){
+    throw Object.assign(new Error('MFA_REQUERIDO'), {
+      mfaPendingCredential: d.mfaPendingCredential,
+      mfaEnrollmentId: (d.mfaInfo && d.mfaInfo[0] && d.mfaInfo[0].mfaEnrollmentId) || '',
+      correoMfa: d.email,
+      uidMfa: d.localId,
+    });
+  }
   sesion.correo = d.email;
   sesion.uid = d.localId;
   sesion.idToken = d.idToken;
@@ -3535,6 +3625,7 @@ function limpiarSesionYDatos(){
   detenerVigilancia();
   Object.assign(sesion, { correo:null, uid:null, idToken:null, refreshToken:null, expira:0, rol:null, nombre:'', telefono:'', clienteId:'', sitioIds:[], ultimaActividad:0 });
   try{ localStorage.removeItem(LLAVE_SESION); }catch(e){}
+  $('bandaMfaRecordatorio').hidden = true;
   /* Todas las colecciones. Si aquí faltara una, al salir quedaría en undefined
      y lo primero que la recorriera tronaría. (Veredicto de auditoría,
      21-sep-2026: faltaban justo proveedores/gastosProveedor/refacciones/
@@ -27389,6 +27480,14 @@ function modalPerfil(){
     +   '</div>'
     +   '<div class="pista">Sale impreso en tus cotizaciones, junto a tu nombre. Solo tú lo puedes cambiar.</div></div>'
 
+    /* Auditoría de seguridad externa (22-sep-2026), sección 15: MFA.
+       Estado real (¿ya está activado?) vive en Firebase Auth, no en
+       Firestore — se pinta "Comprobando…" aquí y pintarEstadoMfa() (más
+       abajo) lo reemplaza en cuanto responde accounts:lookup. */
+    + '<h4 style="font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--navy); font-weight:700; margin:22px 0 10px">'
+    +   'Verificación en dos pasos</h4>'
+    + '<div id="pfMfaEstado"><p class="pista">Comprobando…</p></div>'
+
     + '<h4 style="font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--navy); font-weight:700; margin:22px 0 10px">'
     +   'Cambiar mi contraseña</h4>'
     + (claveRevisada && claveEsInicial
@@ -27439,6 +27538,8 @@ function modalPerfil(){
     }catch(e){ aviso(e.message, true); }
   });
 
+  pintarEstadoMfa(rol);
+
   cerrarModalActual = async ()=>{
     /* Se leen los valores ANTES de cualquier cierre: cerrarModal() reemplaza
        #modalCuerpo por un clon limpio y después los campos devuelven null. */
@@ -27484,6 +27585,179 @@ function modalPerfil(){
       aviso('Contraseña cambiada. La próxima vez entra con la nueva.');
     }catch(e){
       btn.disabled = false; btn.textContent = 'Cambiar contraseña';
+      marcarError(e.message);
+    }
+  };
+}
+
+/* ==================== MFA (verificación en dos pasos) — "Mi cuenta" ====================
+   Auditoría de seguridad externa (22-sep-2026), sección 15. El estado real
+   (¿tiene un segundo factor enrolado?) nunca se guarda en Firestore: se
+   pregunta directo a Firebase Auth (accounts:lookup) cada vez que se abre
+   "Mi cuenta", así nunca se puede desincronizar de la fuente real. */
+async function estadoMfaActual(){
+  const d = await pedirAuth('lookup', { idToken: sesion.idToken });
+  const u = d && d.users && d.users[0];
+  const enrolados = (u && u.mfaInfo) || [];
+  return enrolados.filter(m => m.totpInfo)[0] || null; // solo nos interesa TOTP — es el único que esta app ofrece activar.
+}
+async function pintarEstadoMfa(rol){
+  const cont = $('pfMfaEstado');
+  if(!cont) return;
+  try{
+    const factor = await estadoMfaActual();
+    if(!$('pfMfaEstado')) return; // el modal ya se cerró mientras esperaba la respuesta.
+    if(factor){
+      cont.innerHTML = '<p class="pista"><span class="rol c-analyst">Activada</span> desde '
+        + esc(fechaHora(factor.enrolledAt, true)) + '.</p>'
+        + '<button type="button" class="btn btn-suave btn-mini" id="pfMfaQuitar">Desactivar</button>';
+      $('pfMfaQuitar').addEventListener('click', ()=> modalDesactivarMfa(factor.mfaEnrollmentId));
+    }else{
+      const obligatorio = mfaAplicaA(rol);
+      cont.innerHTML = (obligatorio
+          ? '<p class="pista" style="color:#9a6a15"><b>Tu permiso (' + esc(ROLES[rol].nombre) + ') requiere verificación en dos pasos.</b> '
+            + (mfaYaEsObligatorio()
+              ? 'Ya pasó la fecha límite (' + esc(MFA_OBLIGATORIO_DESDE) + ') — actívala para seguir usando el tablero.'
+              : 'Actívala antes del ' + esc(MFA_OBLIGATORIO_DESDE) + '.') + '</p>'
+          : '<p class="pista">No está activada. Es opcional para tu permiso, pero se recomienda.</p>')
+        + '<button type="button" class="btn btn-primario btn-mini" id="pfMfaActivar">Activar</button>';
+      $('pfMfaActivar').addEventListener('click', ()=> modalActivarMfa());
+    }
+  }catch(e){
+    /* No truena "Mi cuenta" completa por esto — es información extra, no
+       el motivo por el que alguien abre esta pantalla. Si Identity
+       Platform no está activado en Firebase todavía, este es justo el
+       lugar donde se entera de forma tranquila, no a media pantalla de
+       login. */
+    if(cont) cont.innerHTML = '<p class="pista">No se pudo comprobar: ' + esc(e.message) + '</p>';
+  }
+}
+
+/* ---- Activar (enrolar TOTP) ----
+   Dos pasos de Firebase (mfaEnrollment:start / :finalize, ver pedirMfa())
+   en un solo modal: se arranca el "start" al abrir, se enseña el QR y el
+   secreto, y "Confirmar" hace el "finalize" con el código que la persona
+   ya está viendo en su app. */
+/* `forzado`: el aviso de MFA_OBLIGATORIO_DESDE ya pasó y esta cuenta
+   (Owner/Admin) todavía no tiene un segundo factor — ver
+   revisarObligatoriedadMfa(). Sin botón "Cancelar" y sin poder cerrarlo
+   por fuera (X, fondo, Escape — vía guardarBorradorAlSalir, el mismo
+   enganche que usan los formularios largos para no perder un borrador):
+   la única salida además de terminar de activarlo es cerrar sesión. */
+function modalActivarMfa(forzado){
+  abrirModal('Activar verificación en dos pasos',
+      '<p class="pista" style="margin-top:0">Preparando…</p>',
+    forzado ? '' : '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>');
+  if(forzado){
+    guardarBorradorAlSalir = ()=> aviso('Tu permiso requiere activar la verificación en dos pasos para seguir usando el tablero.', true);
+  }
+
+  let sessionInfo = '';
+  pedirMfa('mfaEnrollment:start', { idToken: sesion.idToken, totpEnrollmentInfo:{} }).then(d=>{
+    if(!$('modalCuerpo')) return; // se canceló mientras tanto.
+    const info = d.totpSessionInfo;
+    sessionInfo = info.sessionInfo;
+    /* otpauth:// es el formato estándar que leen Google Authenticator, Authy,
+       1Password, etc. — no hace falta nada propio de Firebase del lado del
+       cliente, solo el secreto y el nombre a mostrar en la app. */
+    const uri = 'otpauth://totp/ForGuard%20Facilities:' + encodeURIComponent(sesion.correo || '')
+      + '?secret=' + info.sharedSecretKey + '&issuer=ForGuard%20Facilities'
+      + '&algorithm=' + (info.hashingAlgorithm || 'SHA1') + '&digits=' + (info.verificationCodeLength || 6)
+      + '&period=' + (info.periodSec || 30);
+    $('modalCuerpo').innerHTML =
+        (forzado ? '<p class="pista" style="margin-top:0; color:#9a6a15"><b>Tu permiso ya no puede seguir sin esto activo.</b></p>' : '')
+      + '<p class="pista" style="margin-top:0">Escanea este código con tu app autenticadora (Google Authenticator, Authy, 1Password…), '
+      + 'o captura el secreto a mano si no puedes escanear.</p>'
+      + '<div style="text-align:center; margin:14px 0">' + svgCodigoQr(uri) + '</div>'
+      + '<div class="campo"><label>Secreto (si lo capturas a mano)</label>'
+      +   '<input type="text" readonly value="' + esc(info.sharedSecretKey) + '" onclick="this.select()"></div>'
+      + '<div class="acceso-error" id="mfaActError" role="alert"></div>'
+      + '<div class="campo"><label for="mfaActCodigo">Código de 6 dígitos que te está mostrando la app</label>'
+      +   '<input type="text" id="mfaActCodigo" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000"></div>'
+      + (forzado ? '<p class="pista" style="margin-top:10px"><button type="button" class="enlace" id="mfaSalirForzado">Prefiero cerrar sesión por ahora</button></p>' : '');
+    $('modalPie').innerHTML =
+        (forzado ? '' : '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>')
+      + '<button type="button" class="btn btn-primario" data-modal="guardar">Confirmar</button>';
+    if(forzado) $('mfaSalirForzado').addEventListener('click', ()=>{ guardarBorradorAlSalir = null; cerrarModal(); salir(); });
+  }).catch(e=>{
+    if(!$('modalCuerpo')) return;
+    $('modalCuerpo').innerHTML = '<p class="pista">No se pudo empezar: ' + esc(e.message) + '</p>'
+      + (forzado ? '<p class="pista" style="margin-top:10px"><button type="button" class="enlace" id="mfaSalirForzado">Cerrar sesión</button></p>' : '');
+    $('modalPie').innerHTML = forzado ? '' : '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>';
+    if(forzado) $('mfaSalirForzado').addEventListener('click', ()=>{ guardarBorradorAlSalir = null; cerrarModal(); salir(); });
+  });
+
+  cerrarModalActual = async ()=>{
+    const campoCodigo = $('mfaActCodigo');
+    if(!campoCodigo) return; // "Confirmar" no debería existir todavía si esto pasa, pero por si acaso.
+    const marcarError = m => { const e = $('mfaActError'); e.textContent = m; e.classList.add('visible'); };
+    const codigo = campoCodigo.value.trim();
+    if(!/^[0-9]{6}$/.test(codigo)) return marcarError('Escribe los 6 dígitos del código.');
+
+    const btn = $('modalPie').querySelector('[data-modal="guardar"]');
+    btn.disabled = true; btn.textContent = 'Confirmando…';
+    try{
+      const d = await pedirMfa('mfaEnrollment:finalize', {
+        idToken: sesion.idToken, displayName: 'Autenticador',
+        totpVerificationInfo: { sessionInfo, verificationCode: codigo }
+      });
+      /* finalize entrega idToken/refreshToken NUEVOS que ya reflejan el
+         enrolamiento — quedarse con los viejos no rompe nada de inmediato,
+         pero es justo el tipo de descuido que deja un token "atrasado"
+         respecto al estado real de la cuenta. */
+      sesion.idToken = d.idToken;
+      sesion.refreshToken = d.refreshToken || sesion.refreshToken;
+      guardarSesion();
+      anotar('activó', 'verificación en dos pasos', sesion.correo || '');
+      cerrarModal();
+      aviso('Verificación en dos pasos activada. La próxima vez que entres, te va a pedir el código.');
+      if(forzado) render(); else modalPerfil();
+    }catch(e){
+      btn.disabled = false; btn.textContent = 'Confirmar';
+      marcarError(e.message);
+    }
+  };
+}
+
+/* ---- Desactivar ---- Pide la contraseña otra vez, mismo criterio que
+   "Cambiar mi contraseña": es una acción sensible (le quita el segundo
+   factor a la cuenta), no algo que un clic accidental deba poder hacer. */
+function modalDesactivarMfa(mfaEnrollmentId){
+  abrirModal('Desactivar verificación en dos pasos',
+      '<p class="pista" style="margin-top:0">Tu cuenta va a quedar protegida solo con tu contraseña. '
+    + 'Escribe tu contraseña actual para confirmar.</p>'
+    + '<div class="acceso-error" id="mfaDesError" role="alert"></div>'
+    + '<div class="campo"><label for="mfaDesClave">Tu contraseña actual</label>'
+    +   '<input type="password" id="mfaDesClave" autocomplete="current-password" placeholder="••••••••"></div>',
+      '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+    + '<button type="button" class="btn btn-peligro" data-modal="guardar">Desactivar</button>');
+
+  cerrarModalActual = async ()=>{
+    const marcarError = m => { const e = $('mfaDesError'); e.textContent = m; e.classList.add('visible'); };
+    const clave = $('mfaDesClave').value;
+    if(!clave) return marcarError('Escribe tu contraseña actual.');
+
+    const btn = $('modalPie').querySelector('[data-modal="guardar"]');
+    btn.disabled = true; btn.textContent = 'Desactivando…';
+    try{
+      const fresco = await pedirAuth('signInWithPassword', { email: sesion.correo, password: clave, returnSecureToken: true });
+      if(fresco.mfaPendingCredential){
+        /* No debería pasar nunca en la práctica —para llegar hasta aquí ya
+           se entró con el segundo factor una vez esta sesión— pero si
+           Firebase decide pedirlo de nuevo, mejor un mensaje claro que un
+           idToken vacío tronando la llamada de abajo. */
+        return marcarError('Firebase te está pidiendo el código otra vez. Cierra sesión, vuelve a entrar (con tu código) e inténtalo de nuevo.');
+      }
+      const d = await pedirMfa('mfaEnrollment:withdraw', { idToken: fresco.idToken, mfaEnrollmentId });
+      sesion.idToken = d.idToken || fresco.idToken;
+      sesion.refreshToken = d.refreshToken || fresco.refreshToken;
+      guardarSesion();
+      anotar('desactivó', 'verificación en dos pasos', sesion.correo || '');
+      cerrarModal();
+      aviso('Verificación en dos pasos desactivada.');
+      modalPerfil();
+    }catch(e){
+      btn.disabled = false; btn.textContent = 'Desactivar';
       marcarError(e.message);
     }
   };
@@ -29663,6 +29937,7 @@ $('formAcceso').addEventListener('submit', async ev=>{
     }finally{
       await ocultarCargando(desde);
     }
+    revisarObligatoriedadMfa();
   }catch(e){
     const m = String(e.message || '');
     /* Veredicto de auditoría (21-sep-2026, hallazgo Funcional, 2 d-p): "La
@@ -29679,7 +29954,13 @@ $('formAcceso').addEventListener('submit', async ev=>{
        salida que adivinar que debía recargar la página entera. */
     const accesoVisible = $('acceso').classList.contains('abierto');
     const avisar = accesoVisible ? errorAcceso : mostrarAcceso;
-    if(/SIN_PERMISO/.test(m)){
+    if(m === 'MFA_REQUERIDO'){
+      /* Usuario y contraseña YA pasaron — ver entrar() y la auditoría de
+         seguridad externa (22-sep-2026), sección 15. Falta el segundo
+         factor, no es un error: se manda a #formMfa, sin salirSilencioso()
+         (no hay nada que limpiar, nunca llegó a haber sesión). */
+      mostrarFormMfa({ credencial: e.mfaPendingCredential, enrollmentId: e.mfaEnrollmentId, correo: e.correoMfa || correo, uid: e.uidMfa });
+    }else if(/SIN_PERMISO/.test(m)){
       avisar('Tu cuenta existe pero todavía no tiene acceso concedido. Pide a un administrador que te lo dé.');
       salirSilencioso();
     }else if(/PENDIENTE_CLIENTE/.test(m)){
@@ -29787,10 +30068,101 @@ function mostrarSolicitudCliente(){
 function mostrarFormAcceso(){
   errorSolicitud(''); errorAcceso('');
   $('formSolicitudCliente').style.display = 'none';
+  $('formMfa').style.display = 'none';
   $('formAcceso').style.display = '';
 }
 $('aSolicitarCliente').addEventListener('click', mostrarSolicitudCliente);
 $('scVolver').addEventListener('click', mostrarFormAcceso);
+
+/* ---- Segundo paso del login con MFA (ver entrar()/formMfa arriba) ---- */
+let _mfaPendiente = null; // { credencial, enrollmentId, correo, uid } — vive solo mientras se pide el código, nunca en `sesion`.
+function mfaError(txt){
+  const e = $('mfaError');
+  e.textContent = txt || '';
+  e.classList.toggle('visible', !!txt);
+}
+function mostrarFormMfa(datos){
+  _mfaPendiente = datos;
+  errorAcceso('');
+  $('formAcceso').style.display = 'none';
+  $('formSolicitudCliente').style.display = 'none';
+  $('formMfa').style.display = '';
+  $('mfaCorreo').textContent = datos.correo;
+  mfaError('');
+  $('mfaCodigo').value = '';
+  setTimeout(()=> $('mfaCodigo').focus(), 60);
+}
+$('mfaCancelar').addEventListener('click', ()=>{
+  _mfaPendiente = null;
+  $('aClave').value = '';
+  mostrarFormAcceso();
+});
+
+$('formMfa').addEventListener('submit', async ev=>{
+  ev.preventDefault();
+  if(!_mfaPendiente){ mostrarFormAcceso(); return; }
+  const codigo = $('mfaCodigo').value.trim();
+  if(!/^[0-9]{6}$/.test(codigo)){ mfaError('Escribe los 6 dígitos del código.'); $('mfaCodigo').focus(); return; }
+  const btn = $('mfaVerificar');
+  btn.disabled = true; btn.textContent = 'Verificando…';
+  try{
+    /* mfaSignIn:finalize no vuelve a mandar correo/uid/expiresIn (ver el
+       comentario de entrar()) — correo/uid ya se guardaron en
+       _mfaPendiente desde el primer paso, y un idToken de Firebase SIEMPRE
+       dura 1h exacta, así que 3600 no es un valor a la buena, es el real. */
+    const d = await pedirMfa('mfaSignIn:finalize', {
+      mfaPendingCredential: _mfaPendiente.credencial,
+      mfaEnrollmentId: _mfaPendiente.enrollmentId,
+      totpVerificationInfo: { verificationCode: codigo }
+    });
+    sesion.correo = _mfaPendiente.correo;
+    sesion.uid = _mfaPendiente.uid;
+    sesion.idToken = d.idToken;
+    sesion.refreshToken = d.refreshToken;
+    sesion.expira = Date.now() + 3600000;
+    guardarSesion();
+    _mfaPendiente = null;
+    await cargarPerfil();
+    const desde = mostrarCargando();
+    recordarCorreo(sesion.correo);
+    ocultarAcceso();
+    anotar('entró', 'sesión', sesion.correo);
+    try{
+      await arrancarNube();
+    }finally{
+      await ocultarCargando(desde);
+    }
+    /* Sin revisarObligatoriedadMfa() aquí a propósito: para llegar hasta
+       este punto la cuenta acaba de verificar su código, así que ya tiene
+       un segundo factor activo y funcionando — preguntarle a Firebase de
+       nuevo sería una vuelta a la red sin nada que pudiera cambiar. */
+  }catch(e){
+    /* Mismas tres cuentas especiales que ya maneja #formAcceso —
+       cargarPerfil() puede tronar con ellas aquí también, ya con el
+       segundo factor verificado. Se duplica a propósito en vez de
+       compartir función con el manejador de #formAcceso: son apenas unas
+       líneas, y tocar ese manejador (ya endurecido por el veredicto de
+       auditoría del 21-sep-2026) para meterle una ramificación más no
+       vale el riesgo de romper un flujo de login ya probado. */
+    const m = String(e.message || '');
+    if(/SIN_PERMISO/.test(m)){
+      mostrarAcceso('Tu cuenta existe pero todavía no tiene acceso concedido. Pide a un administrador que te lo dé.');
+      salirSilencioso();
+    }else if(/PENDIENTE_CLIENTE/.test(m)){
+      mostrarAcceso('Tu solicitud de acceso todavía está pendiente de aprobación. En cuanto Forguard la revise, podrás entrar con estos mismos datos.');
+      salirSilencioso();
+    }else if(/BLOQUEADO/.test(m)){
+      mostrarAcceso('Tu cuenta está bloqueada. Pide a un administrador que la reactive.');
+      salirSilencioso(true);
+    }else if(haySesion()){
+      manejarFalloDeArranque(e);
+    }else{
+      mfaError(m);
+    }
+  }finally{
+    btn.disabled = false; btn.textContent = 'Verificar';
+  }
+});
 
 $('formSolicitudCliente').addEventListener('submit', async ev=>{
   ev.preventDefault();
@@ -29955,6 +30327,31 @@ $('btnPerfil').addEventListener('click', ()=> modalPerfil());
 $('btnVistaPrevia').addEventListener('click', ()=> modalVistaPrevia());
 $('btnSalirVistaPrevia').addEventListener('click', ()=> salirVistaPrevia());
 
+/* Auditoría de seguridad externa (22-sep-2026), sección 15: se llama una
+   sola vez por cada arranque de sesión (arranque con sesión guardada,
+   login normal, reintentarSincronizar() — nunca desde render(), para no
+   preguntarle a accounts:lookup en cada redibujado). Si algo falla —sin
+   red, o Identity Platform todavía sin activar en Firebase Console— NO
+   bloquea a nadie: mismo principio que revisarCuenta(), un fallo de red o
+   de configuración nunca saca ni castiga a quien ya entró de verdad. */
+let _bandaMfaOcultaEstaSesion = false;
+async function revisarObligatoriedadMfa(){
+  if(!HAY_NUBE || esCliente() || !mfaAplicaA(sesion.rol)){ $('bandaMfaRecordatorio').hidden = true; return; }
+  try{
+    const factor = await estadoMfaActual();
+    if(factor){ $('bandaMfaRecordatorio').hidden = true; return; }
+    if(mfaYaEsObligatorio()){
+      $('bandaMfaRecordatorio').hidden = true;
+      modalActivarMfa(true);
+    }else if(!_bandaMfaOcultaEstaSesion){
+      $('bandaMfaFecha').textContent = fechaHora(MFA_OBLIGATORIO_DESDE, true);
+      $('bandaMfaRecordatorio').hidden = false;
+    }
+  }catch(e){ /* sin red, o MFA sin activar todavía en el proyecto de Firebase: se reintenta solo la próxima vez. */ }
+}
+$('btnActivarMfaBanda').addEventListener('click', ()=> modalActivarMfa());
+$('btnOcultarBandaMfa').addEventListener('click', ()=>{ _bandaMfaOcultaEstaSesion = true; $('bandaMfaRecordatorio').hidden = true; });
+
 $('btnAdmin').addEventListener('click', ()=>{
   if(!esAdmin()) return;
   estado.vista = 'admin'; estado.clienteId = null;
@@ -30037,7 +30434,7 @@ function reintentarSincronizar(){
   if(!HAY_NUBE || !haySesion()) return;
   intentosFallidos = 0;
   if(!sincronizado){
-    cargarPerfil().then(arrancarNube).catch(manejarFalloDeArranque);
+    cargarPerfil().then(arrancarNube).then(revisarObligatoriedadMfa).catch(manejarFalloDeArranque);
     return;
   }
   vaciarCola();
@@ -30680,6 +31077,7 @@ if(!HAY_NUBE){
     render();                       /* pinta ya con la copia local, sin esperar la red */
     cargarPerfil()
       .then(arrancarNube)
+      .then(revisarObligatoriedadMfa)
       .catch(manejarFalloDeArranque);
   }else{
     mostrarAcceso();

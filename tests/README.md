@@ -76,6 +76,7 @@ node test_veredicto_sync_incremental.js
 | `test_proyecto_imagen_hoja_cierre.js` | El documento de Imagen/Aperturas ya no imprime una hoja en blanco al final (bug de `page-break-after` en la última hoja) y en su lugar cierra con una hoja de branding solo con el logo de Forguard |
 | `test_seguridad_politica_clave.js` | Política de contraseña (12 caracteres normal, 15 Owner/Admin) y que "¿Olvidaste tu contraseña?" ya no delata qué correos tienen cuenta (enumeración de usuarios) |
 | `test_seguridad_inactividad.js` | El cierre automático de sesión a las 8h de inactividad — al arrancar con una sesión guardada vieja, y con la pestaña abierta y dejada quieta |
+| `test_seguridad_mfa.js` | MFA (TOTP) para Owner/Admin: login con segundo factor, activar/desactivar desde "Mi cuenta", el recordatorio antes de la fecha límite y el bloqueo obligatorio después |
 
 ## Lo que falta (siguiente paso, no de esta sesión)
 

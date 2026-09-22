@@ -169,13 +169,46 @@ exponencial y detección de password spraying a nivel de IP necesitan un
 backend o un WAF (Cloudflare, por ejemplo) — no se puede hacer solo con
 reglas de Firestore.
 
-### 15. MFA — ⚠️ PENDIENTE, requiere decisión + upgrade de proyecto
-No implementado. Firebase soporta MFA (TOTP/SMS) pero requiere subir el
-proyecto a Identity Platform (cambia de plan/precio) y agregar la UI de
-enrolamiento — es un proyecto aparte, no un ajuste de código de hoy.
-Recomendado como siguiente prioridad después de resolver el punto 4
-(persistencia de sesión), ya que ambos son los huecos reales más grandes
-que quedan para las cuentas Owner/Admin.
+### 15. MFA — ✅ CÓDIGO LISTO HOY, falta el upgrade de Firebase (paso de Victor)
+Firebase soporta MFA (TOTP) pero necesita el proyecto subido a Identity
+Platform (Firebase Console → Authentication) — Victor decidió hacer ese
+paso él mismo y seguir mientras tanto (22-sep-2026). Con eso pendiente, se
+escribió TODO el código del lado de la app, para que quede listo en cuanto
+se active:
+
+- **Login con MFA**: `entrar()` detecta cuando la cuenta trae un segundo
+  factor (Firebase regresa `mfaPendingCredential` en vez del token) y
+  manda a una pantalla nueva a pedir el código de 6 dígitos
+  (`#formMfa`/`mfaSignIn:finalize`).
+- **Activar/desactivar desde "Mi cuenta"**: `modalActivarMfa()` hace el
+  enrolamiento completo (QR + secreto en texto, por si no se puede
+  escanear); `modalDesactivarMfa()` pide la contraseña otra vez antes de
+  quitarlo — no es un clic accidental.
+- **Obligatorio para Owner/Admin, con periodo de gracia** (decisión de
+  Victor): antes del **29-sep-2026** (`MFA_OBLIGATORIO_DESDE` en
+  `index.html` — un solo lugar si hace falta correrla), se muestra una
+  banda recordatorio, descartable por sesión. Desde esa fecha, si a la
+  cuenta le falta el segundo factor, se le abre el modal de activación
+  directo y sin botón "Cancelar" — la única salida es activarlo o cerrar
+  sesión.
+- **Nunca bloquea por un fallo de red o de configuración**: si Identity
+  Platform no está activo todavía, o no hay internet, el chequeo falla
+  callado (mismo principio que `revisarCuenta()`) — nadie se queda
+  varado por una `accounts:lookup` que no pudo contestar.
+
+Los nombres exactos de los campos de la API (`totpEnrollmentInfo`,
+`sharedSecretKey`, `mfaPendingCredential`, etc.) se verificaron contra el
+cliente oficial de Google en Go (`googleapis/google-api-go-client`,
+paquetes `identitytoolkit/v1` y `/v2`) — la documentación interactiva de
+Identity Platform no es alcanzable desde este entorno de trabajo, así que
+se usó la fuente que si lo era. **Falta la prueba de fuego**: nadie ha
+podido probar esto contra Firebase de verdad todavía porque Identity
+Platform sigue sin activarse. En cuanto Victor lo active, hay que probar
+el flujo completo con una cuenta Owner real antes de confiar en él —y
+mejor antes del 29-sep, no después.
+
+Prueba automatizada: `tests/test_seguridad_mfa.js` (26 verificaciones,
+todo simulado — nunca habla con Firebase de verdad).
 
 ### 16. CSRF — ✅ NO APLICA (no se usan cookies de sesión)
 El tablero nunca usa cookies para autenticar — cada petición a Firestore/
@@ -240,8 +273,9 @@ estado real:
 3. "Permisos de Admin controlados solo desde frontend" → **verificado que
    NO es así**: los aplica Firestore, no la interfaz (puntos 5 y 6).
 4. "Contraseñas de 6 caracteres sin MFA ni rate limiting" → **contraseña ya
-   corregida hoy**; MFA sigue pendiente (punto 15); rate limiting de login
-   ya lo trae Firebase Auth de fábrica.
+   corregida hoy**; MFA con el código ya listo, falta el upgrade de
+   Firebase que le toca a Victor (punto 15); rate limiting de login ya lo
+   trae Firebase Auth de fábrica.
 
 ### 25. Fase 2: auditoría del código — Esto ya es una Fase 2, hecha hoy
 La auditoría pedía justo esto como siguiente paso — "revisar el repositorio
@@ -261,7 +295,9 @@ la validación real contra el código que esa revisión no podía hacer sola.
    Victor decidió no activarlo todavía**.
 2. ~~Decidir sobre el punto 4~~ — **hecho**: cierre por inactividad a las 8h,
    sin mover la sesión a `sessionStorage` ni agregar un backend.
-3. **MFA para Owner/Admin** (punto 15) — depende de subir a Identity
-   Platform.
+3. ~~MFA para Owner/Admin~~ (punto 15) — **código listo**. Falta que Victor
+   suba el proyecto a Identity Platform en Firebase Console, y probar el
+   flujo completo con una cuenta Owner real antes del 29-sep-2026
+   (`MFA_OBLIGATORIO_DESDE`).
 4. Si se quiere, una sesión dedicada a auditar `esc()`/`innerHTML` en las
    30,600 líneas completas (punto 10), no solo por muestreo.
