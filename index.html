@@ -1653,6 +1653,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
       <button type="button" class="mas-item" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
       <button type="button" class="mas-item" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
       <button type="button" class="mas-item" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
+      <button type="button" class="mas-item" data-modulo="nomina" role="tab" aria-selected="false">Nómina</button>
       <button type="button" class="mas-item" data-modulo="ayuda" role="tab" aria-selected="false">Ayuda</button>
     </div>
   </div>
@@ -2464,7 +2465,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[] };
 
 function cargar(){
   try{
@@ -2505,7 +2506,11 @@ function cargar(){
            defensivo que las demás colecciones: un respaldo de antes de que
            existiera Visitas no es un archivo roto, se abre con la lista
            vacía y sigue. */
-        visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita) };
+        visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
+        /* Nómina (agregada 23-sep-2026, fase 1 del rediseño de Resultados):
+           mismo patrón defensivo que visitas arriba — un respaldo de antes
+           de que existiera este módulo abre con la lista vacía. */
+        nomina: (Array.isArray(d.nomina) ? d.nomina : []).map(normalizarRegistroNomina) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -2608,7 +2613,8 @@ async function restaurarSnapshotIndexedDB(){
       /* Mismo fix que cargar() (veredicto de auditoría, 21-sep-2026): sin
          esta llave, datos.visitas queda undefined y el módulo Visitas
          truena en cuanto se recorre. */
-      visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita) };
+      visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
+      nomina: (Array.isArray(d.nomina) ? d.nomina : []).map(normalizarRegistroNomina) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -3689,7 +3695,7 @@ function limpiarSesionYDatos(){
      undefined hasta que bajarDeLaNube() alcanzara a repoblarlas, y un
      render() de por medio —con cola pendiente o sin internet— tronaba con
      cualquier vista que las tocara.) */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[] };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -4375,7 +4381,7 @@ async function bajarDeLaNube(soloColecciones){
   /* Si no se pidió una colección en este refresco, ni se intenta leerla —
      null de una vez, en vez de disparar la red y tirar la respuesta. */
   const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf, oc, vi] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf, oc, vi, no] = await Promise.all([
     p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
     p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
     p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
@@ -4388,7 +4394,11 @@ async function bajarDeLaNube(soloColecciones){
     p('gastosProveedor', () => listarNubeSuave('gastosProveedor', 100)),
     p('refacciones', () => listarNubeSuave('refacciones', 100)),
     p('ordenesCompra', () => listarNubeSuave('ordenesCompra', 100)),
-    p('visitas', () => listarNubeSuave('visitas', 100))
+    p('visitas', () => listarNubeSuave('visitas', 100)),
+    /* Suave, igual que proveedores/proyectosImagen: /nomina es de solo
+       Owner/Admin (ver firestore.rules) — con listarNube a secas, cualquier
+       otro rol recibiría un 403 aquí y se le tumbaría el login entero. */
+    p('nomina', () => listarNubeSuave('nomina', 100))
   ]);
   if(!soloColecciones && !cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -4408,7 +4418,7 @@ async function bajarDeLaNube(soloColecciones){
   [['clientes',cl],['sitios',si],['polizas',po],['cotizaciones',co],['reportes',rp],
    ['levantamientos',lv],['proyectosImagen',im],['activos',ac],['personal',pe],
    ['proveedores',pv],['gastosProveedor',gp],['refacciones',rf],['ordenesCompra',oc],
-   ['visitas',vi]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
+   ['visitas',vi],['nomina',no]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
   datos = { v:1,
             clientes: cl === null ? datos.clientes : cl.map(normalizarCliente),
             sitios: si === null ? datos.sitios : si.map(normalizarSitio),
@@ -4426,7 +4436,8 @@ async function bajarDeLaNube(soloColecciones){
             gastosProveedor: (gp === null ? datos.gastosProveedor : gp.map(normalizarGastoProveedor)),
             refacciones: (rf === null ? datos.refacciones : rf.map(normalizarRefaccion)),
             ordenesCompra: (oc === null ? datos.ordenesCompra : oc.map(normalizarOrdenCompra)),
-            visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)) };
+            visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)),
+            nomina: (no === null ? datos.nomina : no.map(normalizarRegistroNomina)) };
   /* Veredicto de auditoría (21-sep-2026): un registro con un rechazo
      definitivo pendiente (ver colaRechazada arriba) nunca llegó a existir
      del lado del servidor, así que el reemplazo de arriba lo deja fuera sin
@@ -5302,6 +5313,34 @@ function calcularGastoProveedor(g){
   else{ estado = 'Por pagar'; tono = 'neutro'; tonoInsignia = 'info'; }
 
   return { totalAbonado, saldo, pagado, vencido, diasParaVencer, estado, tono, tonoInsignia };
+}
+
+/* ==================== Nómina (agregada 23-sep-2026) ====================
+   Fase 1 del rediseño de Resultados: Victor mostró su "Cierre de mes" real
+   (Excel) y Nómina es, de lejos, el gasto más grande del negocio (70-80%
+   del costo total cada mes) — hoy la app no lo captura en ningún lado, así
+   que Resultados nunca pudo cuadrar con la realidad. Se modela igual de
+   simple que la hoja "Nómina" de ese Excel: un total por mes (o por
+   concepto — aguinaldo, PTU, bono — cuando aplique), nada de detalle por
+   empleado. Es información sensible: el módulo completo es exclusivo de
+   Owner/Admin (ver modulosPermitidos() y firestore.rules — /nomina ni
+   siquiera se puede LEER desde otro rol, no nomás se esconde la pestaña). */
+function normalizarRegistroNomina(n){
+  return {
+    id: (n && n.id) || nuevoId(),
+    /* Primer día del mes al que corresponde, como cualquier otro periodo de
+       la app — aunque el concepto sea puntual (aguinaldo), se ata a un mes. */
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(n && n.fecha) ? n.fecha : hoyISO(),
+    concepto: (n && n.concepto ? String(n.concepto) : '').trim() || 'Nómina',
+    monto: Math.max(0, Math.round(Number(n && n.monto) || 0)),
+    notas: (n && n.notas ? String(n.notas) : '').trim()
+  };
+}
+function registroNominaPorId(id){ return datos.nomina.find(n => n.id === id); }
+function guardarRegistroNomina(n, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'nomina', id:n.id, obj:n });
+  anotar(accion || 'editó', 'nómina', (n.concepto || 'Nómina') + ' — ' + fmtFecha(n.fecha), detalle);
 }
 
 /* Mismo molde de siempre: local + IndexedDB (vía guardarLocal), cola hacia
@@ -10552,7 +10591,7 @@ const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
    Desde la ficha de un cliente en Clientes se puede seguir saltando
    directo a su Forpass con "Ver en Forpass" (ver irAlClienteEnForpass())
    — un atajo, no la única puerta. */
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'nomina', 'ayuda'];
 function cargarModulo(){
   estado.modulo = 'resultados';
   estado.vista = inicioDelModulo();
@@ -10597,8 +10636,15 @@ function modulosPermitidos(){
      botones de crear/editar/importar detrás de puedeEditar(), igual que ya
      hacían Pólizas y Cotizaciones, y exigirPermiso() los bloquea aunque
      alguien fuerce el clic. Activos es la excepción (ver arriba): ni
-     Admin, Analyst ni Viewer lo ven ya, solo Owner y control_activos. */
-  if(HAY_NUBE && haySesion() && rolEfectivo() !== 'owner') return MODULOS.filter(m => m !== 'organigrama' && m !== 'activos');
+     Admin, Analyst ni Viewer lo ven ya, solo Owner y control_activos.
+     Nómina (agregado 23-sep-2026) es información sensible de la empresa
+     —el gasto de nómina completo, no el sueldo de nadie en particular,
+     pero igual de delicado—: exclusivo de Owner/Admin, ni Analyst ni
+     Viewer lo ven, y /nomina en firestore.rules bloquea hasta la LECTURA
+     a cualquier otro rol (no es solo una pestaña escondida). */
+  if(HAY_NUBE && haySesion() && rolEfectivo() !== 'owner'){
+    return MODULOS.filter(m => m !== 'organigrama' && m !== 'activos' && (m !== 'nomina' || esAdmin()));
+  }
   return MODULOS;
 }
 
@@ -10616,6 +10662,7 @@ function inicioDelModulo(){
        : estado.modulo === 'proveedores' ? 'gastos-proveedor'
        : estado.modulo === 'organigrama' ? 'organigrama'
        : estado.modulo === 'imagen' ? 'imagen'
+       : estado.modulo === 'nomina' ? 'nomina'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'resultados' ? 'resultados'
        : estado.modulo === 'ayuda' ? 'ayuda'
@@ -11171,7 +11218,8 @@ const ICONO = {
   alerta:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   ojoTachado:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 4.22-5.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>',
   listaSerie:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg>',
-  medidor:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0-9 9c0 2.6 1 5 2.7 6.8h12.6A9 9 0 0 0 21 12a9 9 0 0 0-9-9z"/><path d="M12 12l4.2-4.2"/><path d="M8 14.5a4.5 4.5 0 0 1 7.4-3.4"/></svg>'
+  medidor:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0-9 9c0 2.6 1 5 2.7 6.8h12.6A9 9 0 0 0 21 12a9 9 0 0 0-9-9z"/><path d="M12 12l4.2-4.2"/><path d="M8 14.5a4.5 4.5 0 0 1 7.4-3.4"/></svg>',
+  dinero:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 9v.01M18 15v.01"/></svg>'
 };
 
 /* Code128 (subconjunto B), para el código interno de cada equipo — la app no
@@ -13005,6 +13053,19 @@ const TEMAS_AYUDA = [
         + guiaTip('El único módulo oculto del todo a quien no edita', [
             'A diferencia de Levantamientos (que sigue visible de solo lectura), Imagen/Aperturas desaparece por completo del selector de módulos para cualquiera que no tenga permiso de edición — ni Viewer, ni Técnico, ni Reportero lo ven jamás.'
           ])) },
+
+  { id:'nomina', titulo:'Nómina',
+    resumen:'El gasto de nómina real, mes a mes — para que Resultados por fin lo pueda incluir. Exclusivo de Owner/Admin.',
+    contenido:
+      guiaSeccion('Lo básico', guiaPasos([
+        'Usa <b>Registrar nómina</b>: Mes*, Monto*, Concepto (por default "Nómina" — cámbialo a "Aguinaldo", "PTU" o "Bono" para un registro aparte de ese mes) y Notas.',
+        'La lista se ve más reciente arriba, con el monto y el mes de cada registro; usa el lápiz para editarlo o el bote de basura para eliminarlo.',
+        'Tres indicadores de cabecera: <b>Este mes</b>, <b>Este año</b> (suma de todos los registros del año en curso, cualquier concepto) y el <b>Promedio mensual</b> (el total del año entre los meses que ya tienen algo capturado).'
+      ]))
+      + guiaTip('Por qué es su propio módulo, aparte', [
+          'Es información sensible del negocio: ni la pestaña aparece ni el registro se puede leer para ningún rol que no sea Owner o Admin — Analyst, Viewer, Técnico, Reportero y Cliente no tienen forma de verlo, ni desde el propio servidor (no es solo un botón escondido).',
+          'Es la primera fase de un rediseño más grande de Resultados (23-sep-2026): el "Cierre de mes" real de Victor incluye varios rubros que la app todavía no captura (Gasolinas, Trampas de grasa, Extracciones, Renders, compras y consumibles) — Nómina se hizo primero por ser, de lejos, el gasto más grande (70-80% del costo total cada mes). Los demás llegan en fases siguientes, y hasta que estén todos capturados, Resultados TODAVÍA no incluye ninguno de estos gastos en su cálculo de utilidad.'
+        ]) },
 
   { id:'admin', titulo:'Administración',
     resumen:'Cuentas del equipo, solicitudes de acceso de clientes, respaldo de toda la base, y catálogos configurables.',
@@ -16436,6 +16497,61 @@ function vistaGastoProveedor(){
   return h;
 }
 
+/* ==================== Vista: Nómina ====================
+   Fase 1 del rediseño de Resultados (23-sep-2026, pedido de Victor): antes
+   de esto, Resultados nunca incluía el gasto más grande del negocio. Es
+   una libreta simple —un total por mes, o por concepto cuando hace falta
+   separar aguinaldo/PTU/bonos— nunca detalle por empleado. Exclusivo de
+   Owner/Admin: ni la pestaña se ve ni /nomina se puede leer desde otro rol
+   (ver modulosPermitidos() y firestore.rules). */
+function vistaNomina(){
+  const lista = datos.nomina.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha) || b.id.localeCompare(a.id));
+  const hoy = hoyISO();
+  const mesActual = hoy.slice(0,7), anioActual = hoy.slice(0,4);
+  const totalMes = datos.nomina.filter(n => n.fecha.slice(0,7) === mesActual).reduce((t,n)=> t + n.monto, 0);
+  const delAnio = datos.nomina.filter(n => n.fecha.slice(0,4) === anioActual);
+  const totalAnio = delAnio.reduce((t,n)=> t + n.monto, 0);
+  const mesesConDato = new Set(delAnio.map(n => n.fecha.slice(0,7))).size;
+  const promedioMensual = mesesConDato ? totalAnio / mesesConDato : 0;
+
+  let h = '<div class="titulo-zona"><div>'
+     +   '<h2>Nómina</h2>'
+     +   '<p>' + numero(datos.nomina.length) + ' ' + plural(datos.nomina.length,'registro capturado','registros capturados') + ' · información sensible, solo Owner/Admin</p>'
+     + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-primario" data-accion="nueva-nomina">' + ICONO.mas + 'Registrar nómina</button>'
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Este mes', dinero(totalMes), fmtFecha(mesActual + '-01'))
+     + tarjetaKpi('Este año', dinero(totalAnio), anioActual)
+     + tarjetaKpi('Promedio mensual', dinero(promedioMensual), mesesConDato + ' ' + plural(mesesConDato,'mes capturado','meses capturados') + ' en ' + anioActual)
+     + '</div>';
+
+  if(!lista.length){
+    h += vistaVacia('dinero', 'Todavía no hay nómina capturada',
+          'Registra el gasto de nómina de cada mes —el total, o por concepto si necesitas separar aguinaldo, PTU o bonos— para que Resultados lo pueda incluir.',
+          'nueva-nomina', 'Registrar nómina');
+    return h;
+  }
+
+  h += '<div class="rodillo"><table class="tabla"><thead><tr>'
+     +   '<th>Mes</th><th>Concepto</th><th>Monto</th><th>Notas</th><th></th>'
+     + '</tr></thead><tbody>'
+     + lista.map(n => '<tr>'
+         +   '<td>' + esc(fmtFecha(n.fecha)) + '</td>'
+         +   '<td>' + esc(n.concepto) + '</td>'
+         +   '<td>' + dinero(n.monto) + '</td>'
+         +   '<td>' + esc(n.notas || '—') + '</td>'
+         +   '<td style="white-space:nowrap; text-align:right">'
+         +     '<button type="button" class="icono-mini" data-accion="editar-nomina" data-nomina="' + esc(n.id) + '" data-tip="Editar">' + ICONO.lapiz + '</button>'
+         +     '<button type="button" class="icono-mini" data-accion="borrar-nomina" data-nomina="' + esc(n.id) + '" data-tip="Eliminar">' + ICONO.basura + '</button>'
+         +   '</td>'
+         + '</tr>').join('')
+     + '</tbody></table></div>';
+
+  return h;
+}
+
 /* Catálogo de proveedores. */
 function vistaProveedores(){
   let h = botonRegresarGastosProveedor();
@@ -17497,6 +17613,57 @@ function modalMovimientoRefaccion(refaccionId, tipo, fechaSugerida){
     cerrarModal();
     render();
     aviso(esEntrada ? 'Entrada registrada.' : 'Salida registrada.');
+  };
+}
+
+/* ---------------------------- Modal: registro de nómina ---------------------------- */
+function modalNomina(id){
+  const n = id ? registroNominaPorId(id) : null;
+
+  const cuerpo =
+      '<div class="fila2">'
+    +   '<div class="campo"><label>Mes *</label>'
+    +     '<input type="month" id="nomMes" value="' + esc(n ? n.fecha.slice(0,7) : hoyISO().slice(0,7)) + '"></div>'
+    +   '<div class="campo"><label>Monto *</label>'
+    +     '<input type="number" id="nomMonto" min="0" step="1" value="' + (n && n.monto ? n.monto : '') + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Concepto</label>'
+    +   '<input type="text" id="nomConcepto" placeholder="Nómina" value="' + esc(n ? n.concepto : 'Nómina') + '">'
+    +   '<div class="pista">Normalmente "Nómina" — usa un texto distinto para un registro aparte, como "Aguinaldo" o "PTU".</div></div>'
+    + '<div class="campo"><label>Notas</label>'
+    +   '<textarea id="nomNotas" placeholder="Cualquier detalle útil…">' + esc(n ? n.notas : '') + '</textarea></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (n ? 'Guardar cambios' : 'Registrar') + '</button>';
+
+  abrirModal(n ? 'Editar registro de nómina' : 'Registrar nómina', cuerpo, pie);
+
+  cerrarModalActual = ()=>{
+    const mes = $('nomMes').value;
+    if(!mes){ $('nomMes').setAttribute('aria-invalid','true'); aviso('Elige a qué mes corresponde.', true); return; }
+    const monto = Number($('nomMonto').value) || 0;
+    if(monto <= 0){ $('nomMonto').setAttribute('aria-invalid','true'); aviso('Captura un monto mayor a cero.', true); return; }
+
+    const datosComunes = {
+      fecha: mes + '-01',
+      concepto: $('nomConcepto').value.trim(),
+      monto,
+      notas: $('nomNotas').value.trim()
+    };
+
+    let reg;
+    if(n){
+      Object.assign(n, datosComunes);
+      reg = normalizarRegistroNomina(n);
+      Object.assign(n, reg);
+    }else{
+      reg = normalizarRegistroNomina(Object.assign({ id:nuevoId() }, datosComunes));
+      datos.nomina.push(reg);
+    }
+    guardarRegistroNomina(reg, n ? 'editó' : 'registró');
+    cerrarModal();
+    render();
+    aviso(n ? 'Registro actualizado.' : 'Nómina registrada.');
   };
 }
 
@@ -21945,6 +22112,7 @@ function render(){
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
+    : estado.modulo === 'nomina'       ? vistaNomina()
     : estado.modulo === 'ayuda'        ? (estado.vista === 'ayuda-tema' ? vistaAyudaTema() : vistaAyuda())
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
 
@@ -22542,11 +22710,11 @@ function pintarCabecera(){
     b.style.display = permitidos.includes(b.dataset.modulo) ? '' : 'none';
     b.setAttribute('aria-selected', b.dataset.modulo === estado.modulo ? 'true' : 'false');
   });
-  /* El botón "Más" agrupa Activos/Proveedores/Organigrama/Imagen/Ayuda (ver
+  /* El botón "Más" agrupa Activos/Proveedores/Organigrama/Imagen/Nómina/Ayuda (ver
      comentario en el HTML): se esconde si el rol no tiene ninguno de los
-     cinco, y se enciende como si fuera la pestaña activa cuando el módulo
+     seis, y se enciende como si fuera la pestaña activa cuando el módulo
      abierto vive adentro. */
-  const GRUPO_MAS = ['activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
+  const GRUPO_MAS = ['activos', 'proveedores', 'organigrama', 'imagen', 'nomina', 'ayuda'];
   const btnMas = $('btnMasModulos');
   btnMas.style.display = GRUPO_MAS.some(m => permitidos.includes(m)) ? '' : 'none';
   btnMas.setAttribute('aria-selected', GRUPO_MAS.includes(estado.modulo) ? 'true' : 'false');
@@ -22573,6 +22741,7 @@ function pintarCabecera(){
                  : estado.modulo === 'activos' ? 'Activos' : estado.modulo === 'proveedores' ? 'Proveedores'
                  : estado.modulo === 'organigrama' ? 'Organigrama'
                  : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
+                 : estado.modulo === 'nomina' ? 'Nómina'
                  : estado.modulo === 'ayuda' ? 'Ayuda'
                  : 'Clientes';
   const enInicio = modulosPermitidos()[0] === estado.modulo && estado.vista === inicioDelModulo();
@@ -28470,6 +28639,22 @@ $('vista').addEventListener('click', ev=>{
         });
     }
     else if(a === 'ver-codigo-activo') modalCodigoActivo(acc.dataset.codigoActivo);
+    else if(a === 'nueva-nomina'){ if(exigirAdmin('registrar nómina')) modalNomina(null); }
+    else if(a === 'editar-nomina'){ if(exigirAdmin('editar un registro de nómina')) modalNomina(acc.dataset.nomina); }
+    else if(a === 'borrar-nomina'){
+      if(!exigirAdmin('eliminar un registro de nómina')) return;
+      const n = registroNominaPorId(acc.dataset.nomina);
+      if(!n) return;
+      confirmar('Eliminar registro de nómina',
+        'Se va a eliminar el registro de <b>' + esc(n.concepto || 'Nómina') + '</b> de ' + esc(fmtFecha(n.fecha)) + ' (' + dinero(n.monto) + '). Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.nomina = datos.nomina.filter(x => x.id !== n.id);
+          borrarRegistro('nomina', n.id);
+          anotar('eliminó', 'nómina', (n.concepto || 'Nómina') + ' — ' + fmtFecha(n.fecha));
+          render();
+          aviso('Registro eliminado.');
+        });
+    }
     else if(a === 'ir-gastos-proveedor') irAGastosProveedor();
     else if(a === 'ir-proveedores') irAProveedores();
     else if(a === 'nuevo-proveedor'){ if(exigirGestionProveedores()) modalProveedor(null); }
@@ -30274,7 +30459,7 @@ function salirSilencioso(tambienLosDatos){
     /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
        21-sep-2026): faltaban proveedores/gastosProveedor/refacciones/
        ordenesCompra. */
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;

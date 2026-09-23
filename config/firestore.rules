@@ -516,6 +516,19 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Nómina (agregada 23-sep-2026, fase 1 del rediseño de Resultados) ---
+       El gasto de nómina real, mes a mes — a diferencia de /personal (un
+       directorio que cualquier cuenta interna puede consultar), esto es
+       dinero, y de los rubros más sensibles del negocio: ni siquiera se
+       puede LEER desde otro rol que no sea Owner/Admin, mismo candado que
+       /bitacora. No es solo esconder la pestaña en index.html — el bloqueo
+       real vive aquí. */
+    match /nomina/{id} {
+      allow read:   if esAdmin();
+      allow create, update: if esAdmin();
+      allow delete: if esAdmin();
+    }
+
     /* --- Lista de precios de equipos ---
        Un solo documento, catalogo/lista, con el arreglo de equipos adentro. Va
        en un documento y no en uno por equipo para que sean 48 equipos por UNA
