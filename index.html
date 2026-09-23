@@ -1641,6 +1641,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
       <button type="button" class="mod" data-modulo="visitas" role="tab" aria-selected="false">Visitas</button>
       <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
       <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
+      <button type="button" class="mod" data-modulo="servicios-operativos" role="tab" aria-selected="false">Servicios Operativos</button>
     </nav>
     <button type="button" class="mod-mas" id="btnMasModulos" aria-haspopup="true" aria-expanded="false" aria-selected="false">Más <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
     <!-- Fuera de #selectorModulo a propósito (ver comentario arriba): el <nav>
@@ -2465,7 +2466,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[], serviciosOperativos:[] };
 
 function cargar(){
   try{
@@ -2510,7 +2511,8 @@ function cargar(){
         /* Nómina (agregada 23-sep-2026, fase 1 del rediseño de Resultados):
            mismo patrón defensivo que visitas arriba — un respaldo de antes
            de que existiera este módulo abre con la lista vacía. */
-        nomina: (Array.isArray(d.nomina) ? d.nomina : []).map(normalizarRegistroNomina) };
+        nomina: (Array.isArray(d.nomina) ? d.nomina : []).map(normalizarRegistroNomina),
+        serviciosOperativos: (Array.isArray(d.serviciosOperativos) ? d.serviciosOperativos : []).map(normalizarServicioOperativo) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -2614,7 +2616,8 @@ async function restaurarSnapshotIndexedDB(){
          esta llave, datos.visitas queda undefined y el módulo Visitas
          truena en cuanto se recorre. */
       visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
-      nomina: (Array.isArray(d.nomina) ? d.nomina : []).map(normalizarRegistroNomina) };
+      nomina: (Array.isArray(d.nomina) ? d.nomina : []).map(normalizarRegistroNomina),
+      serviciosOperativos: (Array.isArray(d.serviciosOperativos) ? d.serviciosOperativos : []).map(normalizarServicioOperativo) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -3695,7 +3698,7 @@ function limpiarSesionYDatos(){
      undefined hasta que bajarDeLaNube() alcanzara a repoblarlas, y un
      render() de por medio —con cola pendiente o sin internet— tronaba con
      cualquier vista que las tocara.) */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[], serviciosOperativos:[] };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -4381,7 +4384,7 @@ async function bajarDeLaNube(soloColecciones){
   /* Si no se pidió una colección en este refresco, ni se intenta leerla —
      null de una vez, en vez de disparar la red y tirar la respuesta. */
   const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf, oc, vi, no] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf, oc, vi, no, so] = await Promise.all([
     p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
     p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
     p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
@@ -4398,7 +4401,8 @@ async function bajarDeLaNube(soloColecciones){
     /* Suave, igual que proveedores/proyectosImagen: /nomina es de solo
        Owner/Admin (ver firestore.rules) — con listarNube a secas, cualquier
        otro rol recibiría un 403 aquí y se le tumbaría el login entero. */
-    p('nomina', () => listarNubeSuave('nomina', 100))
+    p('nomina', () => listarNubeSuave('nomina', 100)),
+    p('serviciosOperativos', () => listarNube('serviciosOperativos', 100))
   ]);
   if(!soloColecciones && !cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -4418,7 +4422,7 @@ async function bajarDeLaNube(soloColecciones){
   [['clientes',cl],['sitios',si],['polizas',po],['cotizaciones',co],['reportes',rp],
    ['levantamientos',lv],['proyectosImagen',im],['activos',ac],['personal',pe],
    ['proveedores',pv],['gastosProveedor',gp],['refacciones',rf],['ordenesCompra',oc],
-   ['visitas',vi],['nomina',no]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
+   ['visitas',vi],['nomina',no],['serviciosOperativos',so]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
   datos = { v:1,
             clientes: cl === null ? datos.clientes : cl.map(normalizarCliente),
             sitios: si === null ? datos.sitios : si.map(normalizarSitio),
@@ -4437,7 +4441,8 @@ async function bajarDeLaNube(soloColecciones){
             refacciones: (rf === null ? datos.refacciones : rf.map(normalizarRefaccion)),
             ordenesCompra: (oc === null ? datos.ordenesCompra : oc.map(normalizarOrdenCompra)),
             visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)),
-            nomina: (no === null ? datos.nomina : no.map(normalizarRegistroNomina)) };
+            nomina: (no === null ? datos.nomina : no.map(normalizarRegistroNomina)),
+            serviciosOperativos: (so === null ? datos.serviciosOperativos : so.map(normalizarServicioOperativo)) };
   /* Veredicto de auditoría (21-sep-2026): un registro con un rechazo
      definitivo pendiente (ver colaRechazada arriba) nunca llegó a existir
      del lado del servidor, así que el reemplazo de arriba lo deja fuera sin
@@ -5176,6 +5181,95 @@ function normalizarRespaldoCosto(r){
     subioNombre: (r && r.subioNombre ? String(r.subioNombre) : '').trim(),
     cuando: (r && r.cuando) || hoyISO()
   };
+}
+
+/* ==================== Servicios Operativos (23-sep-2026) ====================
+   Segundo pilar del "Framework de Proforma" (ver calcularResultadosPorPilar):
+   Limpieza, Fumigación y Transporte de personal — hoy en $0 porque ningún
+   módulo los capturaba. Un solo módulo con las 3 categorías adentro (Victor,
+   vía AskUserQuestion), pero con DOS modelos de negocio distintos, también
+   confirmados con Victor:
+     - Limpieza: trabajo SUELTO, cotizado por evento (como Cotizaciones) —
+       un renglón = un servicio, cuenta cuando queda "Realizado".
+     - Fumigación y Transporte: CONTRATO recurrente por sitio — un solo
+       renglón por contrato (pedido explícito: nada de varias líneas dentro
+       de un mismo contrato, como sí tienen las Pólizas). Mismo esquema de
+       facturación que Pólizas (mensual = 12 cobros; anual = 1) para no
+       inventar un tercer concepto de calendario — ver MESES_POLIZA.
+
+   Simplificación deliberada frente a Pólizas: al ser un solo renglón, el
+   costo de un contrato se reconoce en CADA periodo mientras siga 'activo'
+   (no hace falta un "¿ya se hizo el servicio este mes?" aparte — proveer
+   el servicio periódico ES la razón de ser del contrato); el ingreso, en
+   cambio, sigue el mismo criterio de siempre: solo cuando el cobro de ese
+   periodo queda marcado. */
+const TIPOS_SERVICIO_OPERATIVO = {
+  limpieza:   { nombre:'Limpieza',              modelo:'evento' },
+  fumigacion: { nombre:'Fumigación',            modelo:'contrato' },
+  transporte: { nombre:'Transporte de personal', modelo:'contrato' }
+};
+const ESTATUS_SERVICIO_OPERATIVO_EVENTO = ['cotizado', 'realizado', 'cancelado'];
+const ESTATUS_SERVICIO_OPERATIVO_CONTRATO = ['activo', 'cancelado'];
+const ETIQUETA_ESTATUS_SERVICIO_OPERATIVO = {
+  cotizado:'Cotizado', realizado:'Realizado', activo:'Activo', cancelado:'Cancelado'
+};
+function esContratoServicioOperativo(tipo){ return (TIPOS_SERVICIO_OPERATIVO[tipo] || {}).modelo === 'contrato'; }
+function normalizarServicioOperativo(x){
+  const tipo = TIPOS_SERVICIO_OPERATIVO[x && x.tipo] ? x.tipo : 'limpieza';
+  const esContrato = esContratoServicioOperativo(tipo);
+  const estatusValidos = esContrato ? ESTATUS_SERVICIO_OPERATIVO_CONTRATO : ESTATUS_SERVICIO_OPERATIVO_EVENTO;
+  const facturacion = (x && x.facturacion === 'anual') ? 'anual' : 'mensual';
+  /* Mismo criterio que Pólizas (ver MESES_POLIZA): mensual = un ciclo de 12
+     cobros, anual = uno solo — sin "meses de contrato" aparte, para no
+     inventar un tercer concepto de calendario en la app. Un evento
+     (Limpieza) no tiene ciclo: siempre es un solo "cobro", el del propio
+     trabajo. */
+  const nCobros = esContrato ? (facturacion === 'mensual' ? MESES_POLIZA : 1) : 1;
+  const cobros = Array.from({length:nCobros}, (_,i)=> !!(Array.isArray(x && x.cobros) && x.cobros[i]));
+  return {
+    id: (x && x.id) || nuevoId(),
+    tipo,
+    clienteId: (x && x.clienteId) || '',
+    sitioId: (x && x.sitioId) || '',
+    concepto: aOracion((x && x.concepto ? String(x.concepto) : '').trim()),
+    /* Evento (Limpieza): la fecha del trabajo. Contrato: la fecha de inicio
+       del ciclo de facturación — igual que fechaInicio en Pólizas. */
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(x && x.fecha) ? x.fecha : hoyISO(),
+    facturacion,
+    /* Precio y costo por periodo (o del evento único, si es Limpieza). */
+    monto: Math.max(0, Math.round(Number(x && x.monto) || 0)),
+    costoUnitario: Math.max(0, Math.round(Number(x && x.costoUnitario) || 0)),
+    cobros,
+    estatus: estatusValidos.includes(x && x.estatus) ? x.estatus : estatusValidos[0] === 'cotizado' ? 'cotizado' : 'activo',
+    notas: (x && x.notas ? String(x.notas) : '').trim()
+  };
+}
+function servicioOperativoPorId(id){ return datos.serviciosOperativos.find(s => s.id === id); }
+function serviciosOperativosDeTipo(tipo){ return datos.serviciosOperativos.filter(s => s.tipo === tipo); }
+/* Igual que calcularPoliza(): nada de esto se guarda, se deriva. `periodos`
+   es la lista de {fecha, ingreso, costo, cobrado} que calcularResultados()
+   necesita para saber, mes a mes, cuánto ingreso/costo cae en un periodo
+   dado — un evento (Limpieza) trae un solo elemento. */
+function calcularServicioOperativo(s){
+  if(!esContratoServicioOperativo(s.tipo)){
+    const cuenta = s.estatus === 'realizado';
+    return { periodos: [{ fecha: s.fecha, ingreso: cuenta ? s.monto : 0, costo: cuenta ? s.costoUnitario : 0, cobrado: cuenta }] };
+  }
+  const activo = s.estatus === 'activo';
+  return {
+    periodos: s.cobros.map((cobrado, i) => ({
+      fecha: s.facturacion === 'mensual' ? sumarMeses(s.fecha, i) : s.fecha,
+      ingreso: cobrado ? s.monto : 0,
+      costo: activo ? s.costoUnitario : 0,
+      cobrado
+    }))
+  };
+}
+function guardarServicioOperativo(s, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'serviciosOperativos', id:s.id, obj:s });
+  const nombre = TIPOS_SERVICIO_OPERATIVO[s.tipo].nombre + ' — ' + (s.concepto || (sitioPorId(s.sitioId) || {}).nombre || 'sin sitio');
+  anotar(accion || 'editó', 'servicio operativo', nombre, detalle);
 }
 
 /* ==================== Proveedores ====================
@@ -10531,6 +10625,10 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                  /* Qué tema de la Guía de uso (Ayuda) está abierto. */
                  temaAyudaId: null,
                  ladoCotizacion:'costo',
+                 /* Qué categoría de Servicios Operativos se ve (Limpieza,
+                    Fumigación o Transporte de personal) — mismo mecanismo que
+                    vistaVisitasTab. */
+                 servOpTab:'limpieza',
                  periodoResultados:'mes', resultadosDesde:'', resultadosHasta:'', resultadosSitioId:'',
                  /* Módulo Cocinas: mismo mecanismo de periodo que Resultados
                     (ver rangoPeriodoResultados()) pero con su propio estado —
@@ -10623,7 +10721,7 @@ const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
    Desde la ficha de un cliente en Clientes se puede seguir saltando
    directo a su Forpass con "Ver en Forpass" (ver irAlClienteEnForpass())
    — un atajo, no la única puerta. */
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'nomina', 'ayuda'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'servicios-operativos', 'activos', 'proveedores', 'organigrama', 'imagen', 'nomina', 'ayuda'];
 function cargarModulo(){
   estado.modulo = 'resultados';
   estado.vista = inicioDelModulo();
@@ -10686,6 +10784,7 @@ function inicioDelModulo(){
   return estado.modulo === 'mi-agenda' ? 'mi-agenda'
        : estado.modulo === 'polizas' ? 'polizas'
        : estado.modulo === 'cotizaciones' ? 'cotizaciones'
+       : estado.modulo === 'servicios-operativos' ? 'servicios-operativos'
        : estado.modulo === 'reportes' ? 'reportes'
        : estado.modulo === 'cocinas' ? 'cocinas'
        : estado.modulo === 'levantamientos' ? 'levantamientos'
@@ -12466,18 +12565,36 @@ function calcularResultados(inicio, fin, sitioId){
    comparte con su equipo para el cierre de indicadores.
 
    Varios renglones del Framework no tienen TODAVÍA de dónde sacar un
-   número real en esta app (Servicios Operativos completo: Limpieza/
-   Fumigación/Transporte; el ingreso de Aperturas/Remodelaciones/Venta de
+   número real en esta app (el ingreso de Aperturas/Remodelaciones/Venta de
    equipos; el costo y la venta de equipos de FORPASS; los gastos
    administrativos/corporativos) — se dejan en 0 A PROPÓSITO, nunca
    inventados ni repartidos de otro rubro, para que el reporte tenga la
    forma final del Framework desde ya y se vaya llenando solo conforme se
    construyan las fases que faltan (ver vistaResultadosPorPilares(), que
-   avisa cuáles siguen en 0). */
+   avisa cuáles siguen en 0). Servicios Operativos (Limpieza/Fumigación/
+   Transporte) SÍ tiene ya su módulo de captura — ver
+   serviciosOperativosEnPeriodo() — así que su pilar se llena solo conforme
+   se registren contratos y trabajos ahí. */
 function nominaPorPilarEnPeriodo(inicio, fin){
   const suma = { tecnicos:0, operativos:0, proyectos:0, tecnologia:0, transversal:0 };
   datos.nomina.forEach(n=>{
     if(n.fecha >= inicio && n.fecha <= fin) suma[n.pilar] += n.monto;
+  });
+  return suma;
+}
+/* Mismo criterio que calcularResultados(): cada periodo de
+   calcularServicioOperativo() (uno solo si es Limpieza, uno por cobro si es
+   contrato) cuenta en el mes al que corresponde su fecha, no en el mes en
+   que se haya dado de alta o marcado el cobro. */
+function serviciosOperativosEnPeriodo(inicio, fin, sitioId){
+  const suma = { limpieza:{ingreso:0,costo:0}, fumigacion:{ingreso:0,costo:0}, transporte:{ingreso:0,costo:0} };
+  datos.serviciosOperativos.forEach(s=>{
+    if(sitioId && s.sitioId !== sitioId) return;
+    calcularServicioOperativo(s).periodos.forEach(p=>{
+      if(p.fecha < inicio || p.fecha > fin) return;
+      suma[s.tipo].ingreso += p.ingreso;
+      suma[s.tipo].costo += p.costo;
+    });
   });
   return suma;
 }
@@ -12493,6 +12610,7 @@ function armarPilarResultados(nombre, ingresosDef, costosDef){
 function calcularResultadosPorPilar(inicio, fin, sitioId){
   const r = calcularResultados(inicio, fin, sitioId);
   const nom = nominaPorPilarEnPeriodo(inicio, fin);
+  const so = serviciosOperativosEnPeriodo(inicio, fin, sitioId);
 
   const pilares = {
     tecnicos: armarPilarResultados(PILARES_FORGUARD.tecnicos.nombre,
@@ -12504,12 +12622,18 @@ function calcularResultadosPorPilar(inicio, fin, sitioId){
         ['Proveedores / servicios subcontratados', r.costoCotizaciones],
         ['Otros costos directos', 0] ]),
 
-    /* Sin ningún módulo propio todavía (ver Ayuda → Nómina): los 4 renglones
-       de ingreso y 3 de costo quedan en 0 salvo la nómina ya clasificada. */
+    /* Desde el módulo Servicios Operativos (ver Ayuda → Servicios
+       Operativos): el costo de las 3 categorías se agrupa en "Proveedores /
+       servicios subcontratados" —es lo que se le paga a quien hace la
+       limpieza/fumigación/transporte, no personal propio— dejando
+       "Materiales e insumos" en 0 hasta que haga falta separarlo. */
     operativos: armarPilarResultados(PILARES_FORGUARD.operativos.nombre,
-      [ ['Limpieza', 0], ['Fumigación', 0], ['Transporte de personal', 0], ['Otros servicios operativos', 0] ],
+      [ ['Limpieza', so.limpieza.ingreso], ['Fumigación', so.fumigacion.ingreso],
+        ['Transporte de personal', so.transporte.ingreso], ['Otros servicios operativos', 0] ],
       [ ['Nómina directa del pilar', nom.operativos],
-        ['Materiales e insumos', 0], ['Proveedores / servicios subcontratados', 0], ['Otros costos directos', 0] ]),
+        ['Materiales e insumos', 0],
+        ['Proveedores / servicios subcontratados', so.limpieza.costo + so.fumigacion.costo + so.transporte.costo],
+        ['Otros costos directos', 0] ]),
 
     /* Imagen/Aperturas hoy solo registra COSTO (materiales/mano de obra),
        nunca un ingreso propio —no genera una cotización formal, ver Ayuda
@@ -13205,6 +13329,25 @@ const TEMAS_AYUDA = [
           'Es la primera fase de un rediseño más grande de Resultados (23-sep-2026): el "Cierre de mes" real de Victor incluye varios rubros que la app todavía no captura (Gasolinas, Trampas de grasa, Extracciones, Renders, compras y consumibles) — Nómina se hizo primero por ser, de lejos, el gasto más grande (70-80% del costo total cada mes). Los demás llegan en fases siguientes, y hasta que estén todos capturados, Resultados TODAVÍA no incluye ninguno de estos gastos en su cálculo de utilidad.'
         ]) },
 
+  { id:'servicios-operativos', titulo:'Servicios Operativos',
+    resumen:'Limpieza, Fumigación y Transporte de personal — el segundo pilar del Framework de Proforma, hoy en $0 porque ningún módulo los capturaba.',
+    contenido:
+      guiaSeccion('Lo básico', guiaPasos([
+        'Un solo módulo con 3 pestañas: <b>Limpieza</b>, <b>Fumigación</b> y <b>Transporte de personal</b> — cámbialas arriba de la lista.',
+        'Usa <b>Nuevo</b>: elige primero el <b>Tipo de servicio</b> (cambia qué campos pide), luego Cliente* y Sitio*.',
+        'Limpieza es un <b>trabajo suelto</b>, como una cotización: Fecha*, Precio al cliente*, Costo del servicio, y Estatus (Cotizado → Realizado o Cancelado). Solo cuenta como ingreso cuando queda <b>Realizado</b>.',
+        'Fumigación y Transporte son un <b>contrato recurrente por sitio</b>, como una póliza pero con un solo renglón (no equipo por equipo): Inicio del contrato*, Facturación (Mensual = 12 cobros, Anual = 1), Monto y Costo por periodo*, y Estatus (Activo o Cancelado).',
+        'Un contrato muestra abajo su <b>tira de cobros</b> — un número por cobro, igual que la cobranza de Pólizas —: dale clic a uno para marcarlo cobrado o quitarlo. El costo del periodo se reconoce solo mientras el contrato siga "Activo", sin necesidad de marcar nada aparte.'
+      ]))
+      + guiaTip('Cómo entra a Resultados', [
+          'Cada trabajo/cobro alimenta directo la vista "Por pilares" de Resultados (ver ese tema): el ingreso de cada categoría (Limpieza/Fumigación/Transporte) y su costo, agrupado en "Proveedores / servicios subcontratados" —es lo que se le paga a quien presta el servicio, no personal propio de Forguard.',
+          'La nómina de personal DEDICADO a este pilar se sigue capturando aparte, en el módulo Nómina, con Pilar = "Servicios Operativos" — no se duplica aquí.'
+        ])
+      + guiaTip('Simplificaciones deliberadas frente a Cotizaciones/Pólizas', [
+          'Cliente y Sitio son un selector simple: a diferencia de Cotizaciones/Pólizas/Activos, aquí no se puede dar de alta un cliente o sitio nuevo sin salir del formulario — date de alta primero desde Clientes.',
+          'Un contrato es un solo renglón (un monto, un costo) — no varios equipos con su propio calendario como sí tienen las Pólizas: si el servicio de un sitio cambia de alcance, edita el contrato en vez de tratar de desglosarlo.'
+        ]) },
+
   { id:'admin', titulo:'Administración',
     resumen:'Cuentas del equipo, solicitudes de acceso de clientes, respaldo de toda la base, y catálogos configurables.',
     contenido:
@@ -13421,7 +13564,7 @@ function vistaResultadosPorPilares(pr){
      + '</div>'
      + '<p class="pista" style="text-align:right; margin-top:-10px">Margen operativo: ' + pr.margenOperativo.toFixed(1) + '%</p>';
 
-  h += '<p class="pista" style="margin-top:14px">Formato basado en el Framework de Proforma que Victor comparte con su equipo (23-sep-2026). Varios renglones siguen en $0 porque todavía no tienen de dónde sacar el número: Servicios Operativos completo (Limpieza, Fumigación, Transporte de personal) no tiene módulo de captura; Proyectos e Infraestructura no factura Aperturas/Remodelaciones como ingreso propio ni Venta/renta de equipos; Tecnología y Control no tiene costo ni venta de equipos de FORPASS capturados; y los gastos administrativos/corporativos de estructura tampoco — se van llenando en las siguientes fases.</p>';
+  h += '<p class="pista" style="margin-top:14px">Formato basado en el Framework de Proforma que Victor comparte con su equipo (23-sep-2026). Varios renglones siguen en $0 porque todavía no tienen de dónde sacar el número: Servicios Operativos ya tiene su módulo de captura (Limpieza, Fumigación, Transporte de personal), pero se ve en $0 mientras no se registre nada ahí; Proyectos e Infraestructura no factura Aperturas/Remodelaciones como ingreso propio ni Venta/renta de equipos; Tecnología y Control no tiene costo ni venta de equipos de FORPASS capturados; y los gastos administrativos/corporativos de estructura tampoco — se van llenando en las siguientes fases.</p>';
 
   return h;
 }
@@ -14765,6 +14908,105 @@ function vistaCotizacion(){
   }
 
   h += '<div class="bloque"><div class="pista" style="white-space:pre-wrap">' + esc(cot.tiempoEntrega) + (cot.notas ? '\n' + cot.notas : '') + '</div></div>';
+
+  return h;
+}
+
+/* ==================== Vista: Servicios Operativos ====================
+   Un solo módulo con 3 pestañas (Limpieza, Fumigación, Transporte de
+   personal) en vez de 3 módulos — ver el comentario junto a
+   TIPOS_SERVICIO_OPERATIVO. La tira de cobros de un contrato reutiliza las
+   mismas clases .meses/.mes de Pólizas (ver ganttCalendarioHTML/vistaPoliza)
+   en vez de inventar un componente nuevo. */
+function tiraCobrosServicioOperativoHTML(s){
+  const c = calcularServicioOperativo(s);
+  return '<div class="meses" style="margin-top:8px">' + s.cobros.map((ok,i)=>{
+    const periodo = c.periodos[i];
+    const clase = 'mes' + (ok ? ' pagado' : '');
+    const tip = 'Cobro ' + (i+1) + ' · ' + dinero(s.monto)
+      + (s.facturacion === 'mensual' ? ' · ' + fmtFecha(periodo.fecha) : '')
+      + (ok ? ' · cobrado' : ' · sin cobrar')
+      + (puedeEditar() ? ' — clic para marcar/quitar' : '');
+    return puedeEditar()
+      ? '<button type="button" class="' + clase + '" data-toggle-cobro-servicio-operativo="' + esc(s.id) + '" data-idx="' + i + '" title="' + esc(tip) + '">' + (i+1) + '</button>'
+      : '<span class="' + clase + '" title="' + esc(tip) + '">' + (i+1) + '</span>';
+  }).join('') + '</div>';
+}
+
+function vistaServiciosOperativos(){
+  const tab = TIPOS_SERVICIO_OPERATIVO[estado.servOpTab] ? estado.servOpTab : 'limpieza';
+  estado.servOpTab = tab;
+  const esContrato = esContratoServicioOperativo(tab);
+  const lista = serviciosOperativosDeTipo(tab)
+    .slice().sort((a,b)=> b.fecha.localeCompare(a.fecha));
+
+  const hoy = hoyISO();
+  const mesActual = hoy.slice(0,7);
+  const contratosActivos = datos.serviciosOperativos.filter(s => esContratoServicioOperativo(s.tipo) && s.estatus === 'activo');
+  const ingresoMensualRecurrente = contratosActivos.reduce((t,s)=> t + (s.facturacion === 'mensual' ? s.monto : s.monto / MESES_POLIZA), 0);
+  const limpiezaDelMes = datos.serviciosOperativos.filter(s => s.tipo === 'limpieza' && s.estatus === 'realizado' && s.fecha.slice(0,7) === mesActual);
+
+  let h = '<div class="titulo-zona"><div>'
+     +   '<h2>Servicios Operativos</h2>'
+     +   '<p>' + numero(datos.serviciosOperativos.length) + ' ' + plural(datos.serviciosOperativos.length,'servicio capturado','servicios capturados')
+     +     ' · Limpieza, Fumigación y Transporte de personal</p>'
+     + '</div><div class="acciones">'
+     +   (puedeEditar()
+          ? '<button type="button" class="btn btn-primario" data-accion="nueva-servicio-operativo">' + ICONO.mas + 'Nuevo</button>'
+          : '')
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Contratos activos', numero(contratosActivos.length), 'Fumigación + Transporte')
+     + tarjetaKpi('Ingreso mensual recurrente', dinero(ingresoMensualRecurrente), 'Estimado de los contratos activos')
+     + tarjetaKpi('Limpieza realizada este mes', dinero(limpiezaDelMes.reduce((t,s)=> t + s.monto, 0)), numero(limpiezaDelMes.length) + ' ' + plural(limpiezaDelMes.length,'trabajo','trabajos'))
+     + '</div>';
+
+  h += '<nav class="modulos" role="tablist" aria-label="Servicios Operativos" style="margin-bottom:20px; max-width:640px">'
+     +   Object.keys(TIPOS_SERVICIO_OPERATIVO).map(t =>
+         '<button type="button" class="mod" data-servop-tab="' + t + '" role="tab" aria-selected="' + (t === tab) + '">'
+         + esc(TIPOS_SERVICIO_OPERATIVO[t].nombre) + '</button>').join('')
+     + '</nav>';
+
+  if(!lista.length){
+    h += vistaVacia('edificio', 'Todavía no hay ' + TIPOS_SERVICIO_OPERATIVO[tab].nombre.toLowerCase() + ' capturada' + (tab === 'limpieza' ? '' : ''),
+          esContrato
+            ? 'Da de alta el contrato de este sitio: un solo renglón con su monto por periodo, sin repetirlo mes a mes.'
+            : 'Registra el trabajo cotizado: cuenta como ingreso hasta que quede "Realizado".',
+          puedeEditar() ? 'nueva-servicio-operativo' : '', 'Nuevo');
+    return h;
+  }
+
+  h += '<div class="rodillo"><table class="tabla"><thead><tr>'
+     +   '<th>Sitio</th><th>Cliente</th>'
+     +   (esContrato ? '<th>Facturación</th><th>Monto/periodo</th><th>Costo/periodo</th>' : '<th>Fecha</th><th>Monto</th><th>Costo</th>')
+     +   '<th>Estatus</th><th></th>'
+     + '</tr></thead><tbody>'
+     + lista.map(s=>{
+         const cli = clientePorId(s.clienteId), sitio = sitioPorId(s.sitioId);
+         const tonoEstatus = s.estatus === 'cancelado' ? 'i-neutro' : (s.estatus === 'cotizado' ? 'i-alerta' : 'i-ok');
+         const filaPrincipal = '<tr>'
+           +   '<td>' + esc(sitio ? sitio.nombre : 'Sin sitio') + (s.concepto ? '<div class="pista">' + esc(s.concepto) + '</div>' : '') + '</td>'
+           +   '<td>' + esc(cli ? cli.nombre : '—') + '</td>'
+           +   (esContrato
+               ? '<td>' + (s.facturacion === 'mensual' ? 'Mensual' : 'Anual') + '</td><td>' + dinero(s.monto) + '</td><td>' + dinero(s.costoUnitario) + '</td>'
+               : '<td>' + fmtFecha(s.fecha) + '</td><td>' + dinero(s.monto) + '</td><td>' + dinero(s.costoUnitario) + '</td>')
+           +   '<td><span class="insignia ' + tonoEstatus + '">' + esc(ETIQUETA_ESTATUS_SERVICIO_OPERATIVO[s.estatus]) + '</span></td>'
+           +   '<td style="white-space:nowrap; text-align:right">'
+           +     (puedeEditar() ? '<button type="button" class="icono-mini" data-accion="editar-servicio-operativo" data-servicio-operativo="' + esc(s.id) + '" data-tip="Editar">' + ICONO.lapiz + '</button>' : '')
+           +     (esAdmin() ? '<button type="button" class="icono-mini" data-accion="borrar-servicio-operativo" data-servicio-operativo="' + esc(s.id) + '" data-tip="Eliminar">' + ICONO.basura + '</button>' : '')
+           +   '</td>'
+           + '</tr>';
+         /* El contrato lleva su tira de cobros en un renglón aparte, ocupando
+            todas las columnas — igual que la fila de detalle expandido de una
+            tabla, pero siempre visible: son pocos contratos, no hace falta
+            esconderla detrás de un clic. */
+         const filaCobros = esContrato
+           ? '<tr class="fila-detalle-cobros"><td colspan="6">' + tiraCobrosServicioOperativoHTML(s) + '</td></tr>'
+           : '';
+         return filaPrincipal + filaCobros;
+       }).join('')
+     + '</tbody></table></div>';
 
   return h;
 }
@@ -22315,6 +22557,7 @@ function render(){
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
+    : estado.modulo === 'servicios-operativos' ? vistaServiciosOperativos()
     : estado.modulo === 'nomina'       ? vistaNomina()
     : estado.modulo === 'ayuda'        ? (estado.vista === 'ayuda-tema' ? vistaAyudaTema() : vistaAyuda())
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
@@ -22944,6 +23187,7 @@ function pintarCabecera(){
                  : estado.modulo === 'activos' ? 'Activos' : estado.modulo === 'proveedores' ? 'Proveedores'
                  : estado.modulo === 'organigrama' ? 'Organigrama'
                  : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
+                 : estado.modulo === 'servicios-operativos' ? 'Servicios Operativos'
                  : estado.modulo === 'nomina' ? 'Nómina'
                  : estado.modulo === 'ayuda' ? 'Ayuda'
                  : 'Clientes';
@@ -27459,6 +27703,133 @@ function modalCotizacion(id, origenReporte){
   }
 }
 
+/* ---------------------------- Modal: Servicios Operativos ----------------------------
+   Simplificación deliberada frente a Cotizaciones/Pólizas: Cliente y Sitio son
+   un <select> plano, sin "alta al vuelo" (botón "Nuevo" inline) — si el sitio
+   todavía no existe, se da de alta primero en Clientes. */
+function modalServicioOperativo(id, tipoPreset){
+  const s = id ? servicioOperativoPorId(id) : null;
+  const tipo = s ? s.tipo : (TIPOS_SERVICIO_OPERATIVO[tipoPreset] ? tipoPreset : 'limpieza');
+  const clientesOrd = datos.clientes.slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'));
+  const opc = (lista, sel, texto, valor) => lista.map(o =>
+    '<option value="' + esc(valor(o)) + '"' + (valor(o) === sel ? ' selected' : '') + '>' + esc(texto(o)) + '</option>').join('');
+
+  const cuerpo =
+      '<div class="campo"><label>Tipo de servicio *</label><select id="soTipo">'
+    +   Object.keys(TIPOS_SERVICIO_OPERATIVO).map(t => '<option value="' + t + '"' + (tipo === t ? ' selected' : '') + '>' + esc(TIPOS_SERVICIO_OPERATIVO[t].nombre) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Cliente *</label><select id="soCliente">' + opc(clientesOrd, s ? s.clienteId : '', c=>c.nombre, c=>c.id) + '</select></div>'
+    +   '<div class="campo"><label>Sitio *</label><select id="soSitio"></select></div>'
+    + '</div>'
+    + '<div class="campo"><label>Concepto (opcional)</label>'
+    +   '<input type="text" id="soConcepto" placeholder="Ej. Fumigación mensual cocina" value="' + esc(s ? s.concepto : '') + '"></div>'
+    + '<div id="soZonaEvento">'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Fecha *</label>'
+    +       '<input type="date" id="soFechaEvento" value="' + esc(s ? s.fecha : hoyISO()) + '"></div>'
+    +     '<div class="campo"><label>Estatus</label><select id="soEstatusEvento">'
+    +       ESTATUS_SERVICIO_OPERATIVO_EVENTO.map(e => '<option value="' + e + '"' + ((s && !esContratoServicioOperativo(tipo) ? s.estatus : 'cotizado') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_SERVICIO_OPERATIVO[e]) + '</option>').join('')
+    +     '</select></div>'
+    +   '</div>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Precio al cliente *</label>'
+    +       '<input type="number" id="soMontoEvento" min="0" step="1" value="' + (s && !esContratoServicioOperativo(tipo) && s.monto ? s.monto : '') + '"></div>'
+    +     '<div class="campo"><label>Costo del servicio</label>'
+    +       '<input type="number" id="soCostoEvento" min="0" step="1" value="' + (s && !esContratoServicioOperativo(tipo) && s.costoUnitario ? s.costoUnitario : '') + '"></div>'
+    +   '</div>'
+    + '</div>'
+    + '<div id="soZonaContrato">'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Inicio del contrato *</label>'
+    +       '<input type="date" id="soFechaContrato" value="' + esc(s ? s.fecha : hoyISO()) + '"></div>'
+    +     '<div class="campo"><label>Facturación</label><select id="soFacturacion">'
+    +       '<option value="mensual"' + ((s ? s.facturacion : 'mensual') === 'mensual' ? ' selected' : '') + '>Mensual (12 cobros)</option>'
+    +       '<option value="anual"' + ((s ? s.facturacion : 'mensual') === 'anual' ? ' selected' : '') + '>Anual (1 cobro)</option>'
+    +     '</select></div>'
+    +   '</div>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Monto por periodo *</label>'
+    +       '<input type="number" id="soMontoContrato" min="0" step="1" value="' + (s && esContratoServicioOperativo(tipo) && s.monto ? s.monto : '') + '"></div>'
+    +     '<div class="campo"><label>Costo por periodo</label>'
+    +       '<input type="number" id="soCostoContrato" min="0" step="1" value="' + (s && esContratoServicioOperativo(tipo) && s.costoUnitario ? s.costoUnitario : '') + '"></div>'
+    +   '</div>'
+    +   '<div class="campo"><label>Estatus</label><select id="soEstatusContrato">'
+    +     ESTATUS_SERVICIO_OPERATIVO_CONTRATO.map(e => '<option value="' + e + '"' + ((s && esContratoServicioOperativo(tipo) ? s.estatus : 'activo') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_SERVICIO_OPERATIVO[e]) + '</option>').join('')
+    +   '</select></div>'
+    + '</div>'
+    + '<div class="campo"><label>Notas</label>'
+    +   '<textarea id="soNotas" placeholder="Cualquier detalle útil…">' + esc(s ? s.notas : '') + '</textarea></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (s ? 'Guardar cambios' : 'Registrar') + '</button>';
+
+  abrirModal(s ? 'Editar servicio operativo' : 'Nuevo servicio operativo', cuerpo, pie);
+
+  function pintarSitios(){
+    const clienteId = $('soCliente').value;
+    const sitios = sitiosDe(clienteId).slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'));
+    $('soSitio').innerHTML = opc(sitios, s ? s.sitioId : '', x=>x.nombre, x=>x.id);
+  }
+  function pintarTipo(){
+    const esContrato = esContratoServicioOperativo($('soTipo').value);
+    $('soZonaEvento').hidden = esContrato;
+    $('soZonaContrato').hidden = !esContrato;
+  }
+  pintarTipo();
+  pintarSitios();
+  $('soTipo').addEventListener('change', pintarTipo);
+  $('soCliente').addEventListener('change', pintarSitios);
+
+  cerrarModalActual = ()=>{
+    const clienteId = $('soCliente').value;
+    const sitioId = $('soSitio').value;
+    if(!clienteId || !sitioId){ aviso('Elige el cliente y el sitio.', true); return; }
+    const tipoElegido = $('soTipo').value;
+    const esContrato = esContratoServicioOperativo(tipoElegido);
+
+    const datosComunes = {
+      tipo: tipoElegido, clienteId, sitioId,
+      concepto: $('soConcepto').value.trim(),
+      notas: $('soNotas').value.trim()
+    };
+    if(esContrato){
+      const monto = Number($('soMontoContrato').value) || 0;
+      if(monto <= 0){ $('soMontoContrato').setAttribute('aria-invalid','true'); aviso('Captura el monto por periodo.', true); return; }
+      Object.assign(datosComunes, {
+        fecha: $('soFechaContrato').value || hoyISO(),
+        facturacion: $('soFacturacion').value,
+        monto, costoUnitario: Number($('soCostoContrato').value) || 0,
+        estatus: $('soEstatusContrato').value
+      });
+    }else{
+      const fecha = $('soFechaEvento').value;
+      if(!fecha){ $('soFechaEvento').setAttribute('aria-invalid','true'); aviso('Elige la fecha del servicio.', true); return; }
+      const monto = Number($('soMontoEvento').value) || 0;
+      if(monto <= 0){ $('soMontoEvento').setAttribute('aria-invalid','true'); aviso('Captura el precio al cliente.', true); return; }
+      Object.assign(datosComunes, {
+        fecha, monto, costoUnitario: Number($('soCostoEvento').value) || 0,
+        estatus: $('soEstatusEvento').value
+      });
+    }
+
+    let reg;
+    if(s){
+      Object.assign(s, datosComunes);
+      reg = normalizarServicioOperativo(s);
+      Object.assign(s, reg);
+    }else{
+      reg = normalizarServicioOperativo(Object.assign({ id:nuevoId() }, datosComunes));
+      datos.serviciosOperativos.push(reg);
+    }
+    guardarServicioOperativo(reg, s ? 'editó' : 'creó');
+    estado.servOpTab = reg.tipo;
+    cerrarModal();
+    render();
+    aviso(s ? 'Servicio actualizado.' : 'Servicio registrado.');
+  };
+}
+
 /* ==================== IMPORTAR PÓLIZAS DESDE UN JSON ====================
    Las cotizaciones viejas viven en PDF de Canva. El lector de
    scripts/lector-pdf/ las convierte a JSON con la forma de una póliza; esto
@@ -28858,6 +29229,23 @@ $('vista').addEventListener('click', ev=>{
           aviso('Registro eliminado.');
         });
     }
+    else if(a === 'nueva-servicio-operativo'){ if(exigirPermiso()) modalServicioOperativo(null, estado.servOpTab); }
+    else if(a === 'editar-servicio-operativo'){ if(exigirPermiso()) modalServicioOperativo(acc.dataset.servicioOperativo); }
+    else if(a === 'borrar-servicio-operativo'){
+      if(!exigirAdmin('eliminar un servicio operativo')) return;
+      const so = servicioOperativoPorId(acc.dataset.servicioOperativo);
+      if(!so) return;
+      const sitio = sitioPorId(so.sitioId);
+      confirmar('Eliminar servicio operativo',
+        'Se va a eliminar <b>' + esc(TIPOS_SERVICIO_OPERATIVO[so.tipo].nombre) + '</b> de <b>' + esc(sitio ? sitio.nombre : 'sin sitio') + '</b>. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.serviciosOperativos = datos.serviciosOperativos.filter(x => x.id !== so.id);
+          borrarRegistro('serviciosOperativos', so.id);
+          anotar('eliminó', 'servicio operativo', TIPOS_SERVICIO_OPERATIVO[so.tipo].nombre + ' — ' + (sitio ? sitio.nombre : 'sin sitio'));
+          render();
+          aviso('Servicio eliminado.');
+        });
+    }
     else if(a === 'ir-gastos-proveedor') irAGastosProveedor();
     else if(a === 'ir-proveedores') irAProveedores();
     else if(a === 'nuevo-proveedor'){ if(exigirGestionProveedores()) modalProveedor(null); }
@@ -29330,6 +29718,26 @@ $('vista').addEventListener('click', ev=>{
 
   const cob = t.closest('[data-cobro]');
   if(cob){ modalCobroPoliza(cob.dataset.cobro, +cob.dataset.idx); return; }
+
+  /* -------------------- Servicios Operativos -------------------- */
+  const soTab = t.closest('[data-servop-tab]');
+  if(soTab){ estado.servOpTab = soTab.dataset.servopTab; animarTarjetas = true; render(); return; }
+
+  /* Toggle directo (sin modal): un contrato de Fumigación/Transporte es un
+     solo renglón, así que "capturar el cobro" es nada más marcar/quitar esa
+     casilla — a diferencia de Pólizas, aquí no hay OC/factura que anotar
+     aparte. */
+  const soCobro = t.closest('[data-toggle-cobro-servicio-operativo]');
+  if(soCobro){
+    if(!exigirPermiso()) return;
+    const so = servicioOperativoPorId(soCobro.dataset.toggleCobroServicioOperativo);
+    if(!so) return;
+    const idx = +soCobro.dataset.idx;
+    so.cobros[idx] = !so.cobros[idx];
+    guardarServicioOperativo(so, 'editó', (so.cobros[idx] ? 'marcó' : 'quitó') + ' el cobro ' + (idx+1) + ' de ' + TIPOS_SERVICIO_OPERATIVO[so.tipo].nombre);
+    render();
+    return;
+  }
 
   /* Los chips de meses del detalle. El gemelo dentro del calendario cuelga de
      #modalCuerpo, que está fuera de #vista y lleva su propio listener. */
@@ -30662,7 +31070,7 @@ function salirSilencioso(tambienLosDatos){
     /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
        21-sep-2026): faltaban proveedores/gastosProveedor/refacciones/
        ordenesCompra. */
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[], serviciosOperativos:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;

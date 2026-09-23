@@ -179,6 +179,19 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Servicios Operativos (agregado 23-sep-2026) ---
+       Segundo pilar del Framework de Proforma: Limpieza (trabajo suelto),
+       Fumigación y Transporte de personal (contratos recurrentes, un solo
+       renglón cada uno). Ni sensible como /nomina ni con una copia aparte
+       para el portal de clientes (no se pidió eso todavía) — mismo candado
+       exacto que /cotizaciones: cualquiera con acceso interno lo lee. */
+    match /serviciosOperativos/{id} {
+      allow read:   if conAcceso() && !esCliente();
+      allow create: if puedeEditar();
+      allow update: if puedeEditar();
+      allow delete: if esAdmin();
+    }
+
     /* --- Reportes (tickets) ---
        Cuarto módulo: el reporte de una falla, que puede levantar CUALQUIERA
        con acceso al tablero — a propósito MÁS permisivo que `puedeEditar()`.

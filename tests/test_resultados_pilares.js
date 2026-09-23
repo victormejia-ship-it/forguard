@@ -96,7 +96,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Se ven los 4 pilares por su nombre', ['Servicios Técnicos','Servicios Operativos','Proyectos e Infraestructura','Tecnología y Control'].every(n => vista.includes(n)));
   chkF('Se ve "Resumen Forguard" y "Gastos de estructura Forguard"', vista.includes('Resumen Forguard') && vista.includes('Gastos de estructura Forguard'));
   chkF('Se ve la utilidad operativa final', vista.includes('Utilidad operativa Forguard'));
-  chkF('Avisa cuáles renglones siguen en $0 por falta de captura', /Servicios Operativos completo/.test(vista));
+  chkF('Avisa cuáles renglones siguen en $0 por falta de captura', /Proyectos e Infraestructura no factura/.test(vista));
 
   const botonPresionado = await page.evaluate(() =>
     document.querySelector('[data-accion="vista-lista"][data-modo="pilares"]').getAttribute('aria-pressed'));
