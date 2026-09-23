@@ -12373,20 +12373,29 @@ function sumaPorId(mapa, id, campo, monto){
    de registros. Sin sitioId (o con '', el valor por default del filtro en
    pantalla) se comporta idéntico a como era antes de que existiera este
    parámetro. */
-function calcularResultados(inicio, fin, sitioId){
-  const r = { ingresoForpass:0, ingresoPolizas:0, ingresoPolizasCliente:0, ingresoPolizasInterno:0,
-              ingresoCotizaciones:0, costoCotizaciones:0, costoPolizas:0,
-              numPagosForpass:0, numCobrosPolizas:0, numPolizasNegociadasNoCobradas:0,
-              numServiciosPolizas:0, numCotizaciones:0 };
-  /* Comparativas (ver vistaResultados, vista "tabla"): mismo período, mismo
-     cruce de fuentes, nada más agrupado por cliente/sitio en vez de sumado
-     en un solo total. Técnicos no tiene con qué cruzar dinero (ver nota en
-     la sección de reportes, más abajo) — es conteo de reportes resueltos. */
-  const porCliente = new Map(), porSitio = new Map();
+/* ==================== calcularResultados(): por FUENTE ====================
+   Refactor del 23-sep-2026 (pedido de Victor: "la lógica ya es difícil de
+   seguir"): la MISMA lógica de siempre —ni un criterio de negocio cambió—
+   nada más reorganizada en una función pequeña por fuente (Forpass,
+   Pólizas, Cotizaciones, Imagen/Aperturas, Técnicos), cada una con su
+   propio comentario explicando SU regla de reconocimiento, en vez de un
+   solo bloque de 190 líneas con las cinco entrelazadas. calcularResultados()
+   de abajo queda como una tabla de contenido: junta lo que devuelve cada
+   una, sin recalcular nada por su cuenta.
 
-  /* Forpass: cada mensualidad YA MARCADA COMO PAGADA cuenta como ingreso en
-     el mes al que corresponde (fechaInicio + su número de mes), no en el mes
-     en que se haya dado clic en "Marcar pagada". */
+   Cada función de fuente devuelve sus totales tal cual los necesita el
+   resultado final, más (si aplica) una lista `movimientos` de
+   {clienteId, sitioId, ingreso, costo} — un renglón por cada vez que esa
+   fuente metió dinero, para que calcularResultados() los pueda sumar todos
+   por igual en los rankings de cliente/sitio sin que cada función tenga
+   que conocer la existencia de esos rankings. */
+
+/* Forpass: cada mensualidad YA MARCADA COMO PAGADA cuenta como ingreso en
+   el mes al que corresponde (fechaInicio + su número de mes), no en el mes
+   en que se haya dado clic en "Marcar pagada". Nunca tiene costo asociado. */
+function calcularForpassEnPeriodo(inicio, fin, sitioId){
+  let total = 0, num = 0;
+  const movimientos = [];
   datos.sitios.forEach(s=>{
     if(sitioId && s.id !== sitioId) return;
     const c = calcular(s);
@@ -12394,44 +12403,49 @@ function calcularResultados(inicio, fin, sitioId){
       if(!pagado) return;
       const fecha = sumarMeses(s.fechaInicio, i);
       if(fecha >= inicio && fecha <= fin){
-        r.ingresoForpass += c.montos[i]; r.numPagosForpass++;
-        sumaPorId(porCliente, s.clienteId, 'ingreso', c.montos[i]);
-        sumaPorId(porSitio, s.id, 'ingreso', c.montos[i]);
+        total += c.montos[i]; num++;
+        movimientos.push({ clienteId: s.clienteId, sitioId: s.id, ingreso: c.montos[i], costo: 0 });
       }
     });
   });
+  return { total, num, movimientos };
+}
 
-  /* Pólizas de CLIENTE: el ingreso se cuenta cuando se COBRA de verdad —una
-     casilla marcada en "Capturar cobro"—, uno solo si es anual, doce si es
-     mensual. Es dinero que de verdad entró (o al menos se facturó), así que
-     depende de que alguien la capture.
+/* Pólizas de CLIENTE: el ingreso se cuenta cuando se COBRA de verdad —una
+   casilla marcada en "Capturar cobro"—, uno solo si es anual, doce si es
+   mensual. Es dinero que de verdad entró (o al menos se facturó), así que
+   depende de que alguien la capture.
 
-     Pólizas de cargo INTERNO (Plato Express y similares, decisión de Victor
-     01-sep-2026): el "cobro" aquí ya no es el precio de venta, es costo + el
-     % de aumento administrativo (ver calcularPoliza(): esInterno hace que
-     precioAnual/montos salgan de costoAnual, no del subtotal de venta). Ese
-     aumento SÍ es ingreso real para Forguard, pero nunca se le va a cobrar
-     a nadie con una OC ni una factura —ya se simplificó "Capturar cobro"
-     para que ni las pida—, así que esperar a que alguien marque la casilla
-     lo dejaría fuera para siempre. En el esquema ideal esto es dinero YA
-     NEGOCIADO desde que la póliza queda 'activa' (precios congelados): se
-     reconoce solo, período a período según su propio calendario de
-     facturación, iguales que se reconoce el costo de abajo — y se lleva
-     APARTE (ingresoPolizasInterno / numPolizasNegociadasNoCobradas) para que
-     el estado de resultados diga con todas sus letras que es "negociado, no
-     cobrado" y no se confunda con un cobro real ya en la calle. Mientras
-     sigue en 'cotizacion'/'enviada' (nada firmado todavía) no cuenta nada.
+   Pólizas de cargo INTERNO (Plato Express y similares, decisión de Victor
+   01-sep-2026): el "cobro" aquí ya no es el precio de venta, es costo + el
+   % de aumento administrativo (ver calcularPoliza(): esInterno hace que
+   precioAnual/montos salgan de costoAnual, no del subtotal de venta). Ese
+   aumento SÍ es ingreso real para Forguard, pero nunca se le va a cobrar
+   a nadie con una OC ni una factura —ya se simplificó "Capturar cobro"
+   para que ni las pida—, así que esperar a que alguien marque la casilla
+   lo dejaría fuera para siempre. En el esquema ideal esto es dinero YA
+   NEGOCIADO desde que la póliza queda 'activa' (precios congelados): se
+   reconoce solo, período a período según su propio calendario de
+   facturación, iguales que se reconoce el costo de abajo — y se lleva
+   APARTE (ingresoInterno / numNegociadas) para que el estado de resultados
+   diga con todas sus letras que es "negociado, no cobrado" y no se
+   confunda con un cobro real ya en la calle. Mientras sigue en
+   'cotizacion'/'enviada' (nada firmado todavía) no cuenta nada.
 
-     El COSTO, para cualquier cargoA, se cuenta cuando se HACE el servicio,
-     no cuando se cobra: son dos calendarios distintos —facturación vs.
-     mantenimiento real— y mezclarlos dejaba meses sin costo (nada cobrado
-     ese mes) al lado de meses con el costo del año completo (cobro anual de
-     golpe). El costo de cada equipo se reconoce en CADA mes de su
-     calendario que caiga dentro del período, multiplicado por su cantidad —
-     es lo que de verdad se gasta ese mes en mantenerlo. Con esto, una
-     póliza interna deja de verse en $0 de margen: ingreso (costo+aumento)
-     menos costo (el mismo costo) da justo el aumento, la utilidad real de
-     cargarlo internamente. */
+   El COSTO, para cualquier cargoA, se cuenta cuando se HACE el servicio,
+   no cuando se cobra: son dos calendarios distintos —facturación vs.
+   mantenimiento real— y mezclarlos dejaba meses sin costo (nada cobrado
+   ese mes) al lado de meses con el costo del año completo (cobro anual de
+   golpe). El costo de cada equipo se reconoce en CADA mes de su
+   calendario que caiga dentro del período, multiplicado por su cantidad —
+   es lo que de verdad se gasta ese mes en mantenerlo. Con esto, una
+   póliza interna deja de verse en $0 de margen: ingreso (costo+aumento)
+   menos costo (el mismo costo) da justo el aumento, la utilidad real de
+   cargarlo internamente. */
+function calcularPolizasEnPeriodo(inicio, fin, sitioId){
+  let ingresoCliente = 0, ingresoInterno = 0, costo = 0;
+  let numCobros = 0, numNegociadas = 0, numServicios = 0;
+  const movimientos = [];
   datos.polizas.forEach(p=>{
     if(sitioId && p.sitioId !== sitioId) return;
     const c = calcularPoliza(p);
@@ -12440,9 +12454,8 @@ function calcularResultados(inicio, fin, sitioId){
         c.montos.forEach((monto, i)=>{
           const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
           if(fecha >= inicio && fecha <= fin){
-            r.ingresoPolizasInterno += monto; r.numPolizasNegociadasNoCobradas++;
-            sumaPorId(porCliente, p.clienteId, 'ingreso', monto);
-            sumaPorId(porSitio, p.sitioId, 'ingreso', monto);
+            ingresoInterno += monto; numNegociadas++;
+            movimientos.push({ clienteId: p.clienteId, sitioId: p.sitioId, ingreso: monto, costo: 0 });
           }
         });
       }
@@ -12451,9 +12464,8 @@ function calcularResultados(inicio, fin, sitioId){
         if(!cobrado) return;
         const fecha = p.facturacion === 'mensual' ? sumarMeses(p.fechaInicio, i) : p.fechaInicio;
         if(fecha >= inicio && fecha <= fin){
-          r.ingresoPolizasCliente += c.montos[i]; r.numCobrosPolizas++;
-          sumaPorId(porCliente, p.clienteId, 'ingreso', c.montos[i]);
-          sumaPorId(porSitio, p.sitioId, 'ingreso', c.montos[i]);
+          ingresoCliente += c.montos[i]; numCobros++;
+          movimientos.push({ clienteId: p.clienteId, sitioId: p.sitioId, ingreso: c.montos[i], costo: 0 });
         }
       });
     }
@@ -12463,68 +12475,134 @@ function calcularResultados(inicio, fin, sitioId){
       x.mesesServicio.forEach(m=>{
         const fecha = sumarMeses(p.fechaInicio, m);
         if(fecha >= inicio && fecha <= fin){
-          r.costoPolizas += costoServicio; r.numServiciosPolizas++;
-          sumaPorId(porCliente, p.clienteId, 'costo', costoServicio);
-          sumaPorId(porSitio, p.sitioId, 'costo', costoServicio);
+          costo += costoServicio; numServicios++;
+          movimientos.push({ clienteId: p.clienteId, sitioId: p.sitioId, ingreso: 0, costo: costoServicio });
         }
       });
     });
   });
-  /* El total de la fuente sigue siendo UNA sola cifra para las gráficas y los
-     KPI —cobrado de cliente + negociado interno—; la diferencia entre los
-     dos vive en las dos líneas separadas del desglose (ver vistaResultados). */
-  r.ingresoPolizas = r.ingresoPolizasCliente + r.ingresoPolizasInterno;
+  return { ingresoCliente, ingresoInterno, costo, numCobros, numNegociadas, numServicios, movimientos };
+}
 
-  /* Cotizaciones: la fecha de la cotización, no la de sus pagos — el módulo
-     no lleva cobranza propia, a diferencia de Forpass y pólizas.
+/* Cotizaciones: la fecha de la cotización, no la de sus pagos — el módulo
+   no lleva cobranza propia, a diferencia de Forpass y pólizas.
 
-     Cuenta como ingreso "aprobada" (una cotización normal, de toda la vida)
-     o cualquier etapa del pipeline de 13 pasos desde que el servicio ya se
-     REALIZÓ en adelante (decisión de Victor, 28-ago-2026, al fusionar el
-     tablero de Servicios Extras con este módulo): no hace falta esperar a
-     que se facture, basta con que el trabajo ya se hizo — lo cotizado,
-     compartido o pendiente de liberación todavía puede cancelarse o
-     expirar, así que eso no cuenta. Ver ESTATUS_COTIZACION_INGRESO.
+   Cuenta como ingreso "aprobada" (una cotización normal, de toda la vida)
+   o cualquier etapa del pipeline de 13 pasos desde que el servicio ya se
+   REALIZÓ en adelante (decisión de Victor, 28-ago-2026, al fusionar el
+   tablero de Servicios Extras con este módulo): no hace falta esperar a
+   que se facture, basta con que el trabajo ya se hizo — lo cotizado,
+   compartido o pendiente de liberación todavía puede cancelarse o
+   expirar, así que eso no cuenta. Ver ESTATUS_COTIZACION_INGRESO.
 
-     El costo interno solo se suma si la cotización TRAE uno capturado: las
-     del tablero llegan con costo $0 (el origen no lo trae), así que no se
-     les inventa un margen — mismo criterio que ya tiene Forpass. */
+   El costo interno solo se suma si la cotización TRAE uno capturado: las
+   del tablero llegan con costo $0 (el origen no lo trae), así que no se
+   les inventa un margen — mismo criterio que ya tiene Forpass. */
+function calcularCotizacionesEnPeriodo(inicio, fin, sitioId){
+  let ingreso = 0, costo = 0, num = 0;
+  const movimientos = [];
   datos.cotizaciones.forEach(q=>{
     if(sitioId && q.sitioId !== sitioId) return;
     if(!ESTATUS_COTIZACION_INGRESO.includes(q.estatus)) return;
     if(!(q.fecha >= inicio && q.fecha <= fin)) return;
     const c = calcularCotizacion(q);
-    r.ingresoCotizaciones += c.totalCliente;
-    r.costoCotizaciones += c.totalCosto;
-    r.numCotizaciones++;
-    sumaPorId(porCliente, q.clienteId, 'ingreso', c.totalCliente);
-    sumaPorId(porCliente, q.clienteId, 'costo', c.totalCosto);
-    sumaPorId(porSitio, q.sitioId, 'ingreso', c.totalCliente);
-    sumaPorId(porSitio, q.sitioId, 'costo', c.totalCosto);
+    ingreso += c.totalCliente; costo += c.totalCosto; num++;
+    movimientos.push({ clienteId: q.clienteId, sitioId: q.sitioId, ingreso: c.totalCliente, costo: c.totalCosto });
   });
+  return { ingreso, costo, num, movimientos };
+}
 
-  r.ingresoTotal = r.ingresoForpass + r.ingresoPolizas + r.ingresoCotizaciones;
-  r.costoTotal = r.costoCotizaciones + r.costoPolizas;
-  r.utilidadBruta = r.ingresoTotal - r.costoTotal;
-  r.margenPct = r.ingresoTotal ? (r.utilidadBruta / r.ingresoTotal * 100) : 0;
-
-  /* Imagen/Aperturas (remodelaciones, aperturas, cambio de imagen): SÍ es un
-     gasto para efectos del estado de resultados, pero Victor pidió (28-ago-
-     2026) que viva en un RUBRO APARTE, puramente informativo — por eso no
-     entra a r.costoTotal ni mueve r.utilidadBruta arriba. Un proyecto
-     cancelado no cuenta: no se invirtió nada de verdad. Se separa además en
-     materiales vs. mano de obra (ver esConceptoManoDeObra). */
-  r.imagenMateriales = 0; r.imagenManoObra = 0; r.numProyectosImagen = 0;
+/* Imagen/Aperturas (remodelaciones, aperturas, cambio de imagen): SÍ es un
+   gasto para efectos del estado de resultados, pero Victor pidió (28-ago-
+   2026) que viva en un RUBRO APARTE, puramente informativo en ESTA vista
+   —por eso no devuelve `movimientos` y calcularResultados() no lo suma a
+   costoTotal/utilidadBruta ni a los rankings de cliente/sitio de abajo. (La
+   vista "Por pilares" SÍ lo cuenta como costo/ingreso real — ver
+   calcularResultadosPorPilar() y proyectosImagenIngresoPorTipo(), más
+   abajo — son dos lecturas distintas de los mismos proyectos, a propósito.)
+   Un proyecto cancelado no cuenta: no se invirtió nada de verdad. Se separa
+   además en materiales vs. mano de obra (ver esConceptoManoDeObra). */
+function calcularImagenInformativoEnPeriodo(inicio, fin, sitioId){
+  let materiales = 0, manoObra = 0, num = 0;
   datos.proyectosImagen.forEach(p=>{
     if(sitioId && p.sitioId !== sitioId) return;
     if(p.estatus === 'cancelado') return;
     if(!(p.fecha >= inicio && p.fecha <= fin)) return;
     const d = desgloseConceptosProyecto(p);
-    r.imagenMateriales += d.materiales;
-    r.imagenManoObra += d.manoObra;
-    r.numProyectosImagen++;
+    materiales += d.materiales; manoObra += d.manoObra; num++;
   });
-  r.imagenTotal = r.imagenMateriales + r.imagenManoObra;
+  return { materiales, manoObra, num };
+}
+
+/* Técnicos: a diferencia de clientes/sitios, ningún reporte trae ingreso ni
+   costo capturado (es bitácora de campo, no un documento de precios — ver
+   normalizarReporte), así que aquí no hay utilidad que repartir. Lo único
+   medible es carga de trabajo: cuántos reportes resolvió cada quien dentro
+   del período, contado por su fecha de CIERRE (no de creación: un reporte
+   abierto en enero y cerrado en marzo cuenta para marzo, que es cuando el
+   técnico de verdad hizo el trabajo). */
+function calcularRankingTecnicosEnPeriodo(inicio, fin, sitioId){
+  const porTecnico = new Map();
+  datos.reportes.forEach(rep=>{
+    if(sitioId && rep.sitioId !== sitioId) return;
+    if(!['resuelto','cerrado'].includes(rep.estatus)) return;
+    if(!(rep.fechaCierre && rep.fechaCierre >= inicio && rep.fechaCierre <= fin)) return;
+    rep.tecnicos.forEach(t=>{
+      if(!t.nombre) return;
+      porTecnico.set(t.nombre, (porTecnico.get(t.nombre) || 0) + 1);
+    });
+  });
+  return Array.from(porTecnico.entries())
+    .map(([nombre, resueltos])=> ({ nombre, resueltos }))
+    .sort((a,b)=> b.resueltos - a.resueltos);
+}
+
+/* `sitioId` (opcional): acota TODO el cálculo a un solo sitio —Forpass,
+   pólizas, cotizaciones, Imagen/Aperturas y hasta el ranking de técnicos—,
+   para poder ver el dashboard completo de Resultados "como si" solo
+   existiera ese sitio. Cada función de fuente de arriba ya trae su propio
+   filtro; aquí nada más se les pasa el mismo sitioId a las cinco. */
+function calcularResultados(inicio, fin, sitioId){
+  const forpass = calcularForpassEnPeriodo(inicio, fin, sitioId);
+  const polizas = calcularPolizasEnPeriodo(inicio, fin, sitioId);
+  const cotizaciones = calcularCotizacionesEnPeriodo(inicio, fin, sitioId);
+  const imagen = calcularImagenInformativoEnPeriodo(inicio, fin, sitioId);
+
+  /* Comparativas (ver vistaResultados, vista "tabla"): mismo período, mismo
+     cruce de fuentes, nada más agrupado por cliente/sitio en vez de sumado
+     en un solo total. Imagen/Aperturas no participa a propósito (ver su
+     comentario arriba); Técnicos no tiene con qué cruzar dinero (ver
+     calcularRankingTecnicosEnPeriodo) — es conteo de reportes resueltos. */
+  const porCliente = new Map(), porSitio = new Map();
+  const acumularMovimiento = m=>{
+    sumaPorId(porCliente, m.clienteId, 'ingreso', m.ingreso);
+    sumaPorId(porCliente, m.clienteId, 'costo', m.costo);
+    sumaPorId(porSitio, m.sitioId, 'ingreso', m.ingreso);
+    sumaPorId(porSitio, m.sitioId, 'costo', m.costo);
+  };
+  forpass.movimientos.forEach(acumularMovimiento);
+  polizas.movimientos.forEach(acumularMovimiento);
+  cotizaciones.movimientos.forEach(acumularMovimiento);
+
+  const r = {
+    ingresoForpass: forpass.total, numPagosForpass: forpass.num,
+    ingresoPolizasCliente: polizas.ingresoCliente, ingresoPolizasInterno: polizas.ingresoInterno,
+    /* El total de la fuente sigue siendo UNA sola cifra para las gráficas y
+       los KPI —cobrado de cliente + negociado interno—; la diferencia entre
+       los dos vive en las dos líneas separadas del desglose (ver
+       vistaResultados). */
+    ingresoPolizas: polizas.ingresoCliente + polizas.ingresoInterno,
+    costoPolizas: polizas.costo, numCobrosPolizas: polizas.numCobros,
+    numPolizasNegociadasNoCobradas: polizas.numNegociadas, numServiciosPolizas: polizas.numServicios,
+    ingresoCotizaciones: cotizaciones.ingreso, costoCotizaciones: cotizaciones.costo, numCotizaciones: cotizaciones.num,
+    imagenMateriales: imagen.materiales, imagenManoObra: imagen.manoObra,
+    imagenTotal: imagen.materiales + imagen.manoObra, numProyectosImagen: imagen.num
+  };
+
+  r.ingresoTotal = r.ingresoForpass + r.ingresoPolizas + r.ingresoCotizaciones;
+  r.costoTotal = r.costoCotizaciones + r.costoPolizas;
+  r.utilidadBruta = r.ingresoTotal - r.costoTotal;
+  r.margenPct = r.ingresoTotal ? (r.utilidadBruta / r.ingresoTotal * 100) : 0;
 
   /* Rankings para la vista "tabla" de Resultados: mismos totales de arriba,
      nada más agrupados. Ordenados de mayor a menor utilidad para que lo
@@ -12542,26 +12620,7 @@ function calcularResultados(inicio, fin, sitioId){
              ingreso: v.ingreso, costo: v.costo, utilidad: v.ingreso - v.costo };
   }).sort((a,b)=> b.utilidad - a.utilidad);
 
-  /* Técnicos: a diferencia de clientes/sitios, ningún reporte trae ingreso ni
-     costo capturado (es bitácora de campo, no un documento de precios — ver
-     normalizarReporte), así que aquí no hay utilidad que repartir. Lo único
-     medible es carga de trabajo: cuántos reportes resolvió cada quien dentro
-     del período, contado por su fecha de CIERRE (no de creación: un reporte
-     abierto en enero y cerrado en marzo cuenta para marzo, que es cuando el
-     técnico de verdad hizo el trabajo). */
-  const porTecnico = new Map();
-  datos.reportes.forEach(rep=>{
-    if(sitioId && rep.sitioId !== sitioId) return;
-    if(!['resuelto','cerrado'].includes(rep.estatus)) return;
-    if(!(rep.fechaCierre && rep.fechaCierre >= inicio && rep.fechaCierre <= fin)) return;
-    rep.tecnicos.forEach(t=>{
-      if(!t.nombre) return;
-      porTecnico.set(t.nombre, (porTecnico.get(t.nombre) || 0) + 1);
-    });
-  });
-  r.rankingTecnicos = Array.from(porTecnico.entries())
-    .map(([nombre, resueltos])=> ({ nombre, resueltos }))
-    .sort((a,b)=> b.resueltos - a.resueltos);
+  r.rankingTecnicos = calcularRankingTecnicosEnPeriodo(inicio, fin, sitioId);
 
   return r;
 }
