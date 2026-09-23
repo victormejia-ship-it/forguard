@@ -78,7 +78,7 @@ node test_veredicto_sync_incremental.js
 | `test_seguridad_inactividad.js` | El cierre automático de sesión a las 8h de inactividad — al arrancar con una sesión guardada vieja, y con la pestaña abierta y dejada quieta |
 | `test_seguridad_mfa.js` | MFA (TOTP) para Owner/Admin: login con segundo factor, activar/desactivar desde "Mi cuenta"; que por defecto NO sea obligatorio (`mfaHabilitado()`, pausado 23-sep-2026 a pedido de Victor); y que el recordatorio/bloqueo obligatorio sigan funcionando cuando se reactive |
 | `test_documentos_hoja_cierre.js` | Cotizaciones, Levantamientos y Pólizas cierran con la hoja de solo-logo (y ya no imprimen una hoja en blanco de más); Órdenes de Compra NO la lleva (a propósito, pedido de Victor); Levantamientos y Pólizas abren con la portada azul |
-| `test_pendientes_personales.js` | "Mis pendientes": la franja junto a la campanita de notificaciones donde cada cuenta captura, marca como hecho y borra sus propios recordatorios de texto libre, con fecha de creación/entrega informativas y separados en "Pendientes"/"Realizadas" acomodados por fecha de entrega |
+| `test_pendientes_personales.js` | "Mis pendientes": la franja junto a la campanita de notificaciones donde cada cuenta captura, marca como hecho y borra sus propios recordatorios de texto libre, con fecha de creación/entrega informativas (etiqueta visible, no solo tooltip) y separados en "Pendientes"/"Realizadas" acomodados por fecha de entrega; y que el tema de Ayuda 'mi-cuenta' exista y la documente |
 
 ## Lo que falta (siguiente paso, no de esta sesión)
 

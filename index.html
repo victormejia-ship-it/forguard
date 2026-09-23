@@ -1217,9 +1217,14 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .pend-nuevo input{min-width:0; font:inherit; font-size:12.5px; padding:7px 9px;
   border:1px solid var(--line); border-radius:8px; color:var(--ink);}
 .pend-nuevo input:focus{outline:none; border-color:var(--accent);}
-.pend-nuevo-fila2{display:flex; gap:8px;}
-.pend-nuevo-fila2 input{flex:1;}
-.pend-nuevo-fila2 input[type=date]{color:var(--gray);}
+.pend-nuevo-fila2{display:flex; gap:8px; align-items:flex-end;}
+/* Un <input type=date> solo, sin más contexto, se presta a confundirlo con
+   la fecha en que se creó el pendiente — de ahí la etiqueta visible encima
+   (pedido de Victor, 23-sep-2026: "establece que es la fecha de entrega,
+   para no confundir"), no solo el title= (que es un tooltip, fácil de no ver). */
+.pend-fecha-etiqueta{flex:1; min-width:0; display:flex; flex-direction:column; gap:3px;
+  font-size:10px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:var(--gray);}
+.pend-fecha-etiqueta input{width:100%; color:var(--ink);}
 .pend-nuevo button{white-space:nowrap; flex-shrink:0;}
 /* Encabezado "Pendientes (N)" / "Realizadas (N)": el pedido de Victor de
    23-sep-2026 de separar el listado en dos grupos, cada uno acomodado por
@@ -12524,6 +12529,30 @@ const TEMAS_AYUDA = [
         + guiaRoles('Esta introducción aplica a todos los roles.');
     } },
 
+  { id:'mi-cuenta', titulo:'Mi cuenta, notificaciones y pendientes',
+    resumen:'Lo que vive en el encabezado, junto a tu nombre: tu perfil, la campanita de avisos, tu libreta de pendientes y la verificación en dos pasos.',
+    contenido:
+      guiaSeccion('Lo básico', guiaPasos([
+        '<b>Mi cuenta</b> (icono junto a tu nombre): ve tu correo y tu permiso, cambia tu nombre/teléfono/foto, y cambia tu contraseña cuando quieras.',
+        'La <b>campanita de notificaciones</b> es tu buzón por cuenta: asignaciones de reportes, resueltos y comentarios nuevos. El número rojo cuenta los que no has visto; haz clic en un aviso para marcarlo como leído y saltar directo a su reporte, o usa "Marcar todas leídas".',
+        '<b>Mis pendientes</b> (icono junto a la campanita) es tu propia libreta de recordatorios de texto libre — nada que ver con Visitas ni con ningún módulo de trabajo, es para cualquier cosa suelta que quieras anotar. Escribe el texto, opcionalmente ponle una <b>fecha de entrega</b>, y da "Agregar".',
+        'Marca un pendiente como hecho con su casilla (se tacha y se mueve a "Realizadas"), o bórralo con la "×" cuando ya no aplique.'
+      ]))
+      + guiaSeccion('Uso intermedio', guiaPasos([
+        'El listado de pendientes se separa en dos grupos, <b>Pendientes</b> y <b>Realizadas</b>, cada uno acomodado por fecha de entrega (el más próximo a entregar arriba; los que no tienen fecha capturada quedan al final de su grupo).',
+        'Debajo del texto de cada pendiente se ve "Creado: [fecha] · Entrega: [fecha]" — son datos informativos nada más, no mandan ningún aviso ni marcan nada como atrasado.',
+        'Por seguridad, la sesión se cierra sola tras <b>8 horas sin actividad</b> (sin clics, teclas ni toques) — no afecta nada de lo que ya guardaste, solo te pide volver a entrar.',
+        'Owner y Admin pueden activar <b>verificación en dos pasos</b> (MFA) desde "Mi cuenta": se escanea un código QR con una app autenticadora (Google Authenticator o similar) y de ahí en adelante el login pide, además de la contraseña, el código de 6 dígitos de esa app.'
+      ]))
+      + guiaSeccion('Funciones avanzadas', ''
+        + guiaTip('Qué tan privado es cada cosa', [
+            'Tus pendientes son SOLO tuyos: nadie más los ve, ni siquiera Admin — es tu libreta personal, no un tablero de equipo.',
+            'Las notificaciones también son por cuenta: cada quien ve únicamente las suyas.'
+          ])
+        + guiaTip('Estado actual de la verificación en dos pasos (MFA)', [
+            'Por ahora es OPCIONAL para todos, incluido Owner/Admin — no se exige ni aparece ningún aviso obligándola. Se puede volver a hacer obligatoria para Owner/Admin, con periodo de gracia, cuando se decida.'
+          ])) },
+
   { id:'resultados', titulo:'Resultados',
     resumen:'El tablero financiero: qué se ha facturado, qué falta y de dónde viene cada peso — sin capturar nada aquí.',
     contenido:
@@ -22327,7 +22356,7 @@ function pintarPendientes(){
     + '<form id="formNuevoPendiente" class="pend-nuevo">'
     +   '<input type="text" id="pendTexto" placeholder="Escribe un pendiente…" maxlength="200" autocomplete="off">'
     +   '<div class="pend-nuevo-fila2">'
-    +     '<input type="date" id="pendFechaEntrega" title="Fecha de entrega (opcional)">'
+    +     '<label class="pend-fecha-etiqueta">Fecha de entrega<input type="date" id="pendFechaEntrega" title="Fecha de entrega (opcional)"></label>'
     +     '<button type="submit" class="btn btn-mini btn-primario">Agregar</button>'
     +   '</div>'
     + '</form>'

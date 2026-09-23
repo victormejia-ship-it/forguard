@@ -12,7 +12,15 @@
    y una fecha de entrega informativa (no disparan ningún aviso, solo se
    muestran y ordenan el listado), y el panel separa "Pendientes" de
    "Realizadas" en dos grupos, cada uno acomodado por fecha de entrega
-   (ver ordenarPendientes()).
+   (ver ordenarPendientes()). El campo de fecha trae una etiqueta VISIBLE
+   ("Fecha de entrega"), no solo un title=, para no confundirla con la
+   fecha en que se creó el pendiente (pedido explícito de Victor).
+
+   También se agregó el tema 'mi-cuenta' en el módulo de Ayuda —pedido de
+   Victor: "cada aplicación, movimiento o creación, añadirlo en el módulo
+   de ayudas"— cubriendo Mi cuenta, notificaciones, Mis pendientes, MFA y
+   el cierre de sesión por inactividad, todas funciones que se agregaron
+   esta sesión y hasta ahora no tenían guía.
 
    Firestore de mentiras (mismo criterio que test_veredicto_conflicto_edicion.js
    y test_seguridad_mfa.js): se sobreescribe window.pedirNube en vez de hablar
@@ -126,6 +134,16 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Se muestra cuándo se creó y su fecha de entrega, como dato informativo', /Creado: 20 sep 2026/.test(conPanelAbierto.fechasDeP1) && /Entrega: 28 sep 2026/.test(conPanelAbierto.fechasDeP1));
   chkF('Un pendiente sin fecha de entrega solo muestra "Creado", sin "Entrega"', /Creado: 21 sep 2026/.test(conPanelAbierto.fechasDeP4) && !/Entrega/.test(conPanelAbierto.fechasDeP4));
 
+  // El <input type=date> del formulario trae una etiqueta VISIBLE (no solo un
+  // title=, que es un tooltip fácil de no ver) para no confundirlo con la
+  // fecha en que se creó el pendiente — pedido explícito de Victor.
+  const etiquetaFechaVisible = await page.evaluate(() => {
+    const etiqueta = document.querySelector('.pend-fecha-etiqueta');
+    return !!etiqueta && etiqueta.textContent.trim().startsWith('Fecha de entrega')
+      && etiqueta.querySelector('#pendFechaEntrega') !== null;
+  });
+  chkF('El campo de fecha del formulario trae la etiqueta visible "Fecha de entrega"', etiquetaFechaVisible);
+
   // Clic fuera de la franja: se cierra sola, como cualquier menú desplegable.
   await page.mouse.click(10, 10);
   await page.waitForTimeout(120);
@@ -178,6 +196,19 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('El pendiente borrado desaparece de la lista', trasBorrar.total === 4 && trasBorrar.siguePresente === false);
   const seBorroEnServidor = await page.evaluate(() => window._borrados.some(r => r.indexOf('/pendientes/p2') === 0));
   chkF('Se manda a borrar el documento correcto en el servidor', seBorroEnServidor);
+
+  // --------- 7) La función queda documentada en el módulo de Ayuda ---------
+  // Pedido de Victor: "cada aplicación, movimiento o creación, añadirlo en
+  // el módulo de ayudas" — se agregó el tema 'mi-cuenta' cubriendo Mi
+  // cuenta, notificaciones, Mis pendientes, MFA y el cierre por inactividad.
+  const ayuda = await page.evaluate(() => {
+    const tema = typeof temaAyudaPorId === 'function' ? temaAyudaPorId('mi-cuenta') : null;
+    const contenido = tema ? (typeof tema.contenido === 'function' ? tema.contenido() : tema.contenido) : '';
+    return { existe: !!tema, mencionaPendientes: contenido.includes('Mis pendientes'), mencionaMfa: /verificaci.n en dos pasos/i.test(contenido) };
+  });
+  chkF('Existe un tema de Ayuda para esta pantalla del encabezado', ayuda.existe);
+  chkF('...y menciona "Mis pendientes"', ayuda.mencionaPendientes);
+  chkF('...y menciona la verificación en dos pasos (MFA)', ayuda.mencionaMfa);
 
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 
