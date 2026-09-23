@@ -7762,30 +7762,61 @@ function extraerCotizacionesTableroXlsx(hoja){
   return { filas, noReconocidos };
 }
 
-/* Llave para no duplicar si el mismo Excel se vuelve a importar: el tablero
-   real trae folios de soporte repetidos A PROPÓSITO (varias líneas bajo el
-   mismo folio) y casi 1 de cada 10 renglones ni folio trae — comparar solo
-   por folio dejaría pasar duplicados o se comería renglones legítimos. Se
-   compara por lo que SIEMPRE identifica a un renglón —nombre, sitio, fecha
-   de alta y subtotal— y, cuando el Excel SÍ trae un folio real, también por
-   ese folio. Un folio con pinta de autogenerado (patrón "SERV-ddmmaa-NN", ver
-   generarFolioCotizacion) NO cuenta para la llave: si contara, un renglón
-   sin folio propio nunca volvería a coincidir consigo mismo en una
-   reimportación, porque cada corrida le generaría uno distinto. */
-function llaveCotizacionImportadaXlsx(cot){
+/* Llave de IDENTIDAD de un renglón (a propósito SIN subtotal ni etapa —
+   pedido de Victor, 23-sep-2026: "corregir cotizaciones que ya existen, y
+   cargar nuevas que no existen" — antes esto solo servía para no duplicar
+   un mismo Excel reimportado sin cambios; el subtotal formaba parte de la
+   llave, así que un renglón con el monto corregido se importaba de nuevo
+   como si fuera otro servicio, en vez de corregir el que ya existía).
+
+   Nombre + sitio + fecha de alta es lo único que se usa, sin folio: el
+   tablero real trae folios de soporte repetidos A PROPÓSITO (varias líneas
+   bajo el mismo folio), así que no sirve para diferenciar renglones, y
+   ~1 de cada 10 ni folio trae. Riesgo aceptado a propósito (Victor,
+   23-sep-2026): dos servicios de veras distintos, el mismo día, en el
+   mismo sitio, con el nombre IDÉNTICO, se tratarían como el mismo
+   registro. */
+function llaveIdentidadCotizacionXlsx(cot){
   const s = sitioPorId(cot.sitioId);
-  const folioReal = /^SERV-\d{6}-\d+$/.test(cot.folio || '') ? '' : normalizarTextoEncabezadoXlsx(cot.folio);
   const concepto = (cot.partidas[0] && cot.partidas[0].concepto) || '';
-  const precio = (cot.partidas[0] && cot.partidas[0].precioClienteManual) || 0;
-  return normalizarTextoEncabezadoXlsx(concepto) + '|' + normalizarTextoEncabezadoXlsx(s ? s.nombre : '') + '|' + cot.fecha + '|' + precio + '|' + folioReal;
+  return normalizarTextoEncabezadoXlsx(concepto) + '|' + normalizarTextoEncabezadoXlsx(s ? s.nombre : '') + '|' + cot.fecha;
+}
+/* Campos que SÍ se corrigen cuando un renglón del Excel ya existe (decisión
+   de Victor: "todo lo que traiga el Excel" manda, cada vez que se
+   reimporta) — nombre/sitio/fecha quedan fuera porque son la llave de
+   arriba, por definición ya son iguales en un match. El subtotal se
+   compara y corrige aparte (vive en partidas[0], no es un campo plano). */
+const CAMPOS_ACTUALIZABLES_COTIZACION_XLSX = ['folio','realizo','estatus','proveedor','fechaLiberacion','fechaProgramadaInicio','fechaProgramadaFin','fechaRealizado','notas'];
+function camposDistintosCotizacionXlsx(existente, candidato){
+  const cambios = CAMPOS_ACTUALIZABLES_COTIZACION_XLSX.filter(c => (existente[c] || '') !== (candidato[c] || ''));
+  const subtotalExistente = (existente.partidas[0] && existente.partidas[0].precioClienteManual) || 0;
+  const subtotalCandidato = (candidato.partidas[0] && candidato.partidas[0].precioClienteManual) || 0;
+  if(subtotalExistente !== subtotalCandidato) cambios.push('subtotal');
+  return cambios;
+}
+/* Solo toca precioClienteManual de la primera partida — nunca reemplaza el
+   arreglo `partidas` completo — para no borrar una segunda partida que
+   alguien haya agregado a mano desde el modal de Cotización después de
+   importar esta. */
+function aplicarActualizacionCotizacionXlsx(existente, candidato){
+  CAMPOS_ACTUALIZABLES_COTIZACION_XLSX.forEach(c => { existente[c] = candidato[c]; });
+  if(existente.partidas[0]) existente.partidas[0].precioClienteManual = (candidato.partidas[0] && candidato.partidas[0].precioClienteManual) || 0;
 }
 
 /* Punto de entrada: a diferencia de una cotización capturada a mano (una a
    la vez, en un modal), aquí son miles de renglones de golpe — no hay modal
    que los pinte uno por uno con sentido. Se resume por etapa, se confirma, y
-   se importa directo a datos.cotizaciones; la sincronización con la nube
-   queda en la cola de siempre (ver encolar/vaciarCola), en lotes chicos para
-   no congelar la pestaña con miles de renglones de golpe. */
+   se importa/corrige directo en datos.cotizaciones; la sincronización con la
+   nube queda en la cola de siempre (ver encolar/vaciarCola), en lotes chicos
+   para no congelar la pestaña con miles de renglones de golpe.
+
+   Pedido de Victor (23-sep-2026): "corregir cotizaciones que ya existen, y
+   cargar nuevas que no existen". Cada renglón del Excel se busca por su
+   llaveIdentidadCotizacionXlsx() contra lo ya capturado: si no hay
+   coincidencia, se agrega como nueva; si la hay pero algo cambió (etapa,
+   fechas, proveedor, subtotal, comentarios…), se corrige esa misma
+   cotización con lo que trae el Excel; si es idéntico, se deja tal cual
+   (no cuenta ni como nuevo ni como corregido). */
 async function importarCotizacionesDesdeExcel(archivo){
   if(!exigirPermiso()) return;
   let hojas;
@@ -7806,7 +7837,7 @@ async function importarCotizacionesDesdeExcel(archivo){
   }
 
   const cacheSitios = new Map();
-  const nuevasCotizaciones = extraido.filas.map(f=>{
+  const candidatos = extraido.filas.map(f=>{
     const { sitioId, clienteId } = vincularOCrearSitioCotizacionXlsx(f.comedor, cacheSitios);
     return normalizarCotizacion({
       folio: f.folioSoporte,
@@ -7825,19 +7856,32 @@ async function importarCotizacionesDesdeExcel(archivo){
     });
   });
 
-  const yaExistentes = new Set(datos.cotizaciones.map(llaveCotizacionImportadaXlsx));
+  /* Índice de lo ya capturado, por llave de identidad. Se completa también
+     con cada candidato nuevo que se va aceptando, para que dos renglones
+     iguales dentro del MISMO archivo no se dupliquen entre sí (el segundo
+     encuentra al primero, ya sea como "actualizado" sin cambios de verdad,
+     o de plano corrigiéndolo si el archivo trae valores distintos entre
+     ambas apariciones — gana el último renglón del archivo). */
+  const indice = new Map();
+  datos.cotizaciones.forEach(cot => indice.set(llaveIdentidadCotizacionXlsx(cot), cot));
+
   const nuevos = [];
-  let repetidos = 0;
-  nuevasCotizaciones.forEach(cot=>{
-    const llave = llaveCotizacionImportadaXlsx(cot);
-    if(yaExistentes.has(llave)){ repetidos++; return; }
-    yaExistentes.add(llave);
-    nuevos.push(cot);
+  const actualizados = [];
+  candidatos.forEach(cot=>{
+    const llave = llaveIdentidadCotizacionXlsx(cot);
+    const existente = indice.get(llave);
+    if(!existente){
+      indice.set(llave, cot);
+      nuevos.push(cot);
+      return;
+    }
+    const cambios = camposDistintosCotizacionXlsx(existente, cot);
+    if(cambios.length) actualizados.push({ existente, cot });
   });
 
-  if(!nuevos.length){
+  if(!nuevos.length && !actualizados.length){
     aviso('Los ' + numero(extraido.filas.length) + ' ' + plural(extraido.filas.length,'servicio','servicios')
-      + ' de este archivo ya estaban importados (se detectaron por concepto, sitio, fecha y subtotal iguales).', true);
+      + ' de este archivo ya estaban capturados tal cual (mismo concepto, sitio, fecha, etapa, fechas, proveedor, comentarios y subtotal).', true);
     return;
   }
 
@@ -7847,34 +7891,42 @@ async function importarCotizacionesDesdeExcel(archivo){
     .map(e => esc(ETIQUETA_ETAPA_TABLERO_COTIZACION[e]) + ': ' + numero(porEtapa[e]))
     .join('<br>');
   const sinSubtotal = nuevos.filter(cot => !cot.partidas[0].precioClienteManual).length;
+  const sinCambios = extraido.filas.length - nuevos.length - actualizados.length;
 
-  confirmar('Importar ' + numero(nuevos.length) + ' ' + plural(nuevos.length,'servicio','servicios') + ' a Cotizaciones',
-    resumenEtapas + '<br><br>'
+  confirmar('Importar y corregir cotizaciones',
+    (nuevos.length ? '<b>' + numero(nuevos.length) + '</b> ' + plural(nuevos.length,'servicio nuevo','servicios nuevos') + ':<br>' + resumenEtapas + '<br><br>' : '')
+    + (actualizados.length ? '<b>' + numero(actualizados.length) + '</b> ' + plural(actualizados.length,'cotización ya capturada se corrige','cotizaciones ya capturadas se corrigen')
+        + ' con lo que trae el Excel (etapa, fechas, proveedor, comentarios y/o subtotal).<br><br>' : '')
+    + (sinCambios ? numero(sinCambios) + ' ' + plural(sinCambios,'servicio','servicios') + ' ya ' + plural(sinCambios,'estaba','estaban')
+        + ' capturado igual, sin cambios — se ' + plural(sinCambios,'deja','dejan') + ' tal cual.<br>' : '')
     + (extraido.noReconocidos ? numero(extraido.noReconocidos) + ' ' + plural(extraido.noReconocidos,'renglón quedó fuera','renglones quedaron fuera')
         + ' por venir en una sección que no es ninguna de las 13 etapas.<br>' : '')
-    + (repetidos ? numero(repetidos) + ' ya ' + plural(repetidos,'estaba importado','estaban importados') + ' y se ' + plural(repetidos,'omite','omiten') + '.<br>' : '')
-    + (sinSubtotal ? '<b>' + numero(sinSubtotal) + '</b> ' + plural(sinSubtotal,'servicio','servicios') + ' no ' + plural(sinSubtotal,'trae','traen')
+    + (sinSubtotal ? '<b>' + numero(sinSubtotal) + '</b> ' + plural(sinSubtotal,'servicio nuevo','servicios nuevos') + ' no ' + plural(sinSubtotal,'trae','traen')
         + ' monto capturado en el Excel — ' + plural(sinSubtotal,'queda','quedan') + ' en $0, revísa' + plural(sinSubtotal,'lo','los') + ' después.<br>' : '')
     + 'Los "Comedor" que no coincidan con un sitio ya dado de alta se crean como cliente y sitio nuevos, tal cual vienen '
     + 'escritos en el Excel; variantes de un mismo cliente escritas distinto (p. ej. "NAVISTAR" y "Navistar") NO se combinan solas.',
-    'Sí, importar', ()=>{
+    'Sí, aplicar', ()=>{
       nuevos.forEach(cot => datos.cotizaciones.push(cot));
+      actualizados.forEach(({ existente, cot }) => aplicarActualizacionCotizacionXlsx(existente, cot));
       guardarLocal();
-      anotar('importó', 'cotizaciones', numero(nuevos.length) + ' desde ' + archivo.name);
+      anotar('importó', 'cotizaciones', numero(nuevos.length) + ' nuevas y ' + numero(actualizados.length) + ' corregidas desde ' + archivo.name);
       estado.vista = 'cotizaciones';
       render();
-      aviso('Se importaron ' + numero(nuevos.length) + ' ' + plural(nuevos.length,'servicio','servicios')
-        + (repetidos ? ' (' + numero(repetidos) + ' ya ' + plural(repetidos,'existía','existían') + ' y se ' + plural(repetidos,'omitió','omitieron') + ')' : '')
-        + '. Subiéndolos a la nube en segundo plano; con esta cantidad puede tardar varios minutos — no hace falta esperar en esta pantalla.');
+      aviso((nuevos.length ? 'Se importaron ' + numero(nuevos.length) + ' ' + plural(nuevos.length,'servicio nuevo','servicios nuevos') + '. ' : '')
+        + (actualizados.length ? 'Se corrigieron ' + numero(actualizados.length) + ' ' + plural(actualizados.length,'cotización','cotizaciones') + ' ya capturadas. ' : '')
+        + 'Subiéndolo a la nube en segundo plano; con esta cantidad puede tardar varios minutos — no hace falta esperar en esta pantalla.');
       /* encolar() en un solo forEach síncrono, con miles de renglones, congela
          la pestaña varios segundos de golpe (cada llamada reescribe la cola
          completa en localStorage). Se manda en lotes chicos, cediendo el
          hilo entre uno y otro (setTimeout 0), para que la pantalla siga
          respondiendo mientras se encola todo. También se suben los
-         clientes/sitios nuevos que se hayan creado en el camino. */
+         clientes/sitios nuevos que se hayan creado en el camino (los de las
+         cotizaciones corregidas ya existían de antes, no hace falta
+         volver a subirlos). */
       (async ()=>{
         const clientesNuevos = Array.from(new Set(nuevos.map(cot => cot.clienteId))).map(clientePorId).filter(Boolean);
         const sitiosNuevos = Array.from(new Set(nuevos.map(cot => cot.sitioId))).map(sitioPorId).filter(Boolean);
+        const paraSubir = nuevos.concat(actualizados.map(a => a.existente));
         const LOTE = 150;
         for(let i = 0; i < clientesNuevos.length; i += LOTE){
           clientesNuevos.slice(i, i + LOTE).forEach(c => {
@@ -7890,8 +7942,8 @@ async function importarCotizacionesDesdeExcel(archivo){
           });
           await new Promise(res => setTimeout(res, 0));
         }
-        for(let i = 0; i < nuevos.length; i += LOTE){
-          nuevos.slice(i, i + LOTE).forEach(cot => encolar({ tipo:'poner', coleccion:'cotizaciones', id:cot.id, obj:cot }));
+        for(let i = 0; i < paraSubir.length; i += LOTE){
+          paraSubir.slice(i, i + LOTE).forEach(cot => encolar({ tipo:'poner', coleccion:'cotizaciones', id:cot.id, obj:cot }));
           await new Promise(res => setTimeout(res, 0));
         }
       })();
@@ -12829,7 +12881,7 @@ const TEMAS_AYUDA = [
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
         'Además de los 5 estatus básicos (Borrador/Enviada/Aprobada/Rechazada/Cancelada), hay un <b>tablero de 13 etapas</b> (heredado de un tablero externo de Monday.com): Trabajos con OC, Trabajo interno, Pendientes por liberación, Servicios Pendientes, Solicitud a cliente (Comercial/Soporte), Compartida al cliente, Realizados, Realizados/Cargo a Comedor, Proceso de facturación, Cancelado, Facturado, Expirado.',
-        'Usa <b>Importar desde Excel</b> para cargar de un jalón el export de ese tablero — detecta duplicados y avisa cuántos renglones no reconoció.',
+        'Usa <b>Importar desde Excel</b> para cargar de un jalón el export de ese tablero: los servicios que todavía no existen se agregan, y los que ya estaban capturados se CORRIGEN con lo que traiga el Excel (etapa, fechas, proveedor, comentarios, subtotal) — así sirve tanto para cargar servicios nuevos como para actualizar el avance de los que ya llevas. Antes de aplicar nada, muestra un resumen de cuántos son nuevos, cuántos se corrigen, cuántos quedan igual y cuántos renglones no reconoció.',
         'La tabla <b>Por persona</b> (si hay más de un vendedor) muestra Cotizaciones, Cotizado, Ingreso y % de Conversión por cada quien.',
         'Si la lista es muy grande (más de 200 resultados sin filtrar), se agrupa por etapa en resúmenes clickeables en vez de listar todo de golpe.'
       ]))
@@ -12842,7 +12894,8 @@ const TEMAS_AYUDA = [
         + guiaTip('Detalles no obvios', [
             'El precio al cliente por renglón es automático (costo × margen) salvo que captures uno manual — igual que en el Excel original, donde algunas filas traían el precio tecleado aparte.',
             'La fórmula de instalación/mano de obra es fija: 20% del subtotal de conceptos + $750, nunca se prorratea entre renglones.',
-            'Reportero no ve este módulo en absoluto; Técnico lo ve de solo lectura (puede consultarlo pero no crear ni editar).'
+            'Reportero no ve este módulo en absoluto; Técnico lo ve de solo lectura (puede consultarlo pero no crear ni editar).',
+            '"Importar desde Excel" reconoce que un renglón ya existe por su Nombre + Comedor + Fecha de registro (nunca por el folio, que el tablero real repite a propósito entre varias líneas, ni por el subtotal o la etapa, que son justo lo que se corrige). Si el mismo día, en el mismo sitio, hay dos servicios distintos con el nombre idéntico, se tratarían como el mismo renglón — poco común, pero vale la pena revisar el resumen antes de confirmar.'
           ])) },
 
   { id:'activos', titulo:'Activos',
