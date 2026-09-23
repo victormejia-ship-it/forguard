@@ -191,6 +191,12 @@ se active:
   cuenta le falta el segundo factor, se le abre el modal de activación
   directo y sin botón "Cancelar" — la única salida es activarlo o cerrar
   sesión.
+  **Actualización 23-sep-2026**: Victor pidió pausar por el momento toda
+  esta parte de obligatoriedad (`mfaHabilitado()` en `index.html` regresa
+  `false`) — ni banda ni bloqueo forzado, para nadie. Activar el segundo
+  factor desde "Mi cuenta" sigue disponible y funcionando igual, solo que
+  ahora es opcional para todos. Para reactivar la obligatoriedad más
+  adelante: `mfaHabilitado()` debe regresar `true` (un solo lugar).
 - **Nunca bloquea por un fallo de red o de configuración**: si Identity
   Platform no está activo todavía, o no hay internet, el chequeo falla
   callado (mismo principio que `revisarCuenta()`) — nadie se queda

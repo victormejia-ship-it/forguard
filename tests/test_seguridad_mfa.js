@@ -1,6 +1,13 @@
 /* Auditoría de seguridad externa (22-sep-2026), sección 15: MFA (TOTP) para
    Owner/Admin, con periodo de gracia — decisión de Victor, 22-sep-2026.
 
+   Actualización (23-sep-2026): Victor pidió pausar por el momento que sea
+   OBLIGATORIO (mfaHabilitado() ahora regresa `false`) — la función y el
+   "Activar" desde "Mi cuenta" siguen ahí, solo no se fuerza a nadie. Las
+   secciones 7 y 8 (banda y bloqueo) simulan que se reactiva
+   (`window.mfaHabilitado = () => true`) para no perder la cobertura de esa
+   lógica, ya que Victor puede pedir reactivarla más adelante.
+
    Los endpoints reales (accounts:signInWithPassword con mfaPendingCredential,
    v2/accounts/mfaEnrollment:start|finalize|withdraw, v2/accounts/mfaSignIn:finalize)
    viven en Identity Platform, que Victor todavía no ha activado en Firebase
@@ -36,11 +43,13 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     tecnicoNoAplica: mfaAplicaA('tecnico'), clienteNoAplica: mfaAplicaA('cliente'),
     fechaValida: !isNaN(new Date(MFA_OBLIGATORIO_DESDE + 'T00:00:00')),
     todavíaNoObligatorio: !mfaYaEsObligatorio(), // hoy (22-sep-2026) es antes de la fecha configurada.
+    pausadoPorDefecto: !mfaHabilitado(), // pedido de Victor, 23-sep-2026: pausado hasta nuevo aviso.
   }));
   chkF('MFA aplica a Owner y Admin', reglas.ownerAplica && reglas.adminAplica);
   chkF('MFA NO aplica a Analyst/Viewer/Técnico/Cliente', !reglas.analystNoAplica && !reglas.viewerNoAplica && !reglas.tecnicoNoAplica && !reglas.clienteNoAplica);
   chkF('MFA_OBLIGATORIO_DESDE es una fecha válida', reglas.fechaValida);
   chkF('Todavía no es obligatorio (la fecha configurada sigue en el futuro)', reglas.todavíaNoObligatorio);
+  chkF('mfaHabilitado() está en pausa por defecto (pedido de Victor, 23-sep-2026)', reglas.pausadoPorDefecto);
 
   // --------- 2) entrar() detecta mfaPendingCredential y lanza MFA_REQUERIDO ---------
   const resultadoEntrar = await page.evaluate(async () => {
@@ -141,11 +150,21 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   });
   await page.evaluate(() => modalPerfil());
   await page.waitForTimeout(200);
+  const estadoPausado = await page.evaluate(() => document.getElementById('pfMfaEstado').textContent);
+  chkF('Con mfaHabilitado()=false, Owner sin MFA ve que es opcional (no "requiere")', /opcional/i.test(estadoPausado) && !/requiere/i.test(estadoPausado));
+  await page.evaluate(() => cerrarModal());
+
+  // A partir de aquí se simula que Victor reactiva la obligatoriedad
+  // (window.mfaHabilitado = () => true), para no perder cobertura de esa
+  // lógica mientras está en pausa — queda así el resto de la prueba.
+  await page.evaluate(() => { window.mfaHabilitado = () => true; });
+  await page.evaluate(() => modalPerfil());
+  await page.waitForTimeout(200);
   const estadoSinActivar = await page.evaluate(() => ({
     texto: document.getElementById('pfMfaEstado').textContent,
     traeFecha: document.getElementById('pfMfaEstado').textContent.includes(MFA_OBLIGATORIO_DESDE),
   }));
-  chkF('Sin MFA activado, Owner ve que su permiso lo requiere', /requiere/i.test(estadoSinActivar.texto));
+  chkF('Reactivado, sin MFA activado Owner ve que su permiso lo requiere', /requiere/i.test(estadoSinActivar.texto));
   chkF('...y ve la fecha límite antes de que sea obligatorio', estadoSinActivar.traeFecha);
   await page.evaluate(() => cerrarModal());
 

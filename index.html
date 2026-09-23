@@ -3133,6 +3133,12 @@ function minimoClave(rol){ return (rol === 'owner' || rol === 'admin') ? 15 : 12
 const MFA_OBLIGATORIO_DESDE = '2026-09-29';
 function mfaYaEsObligatorio(){ return new Date() >= new Date(MFA_OBLIGATORIO_DESDE + 'T00:00:00'); }
 function mfaAplicaA(rol){ return rol === 'owner' || rol === 'admin'; }
+/* Interruptor temporal (23-sep-2026, pedido de Victor): pausa que el MFA sea
+   OBLIGATORIO (banda de aviso + bloqueo forzado) sin tocar mfaAplicaA() —la
+   política de a quién le aplicaría cuando se reactive— ni la posibilidad de
+   activarlo por su cuenta, ya mismo, desde "Mi cuenta". Para reactivarlo:
+   que regrese `true`. */
+function mfaHabilitado(){ return false; }
 
 /* Saca un nombre presentable del correo: santiago.garza@… → «Santiago Garza».
    Sirve para no andar mostrando correos crudos en pantalla. */
@@ -27613,7 +27619,7 @@ async function pintarEstadoMfa(rol){
         + '<button type="button" class="btn btn-suave btn-mini" id="pfMfaQuitar">Desactivar</button>';
       $('pfMfaQuitar').addEventListener('click', ()=> modalDesactivarMfa(factor.mfaEnrollmentId));
     }else{
-      const obligatorio = mfaAplicaA(rol);
+      const obligatorio = mfaHabilitado() && mfaAplicaA(rol);
       cont.innerHTML = (obligatorio
           ? '<p class="pista" style="color:#9a6a15"><b>Tu permiso (' + esc(ROLES[rol].nombre) + ') requiere verificación en dos pasos.</b> '
             + (mfaYaEsObligatorio()
@@ -30336,7 +30342,7 @@ $('btnSalirVistaPrevia').addEventListener('click', ()=> salirVistaPrevia());
    de configuración nunca saca ni castiga a quien ya entró de verdad. */
 let _bandaMfaOcultaEstaSesion = false;
 async function revisarObligatoriedadMfa(){
-  if(!HAY_NUBE || esCliente() || !mfaAplicaA(sesion.rol)){ $('bandaMfaRecordatorio').hidden = true; return; }
+  if(!mfaHabilitado() || !HAY_NUBE || esCliente() || !mfaAplicaA(sesion.rol)){ $('bandaMfaRecordatorio').hidden = true; return; }
   try{
     const factor = await estadoMfaActual();
     if(factor){ $('bandaMfaRecordatorio').hidden = true; return; }
