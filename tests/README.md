@@ -77,6 +77,7 @@ node test_veredicto_sync_incremental.js
 | `test_seguridad_politica_clave.js` | Política de contraseña (12 caracteres normal, 15 Owner/Admin) y que "¿Olvidaste tu contraseña?" ya no delata qué correos tienen cuenta (enumeración de usuarios) |
 | `test_seguridad_inactividad.js` | El cierre automático de sesión a las 8h de inactividad — al arrancar con una sesión guardada vieja, y con la pestaña abierta y dejada quieta |
 | `test_seguridad_mfa.js` | MFA (TOTP) para Owner/Admin: login con segundo factor, activar/desactivar desde "Mi cuenta", el recordatorio antes de la fecha límite y el bloqueo obligatorio después |
+| `test_documentos_hoja_cierre.js` | Cotizaciones, Órdenes de Compra, Levantamientos y Pólizas también cierran con la hoja de solo-logo (y ya no imprimen una hoja en blanco de más) — mismo arreglo que Imagen/Aperturas |
 
 ## Lo que falta (siguiente paso, no de esta sesión)
 

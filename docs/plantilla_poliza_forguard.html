@@ -379,10 +379,23 @@
   @media print{
     body{background:#fff;}
     .page{margin:0;box-shadow:none;page-break-after:always;}
+    /* Sin esto, Chrome pedía un salto de página después de la ÚLTIMA hoja
+       también y sacaba una hoja en blanco de más al guardar como PDF —
+       mismo hallazgo que ya se corrigió en el documento de Imagen/
+       Aperturas (Victor, 21-sep-2026). */
+    .page:last-child{page-break-after:auto;}
     @page{size:letter;margin:0;}
     /* El banner es para la persona, no para el papel. */
     .aviso-impresion{display:none;}
   }
+
+  /* Hoja de cierre: solo el logo, centrado — mismo criterio que ya lleva
+     el documento de Imagen/Aperturas (pedido de Victor, 21-sep-2026: "la
+     ultima hoja se vea como la de la portada pero sola y exclusivamente
+     con el logotipo"). Va SIN cabecera/pie: es a propósito distinta a las
+     demás, no una continuación más. */
+  .pagina-cierre{height:100%;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:18px;color:var(--brand-navy);}
 </style>
 </head>
 <body>
@@ -838,11 +851,25 @@ function pageSinDatos(motivo){
 }
 
 
+/* ====================== HOJA DE CIERRE ======================
+   Última hoja de todo documento (después de Consideraciones): solo el
+   logo de Forguard, centrado — pedido de Victor (21-sep-2026, ya aplicado
+   al documento de Imagen/Aperturas): "que la ultima hoja se vea como la
+   de la portada pero sola y exclusivamente con el logotipo". */
+function pageCierre(){
+  return `<section class="page">
+    <div class="sheet">
+      <div class="pagina-cierre">${isotipo(64)}${logotipo(160)}</div>
+    </div>
+  </section>`;
+}
+
 /* Orden de hojas:
-     Portada → Tabla → Descripción de Trabajos → Calendario → Consideraciones.
-   Consideraciones va AL FINAL porque es el único bloque de prosa de largo
-   variable: si fuera antes de la tabla, agregar o quitar una cláusula correría
-   el arranque de la tabla y cambiaría cuántas filas caben en la primera hoja. */
+     Portada → Tabla → Descripción de Trabajos → Calendario → Consideraciones → Cierre.
+   Consideraciones va justo antes del cierre porque es el único bloque de
+   prosa de largo variable: si fuera antes de la tabla, agregar o quitar
+   una cláusula correría el arranque de la tabla y cambiaría cuántas filas
+   caben en la primera hoja. */
 /* Con try/catch A PROPÓSITO: leerPayload() valida renglones, calendario y
    totales, pero el render toca muchos más campos (cliente, contacto, vendedor,
    fechas, pie…) y un payload al que le falte cualquiera dejaba la página EN
@@ -852,7 +879,7 @@ function pageSinDatos(motivo){
 let docRoto = null, docHTML = '';
 if(POLIZA){
   try{
-    docHTML = pageCover() + pagePoliza() + pageDescripcion() + pageCalendario() + pageConsideraciones();
+    docHTML = pageCover() + pagePoliza() + pageDescripcion() + pageCalendario() + pageConsideraciones() + pageCierre();
   }catch(e){
     docRoto = e;
     console.error('El documento no se pudo armar:', e);

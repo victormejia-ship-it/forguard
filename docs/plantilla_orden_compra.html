@@ -111,6 +111,14 @@
   .banda-roja{background:#a5322e;color:#fff;font-size:11px;padding:8px 14px;text-align:center;
     font-weight:700;}
 
+  /* Hoja de cierre: solo el logo, centrado — mismo criterio que ya lleva
+     el documento de Imagen/Aperturas (pedido de Victor, 21-sep-2026: "la
+     ultima hoja se vea como la de la portada pero sola y exclusivamente
+     con el logotipo"). Va SIN cabecera/pie: es a propósito distinta a las
+     demás, no una continuación más. */
+  .pagina-cierre{height:100%;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:18px;color:var(--brand-navy);}
+
   .aviso-impresion{position:fixed;top:0;left:0;right:0;z-index:50;
     background:#0E1116;color:#fff;font-family:var(--font-body);font-size:12.5px;line-height:1.5;
     padding:9px 18px;box-shadow:0 6px 18px rgba(0,0,0,.35);
@@ -125,6 +133,11 @@
   @media print{
     body{background:#fff;}
     .page{margin:0;box-shadow:none;page-break-after:always;}
+    /* Sin esto, Chrome pedía un salto de página después de la ÚLTIMA hoja
+       también y sacaba una hoja en blanco de más al guardar como PDF —
+       mismo hallazgo que ya se corrigió en el documento de Imagen/
+       Aperturas (Victor, 21-sep-2026). */
+    .page:last-child{page-break-after:auto;}
     @page{size:letter;margin:0;}
     .aviso-impresion{display:none;}
   }
@@ -348,6 +361,12 @@ if(!COT){
      y otra vez en beforeprint, que es el único momento que de verdad
      importa"). Volver a pintar es barato: son unas cuantas hojas, no miles
      de renglones. */
+  function paginaCierreHTML(){
+    return '<div class="page"><div class="sheet"><div class="pagina-cierre">'
+      + isotipo(64) + logotipo(160)
+      + '</div></div></div>';
+  }
+
   function pintarPaginas(){
     const paginas = paginar();
     let html = paginas.map((indices, i)=> paginaHTML(indices, i === paginas.length - 1)).join('');
@@ -363,6 +382,7 @@ if(!COT){
         + '. No se envíe así — avisa para revisar la plantilla.</div>' + html;
     }
 
+    html += paginaCierreHTML();
     document.getElementById('doc').innerHTML = html;
   }
 
