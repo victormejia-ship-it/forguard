@@ -8,6 +8,12 @@
    (colección /pendientes, ver firestore.rules) para que sobreviva a cerrar
    la pestaña, igual que /notificaciones.
 
+   Ampliación, mismo día: cada pendiente ahora también guarda cuándo se creó
+   y una fecha de entrega informativa (no disparan ningún aviso, solo se
+   muestran y ordenan el listado), y el panel separa "Pendientes" de
+   "Realizadas" en dos grupos, cada uno acomodado por fecha de entrega
+   (ver ordenarPendientes()).
+
    Firestore de mentiras (mismo criterio que test_veredicto_conflicto_edicion.js
    y test_seguridad_mfa.js): se sobreescribe window.pedirNube en vez de hablar
    con Firebase de verdad. */
@@ -39,12 +45,26 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
         const cuerpo = JSON.parse(opciones.body);
         if(cuerpo.structuredQuery.from[0].collectionId === 'pendientes'){
           return [
+            // p1: pendiente, entrega más lejana (28-sep) — debe quedar AL FINAL de los pendientes con fecha.
             { document: { name:'projects/x/databases/(default)/documents/pendientes/p1',
               fields: { usuarioUid:{stringValue:'u-owner'}, texto:{stringValue:'Llamar al cliente NGK'},
-                hecho:{booleanValue:false}, creadoEn:{stringValue:'2026-09-20T10:00:00.000Z'}, hechoEn:{stringValue:''} } } },
+                hecho:{booleanValue:false}, creadoEn:{stringValue:'2026-09-20T10:00:00.000Z'}, hechoEn:{stringValue:''},
+                fechaEntrega:{stringValue:'2026-09-28'} } } },
+            // p3: pendiente, entrega más próxima (22-sep) — debe quedar PRIMERO.
+            { document: { name:'projects/x/databases/(default)/documents/pendientes/p3',
+              fields: { usuarioUid:{stringValue:'u-owner'}, texto:{stringValue:'Cotizar refacciones'},
+                hecho:{booleanValue:false}, creadoEn:{stringValue:'2026-09-18T09:00:00.000Z'}, hechoEn:{stringValue:''},
+                fechaEntrega:{stringValue:'2026-09-22'} } } },
+            // p4: pendiente, SIN fecha de entrega — debe quedar AL FINAL de todos los pendientes.
+            { document: { name:'projects/x/databases/(default)/documents/pendientes/p4',
+              fields: { usuarioUid:{stringValue:'u-owner'}, texto:{stringValue:'Pendiente sin fecha'},
+                hecho:{booleanValue:false}, creadoEn:{stringValue:'2026-09-21T09:00:00.000Z'}, hechoEn:{stringValue:''},
+                fechaEntrega:{stringValue:''} } } },
+            // p2: ya realizado.
             { document: { name:'projects/x/databases/(default)/documents/pendientes/p2',
               fields: { usuarioUid:{stringValue:'u-owner'}, texto:{stringValue:'Ya resuelto'},
-                hecho:{booleanValue:true}, creadoEn:{stringValue:'2026-09-19T10:00:00.000Z'}, hechoEn:{stringValue:'2026-09-19T12:00:00.000Z'} } } }
+                hecho:{booleanValue:true}, creadoEn:{stringValue:'2026-09-19T10:00:00.000Z'}, hechoEn:{stringValue:'2026-09-19T12:00:00.000Z'},
+                fechaEntrega:{stringValue:''} } } }
           ];
         }
         return [];
@@ -73,27 +93,38 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     activos: pend.lista.filter(p => !p.hecho).length,
     puntoOculto: document.getElementById('btnPendientes').querySelector('.punto-alerta').hidden,
     puntoTexto: document.getElementById('btnPendientes').querySelector('.punto-alerta').textContent,
+    orden: pend.lista.map(p => p.id), // p3 (22-sep) < p1 (28-sep) < p4 (sin fecha) < p2 (hecho)
   }));
-  chkF('Se cargan los 2 pendientes de esta cuenta', trasCargar.total === 2);
-  chkF('El contador solo cuenta los NO hechos (1)', trasCargar.activos === 1);
-  chkF('El punto de aviso se muestra (hay 1 activo)', trasCargar.puntoOculto === false && trasCargar.puntoTexto === '1');
+  chkF('Se cargan los 4 pendientes de esta cuenta', trasCargar.total === 4);
+  chkF('El contador solo cuenta los NO hechos (3)', trasCargar.activos === 3);
+  chkF('El punto de aviso se muestra con el número correcto', trasCargar.puntoOculto === false && trasCargar.puntoTexto === '3');
+  chkF('Se acomodan por fecha de entrega (más próxima primero), sin fecha al final, hechos hasta el fondo',
+    trasCargar.orden.join(',') === 'p3,p1,p4,p2');
 
-  // --------- 3) Abrir la franja: es un panel que se puede ocultar, como un modal ---------
+  // --------- 3) Abrir la franja: separa "Pendientes" de "Realizadas", con fechas informativas ---------
   await page.click('#btnPendientes');
   await page.waitForTimeout(120);
-  const conPanelAbierto = await page.evaluate(() => ({
-    panelOculto: document.getElementById('panelPendientes').hidden,
-    traeAmbosTextos: document.getElementById('panelPendientes').textContent.includes('Llamar al cliente NGK')
-      && document.getElementById('panelPendientes').textContent.includes('Ya resuelto'),
-    hechoTachado: document.querySelector('[data-pend-id="p2"]').classList.contains('hecho'),
-    hechoChecado: document.querySelector('[data-pend-id="p2"] .pend-check').checked,
-    activoSinChecar: document.querySelector('[data-pend-id="p1"] .pend-check').checked === false,
-  }));
+  const conPanelAbierto = await page.evaluate(() => {
+    const texto = document.getElementById('panelPendientes').textContent;
+    return {
+      panelOculto: document.getElementById('panelPendientes').hidden,
+      tituloPendientes: texto.includes('Pendientes (3)'),
+      tituloRealizadas: texto.includes('Realizadas (1)'),
+      hechoTachado: document.querySelector('[data-pend-id="p2"]').classList.contains('hecho'),
+      hechoChecado: document.querySelector('[data-pend-id="p2"] .pend-check').checked,
+      activoSinChecar: document.querySelector('[data-pend-id="p1"] .pend-check').checked === false,
+      fechasDeP1: document.querySelector('[data-pend-id="p1"] .pend-fechas').textContent,
+      fechasDeP4: document.querySelector('[data-pend-id="p4"] .pend-fechas').textContent,
+    };
+  });
   chkF('Clic en el botón abre la franja de pendientes', conPanelAbierto.panelOculto === false);
-  chkF('Se ven los 2 pendientes con su texto', conPanelAbierto.traeAmbosTextos);
+  chkF('Se ve el grupo "Pendientes" con su contador (3)', conPanelAbierto.tituloPendientes);
+  chkF('Se ve el grupo "Realizadas" con su contador (1)', conPanelAbierto.tituloRealizadas);
   chkF('El pendiente ya hecho se ve tachado', conPanelAbierto.hechoTachado);
   chkF('...y su checkbox aparece marcado', conPanelAbierto.hechoChecado);
   chkF('El pendiente activo NO aparece marcado', conPanelAbierto.activoSinChecar);
+  chkF('Se muestra cuándo se creó y su fecha de entrega, como dato informativo', /Creado: 20 sep 2026/.test(conPanelAbierto.fechasDeP1) && /Entrega: 28 sep 2026/.test(conPanelAbierto.fechasDeP1));
+  chkF('Un pendiente sin fecha de entrega solo muestra "Creado", sin "Entrega"', /Creado: 21 sep 2026/.test(conPanelAbierto.fechasDeP4) && !/Entrega/.test(conPanelAbierto.fechasDeP4));
 
   // Clic fuera de la franja: se cierra sola, como cualquier menú desplegable.
   await page.mouse.click(10, 10);
@@ -101,23 +132,29 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   const trasClicFuera = await page.evaluate(() => document.getElementById('panelPendientes').hidden);
   chkF('Un clic fuera de la franja la cierra', trasClicFuera === true);
 
-  // --------- 4) Capturar un pendiente nuevo, desde la franja ---------
+  // --------- 4) Capturar un pendiente nuevo, con fecha de entrega, desde la franja ---------
   await page.click('#btnPendientes');
   await page.waitForTimeout(120);
   await page.fill('#pendTexto', 'Revisar contrato de la póliza');
+  await page.fill('#pendFechaEntrega', '2026-09-24'); // entre p3 (22-sep) y p1 (28-sep)
   await page.press('#pendTexto', 'Enter');
   await page.waitForTimeout(150);
   const trasAgregar = await page.evaluate(() => ({
     total: pend.lista.length,
     campoVacio: document.getElementById('pendTexto').value === '',
     escrito: window._escrituras[window._escrituras.length - 1],
+    orden: pend.lista.filter(p => !p.hecho).map(p => p.id),
   }));
-  chkF('El nuevo pendiente se agrega a la lista en memoria', trasAgregar.total === 3);
+  chkF('El nuevo pendiente se agrega a la lista en memoria', trasAgregar.total === 5);
   chkF('El campo de texto se limpia tras capturarlo', trasAgregar.campoVacio);
-  chkF('Se manda a guardar con el texto correcto, sin marcar como hecho', trasAgregar.escrito
+  chkF('Se manda a guardar con el texto y la fecha de entrega correctos, sin marcar como hecho', trasAgregar.escrito
     && trasAgregar.escrito.fields.texto.stringValue === 'Revisar contrato de la póliza'
+    && trasAgregar.escrito.fields.fechaEntrega.stringValue === '2026-09-24'
     && trasAgregar.escrito.fields.hecho.booleanValue === false
     && trasAgregar.escrito.fields.usuarioUid.stringValue === 'u-owner');
+  const nuevoIdCapturado = trasAgregar.orden.find(id => !['p3','p1','p4'].includes(id));
+  chkF('El nuevo pendiente se intercala por su fecha de entrega (entre p3 y p1), no al principio ni al final',
+    trasAgregar.orden.join(',') === ['p3', nuevoIdCapturado, 'p1', 'p4'].join(','));
 
   // --------- 5) Marcar un pendiente como hecho ---------
   await page.click('[data-pend-id="p1"] .pend-check');
@@ -128,7 +165,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     escrito: window._escrituras[window._escrituras.length - 1],
   }));
   chkF('Al tocar el checkbox, el pendiente queda marcado como hecho', trasMarcar.p1Hecho === true);
-  chkF('El contador de activos baja (ya solo queda el nuevo)', trasMarcar.activos === 1);
+  chkF('El contador de activos baja', trasMarcar.activos === 3);
   chkF('Se manda a guardar el cambio con hecho:true', trasMarcar.escrito && trasMarcar.escrito.fields.hecho.booleanValue === true);
 
   // --------- 6) Borrar un pendiente ---------
@@ -138,7 +175,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     total: pend.lista.length,
     siguePresente: pend.lista.some(p => p.id === 'p2'),
   }));
-  chkF('El pendiente borrado desaparece de la lista', trasBorrar.total === 2 && trasBorrar.siguePresente === false);
+  chkF('El pendiente borrado desaparece de la lista', trasBorrar.total === 4 && trasBorrar.siguePresente === false);
   const seBorroEnServidor = await page.evaluate(() => window._borrados.some(r => r.indexOf('/pendientes/p2') === 0));
   chkF('Se manda a borrar el documento correcto en el servidor', seBorroEnServidor);
 

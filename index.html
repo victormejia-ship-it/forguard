@@ -1213,15 +1213,25 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 #btnPendientes .punto-alerta{position:absolute; top:5px; right:5px; width:auto; height:auto; min-width:16px;
   border-radius:9px; padding:0 4px; font-size:10px; line-height:16px; font-weight:800; color:#fff;
   background:var(--accent); box-shadow:0 0 0 2px #fff; text-align:center;}
-.pend-nuevo{display:flex; gap:8px; padding:11px 14px; border-bottom:1px solid var(--line);}
-.pend-nuevo input{flex:1; min-width:0; font:inherit; font-size:12.5px; padding:7px 9px;
+.pend-nuevo{display:flex; flex-direction:column; gap:7px; padding:11px 14px; border-bottom:1px solid var(--line);}
+.pend-nuevo input{min-width:0; font:inherit; font-size:12.5px; padding:7px 9px;
   border:1px solid var(--line); border-radius:8px; color:var(--ink);}
 .pend-nuevo input:focus{outline:none; border-color:var(--accent);}
+.pend-nuevo-fila2{display:flex; gap:8px;}
+.pend-nuevo-fila2 input{flex:1;}
+.pend-nuevo-fila2 input[type=date]{color:var(--gray);}
 .pend-nuevo button{white-space:nowrap; flex-shrink:0;}
+/* Encabezado "Pendientes (N)" / "Realizadas (N)": el pedido de Victor de
+   23-sep-2026 de separar el listado en dos grupos, cada uno acomodado por
+   fecha de entrega (ver ordenarPendientes()). */
+.pend-seccion-titulo{padding:9px 14px 5px; font-size:10.5px; font-weight:700; letter-spacing:.05em;
+  text-transform:uppercase; color:var(--gray); background:var(--bg);}
 .pend-fila{display:flex; align-items:flex-start; gap:9px; padding:9px 14px; border-bottom:1px solid var(--line);}
 .pend-fila:last-child{border-bottom:none;}
 .pend-fila .pend-check{width:15px; height:15px; margin-top:2px; flex-shrink:0; cursor:pointer; accent-color:var(--accent);}
-.pend-fila .pend-texto{flex:1; min-width:0; font-size:12.5px; line-height:1.45; color:var(--ink); word-break:break-word;}
+.pend-fila .pend-cuerpo{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;}
+.pend-fila .pend-texto{font-size:12.5px; line-height:1.45; color:var(--ink); word-break:break-word;}
+.pend-fila .pend-fechas{font-size:10.5px; color:var(--gray);}
 .pend-fila.hecho .pend-texto{color:var(--gray); text-decoration:line-through;}
 .pend-fila .pend-borrar{all:unset; cursor:pointer; color:var(--gray); font-size:17px; line-height:1;
   padding:1px 5px; border-radius:6px; flex-shrink:0;}
@@ -22254,13 +22264,24 @@ function normalizarPendiente(p){
     texto: (p && p.texto ? String(p.texto) : '').trim(),
     hecho: !!(p && p.hecho),
     creadoEn: (p && p.creadoEn) || new Date().toISOString(),
-    hechoEn: (p && p.hechoEn) || ''
+    hechoEn: (p && p.hechoEn) || '',
+    /* Solo informativa (pedido de Victor, 23-sep-2026): "cuándo lo tenemos
+       que entregar" — no dispara ningún aviso ni vencimiento, nomás ordena
+       el listado y se ve junto al pendiente. 'YYYY-MM-DD', como cualquier
+       otro <input type="date"> de la app (ver fmtFecha()). */
+    fechaEntrega: (p && p.fechaEntrega ? String(p.fechaEntrega) : '').trim()
   };
 }
+/* Sin fecha de entrega capturada: se acomoda al final de su grupo (no antes
+   que los que sí tienen una), de ahí el relleno '9999-99-99' —nunca se
+   guarda así, es solo la llave de orden. */
 function ordenarPendientes(){
+  const SIN_FECHA = '9999-99-99';
   pend.lista.sort((a,b)=>{
     if(!!a.hecho !== !!b.hecho) return a.hecho ? 1 : -1; // pendientes primero, hechos al final
-    return (b.creadoEn||'').localeCompare(a.creadoEn||''); // más reciente arriba, dentro de cada grupo
+    const fa = a.fechaEntrega || SIN_FECHA, fb = b.fechaEntrega || SIN_FECHA;
+    if(fa !== fb) return fa.localeCompare(fb); // más próxima a entregar arriba, dentro de cada grupo
+    return (b.creadoEn||'').localeCompare(a.creadoEn||'');
   });
 }
 
@@ -22278,39 +22299,51 @@ async function cargarPendientes(){
 function pintarPendientes(){
   const btn = $('btnPendientes');
   if(!btn) return;
-  const activos = pend.lista.filter(p => !p.hecho).length;
+  const numActivos = pend.lista.filter(p => !p.hecho).length;
   let punto = btn.querySelector('.punto-alerta');
   if(!punto){
     punto = document.createElement('span');
     punto.className = 'punto-alerta';
     btn.appendChild(punto);
   }
-  punto.hidden = !activos;
-  punto.textContent = activos > 9 ? '9+' : String(activos);
+  punto.hidden = !numActivos;
+  punto.textContent = numActivos > 9 ? '9+' : String(numActivos);
 
   const panel = $('panelPendientes');
   if(!panel || !pend.abierto) return;
+  const filaHTML = p => '<div class="pend-fila' + (p.hecho ? ' hecho' : '') + '" data-pend-id="' + esc(p.id) + '">'
+      +   '<input type="checkbox" class="pend-check"' + (p.hecho ? ' checked' : '') + '>'
+      +   '<div class="pend-cuerpo">'
+      +     '<span class="pend-texto">' + esc(p.texto) + '</span>'
+      +     '<span class="pend-fechas">Creado: ' + esc(fmtFecha((p.creadoEn || '').slice(0,10)))
+              + (p.fechaEntrega ? ' · Entrega: ' + esc(fmtFecha(p.fechaEntrega)) : '') + '</span>'
+      +   '</div>'
+      +   '<button type="button" class="pend-borrar" title="Eliminar">&times;</button>'
+      + '</div>';
+  const activos = pend.lista.filter(p => !p.hecho);
+  const hechos = pend.lista.filter(p => p.hecho);
   panel.innerHTML =
       '<div class="notif-cabeza"><h4>Mis pendientes</h4></div>'
     + '<form id="formNuevoPendiente" class="pend-nuevo">'
     +   '<input type="text" id="pendTexto" placeholder="Escribe un pendiente…" maxlength="200" autocomplete="off">'
-    +   '<button type="submit" class="btn btn-mini btn-primario">Agregar</button>'
+    +   '<div class="pend-nuevo-fila2">'
+    +     '<input type="date" id="pendFechaEntrega" title="Fecha de entrega (opcional)">'
+    +     '<button type="submit" class="btn btn-mini btn-primario">Agregar</button>'
+    +   '</div>'
     + '</form>'
-    + (pend.lista.length
-        ? pend.lista.map(p => '<div class="pend-fila' + (p.hecho ? ' hecho' : '') + '" data-pend-id="' + esc(p.id) + '">'
-            +   '<input type="checkbox" class="pend-check"' + (p.hecho ? ' checked' : '') + '>'
-            +   '<span class="pend-texto">' + esc(p.texto) + '</span>'
-            +   '<button type="button" class="pend-borrar" title="Eliminar">&times;</button>'
-            + '</div>').join('')
-        : '<div class="notif-vacio">No tienes pendientes. ¡Buen trabajo!</div>');
+    + '<div class="pend-seccion-titulo">Pendientes (' + activos.length + ')</div>'
+    + (activos.length ? activos.map(filaHTML).join('') : '<div class="notif-vacio">No tienes pendientes. ¡Buen trabajo!</div>')
+    + '<div class="pend-seccion-titulo">Realizadas (' + hechos.length + ')</div>'
+    + (hechos.length ? hechos.map(filaHTML).join('') : '<div class="notif-vacio">Todavía no hay ninguna.</div>');
 
   $('formNuevoPendiente').addEventListener('submit', ev=>{
     ev.preventDefault();
     const input = $('pendTexto');
     const texto = input.value.trim();
     if(!texto) return;
+    const fechaEntrega = $('pendFechaEntrega').value;
     const id = nuevoId();
-    const nuevo = normalizarPendiente({ usuarioUid: sesion.uid, texto });
+    const nuevo = normalizarPendiente({ usuarioUid: sesion.uid, texto, fechaEntrega });
     encolar({ tipo:'poner', coleccion:'pendientes', id, obj: nuevo });
     pend.lista.unshift(Object.assign({ id }, nuevo));
     ordenarPendientes();
