@@ -73,11 +73,11 @@ node test_veredicto_sync_incremental.js
 | `test_pdf_a_imagen_csp.js` | El Content-Security-Policy permite cargar pdf.js desde cdnjs.cloudflare.com (si no, un plano en PDF nunca se convertía a imagen) |
 | `test_proyecto_imagen_tarjetas.js` | Imagen/Aperturas: las tarjetas muestran costo/precio/margen (solo quien puede editar) y el logo del cliente |
 | `test_proyecto_imagen_pie_traslape.js` | El documento de Imagen/Aperturas espera a que las imágenes (ya migradas a Storage, se bajan por red) terminen de decodificar antes de paginar — si no, el pie de página se empalmaba con la última imagen de la hoja |
-| `test_proyecto_imagen_hoja_cierre.js` | El documento de Imagen/Aperturas ya no imprime una hoja en blanco al final (bug de `page-break-after` en la última hoja) y en su lugar cierra con una hoja de branding solo con el logo de Forguard |
+| `test_proyecto_imagen_hoja_cierre.js` | El documento de Imagen/Aperturas ya no imprime una hoja en blanco al final (bug de `page-break-after` en la última hoja) y en su lugar cierra con una hoja de branding solo con el logo de Forguard; ahora también abre con la portada azul de Pólizas |
 | `test_seguridad_politica_clave.js` | Política de contraseña (12 caracteres normal, 15 Owner/Admin) y que "¿Olvidaste tu contraseña?" ya no delata qué correos tienen cuenta (enumeración de usuarios) |
 | `test_seguridad_inactividad.js` | El cierre automático de sesión a las 8h de inactividad — al arrancar con una sesión guardada vieja, y con la pestaña abierta y dejada quieta |
 | `test_seguridad_mfa.js` | MFA (TOTP) para Owner/Admin: login con segundo factor, activar/desactivar desde "Mi cuenta", el recordatorio antes de la fecha límite y el bloqueo obligatorio después |
-| `test_documentos_hoja_cierre.js` | Cotizaciones, Órdenes de Compra, Levantamientos y Pólizas también cierran con la hoja de solo-logo (y ya no imprimen una hoja en blanco de más) — mismo arreglo que Imagen/Aperturas |
+| `test_documentos_hoja_cierre.js` | Cotizaciones, Levantamientos y Pólizas cierran con la hoja de solo-logo (y ya no imprimen una hoja en blanco de más); Órdenes de Compra NO la lleva (a propósito, pedido de Victor); Levantamientos y Pólizas abren con la portada azul |
 
 ## Lo que falta (siguiente paso, no de esta sesión)
 

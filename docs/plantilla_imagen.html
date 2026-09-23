@@ -59,6 +59,29 @@
     box-shadow:0 4px 24px rgba(8,25,75,.15);}
   .sheet{position:absolute;top:0;right:0;bottom:0;left:0;padding:.62in .72in;}
 
+  /* ============================ PORTADA ============================
+     Mismo diseño MEDIDO que la portada de plantilla_poliza_forguard.html
+     (pedido de Victor, 23-sep-2026: "añade la hoja de azul del inicio de
+     pólizas de portada a ... proyectos imagen") — copiado tal cual (fondo,
+     marca de agua, cinta, tipografía), cambiando solo el título y los
+     datos de Cliente/Fecha/Proyecto. Ver el comentario largo junto a
+     pageCover() en esa plantilla para el porqué de cada medida/color. */
+  .cover{background:#031649;overflow:hidden;
+    font-family:Helvetica,"Helvetica Neue",Arial,sans-serif;}
+  .cv-marca{position:absolute;left:0;top:0;width:612pt;height:792pt;}
+  .cv-iso{position:absolute;left:52pt;top:53.3pt;color:#fff;line-height:0;}
+  .cv-logo{position:absolute;left:154pt;top:196.8pt;color:#fff;line-height:0;}
+  .cv-titulo{position:absolute;left:145.6pt;color:#E8E8E8;font-size:72pt;font-weight:400;}
+  .cv-titulo div{line-height:72pt;white-space:nowrap;}
+  .cv-meta{position:absolute;top:528.2pt;left:153.3pt;right:50.6pt;
+    display:flex;flex-wrap:wrap;align-items:baseline;column-gap:15pt;row-gap:5pt;
+    font-size:6.7pt;color:#5FAFF9;line-height:1.3;}
+  .cv-meta .campo{white-space:nowrap;padding-left:15pt;border-left:.55pt solid #F6F1D8;}
+  .cv-meta .campo:first-child{padding-left:0;border-left:none;}
+  .cv-meta i{font-style:italic;}
+  .cv-cinta{position:absolute;left:-7.1pt;top:547.4pt;width:21.4pt;height:252.8pt;}
+  .cv-tagline{position:absolute;right:50.6pt;top:745.6pt;font-size:8.2pt;color:#fff;}
+
   .logo-tl{color:var(--brand-navy);}
   .wordmark-tr{color:var(--brand-navy);line-height:0;}
   .cab{display:flex;justify-content:space-between;align-items:flex-start;}
@@ -270,6 +293,43 @@ if(!PI){
      repetirla en cada hoja de imágenes solo le quitaba espacio a las fotos.
      El logo y el título SÍ se quedan: sigue siendo "mismo branding en toda
      la página" y una hoja suelta se sigue reconociendo de dónde salió. */
+  /* Portada azul — ver el comentario del bloque CSS ".cover"/".cv-*" más
+     arriba. Título fijo de 2 líneas (el nombre del módulo, no el tipo del
+     proyecto: "Apertura"/"Cambio de imagen"/etc. varían de largo y
+     romperían el ancho medido de la portada real). El "Proyecto" de la
+     portada SÍ es dinámico —el nombre real del proyecto—, a diferencia
+     de la de pólizas (ahí es un texto fijo): aquí cada proyecto tiene
+     nombre propio, y es justo el dato que distingue una portada de otra. */
+  function paginaPortadaHTML(){
+    const topTitulo = 338.8 - 5.2;
+    return '<div class="page cover">'
+      + '<svg class="cv-marca" viewBox="0 0 612 792" aria-hidden="true">'
+      +   '<g fill="#021449" stroke="#1B2B59" stroke-width="2.71" stroke-linejoin="round">'
+      +     '<path d="M1060.47 132.68 L1060.47 132.67 C1060.47 126.88 1057.28 121.63 1052.15 118.95 C1046.98 116.26 1040.81 116.65 1036.02 120.0 L480.14 507.13 L480.14 609.54 C480.14 614.32 482.77 618.67 487.01 620.88 C491.23 623.1 496.31 622.79 500.26 620.07 L950.81 307.84 C950.82 336.58 950.88 364.39 950.93 391.69 C951.1 478.02 951.25 559.57 950.2 649.21 C949.81 682.43 928.64 702.78 910.94 714.01 C848.85 753.4 786.89 792.99 724.97 832.63 C694.51 852.13 664.11 871.74 633.28 891.64 L594.16 916.87 C591.06 918.86 589.17 922.26 589.11 925.95 L589.72 932.38 L665.2 984.44 C669.14 987.15 673.71 988.52 678.28 988.52 C682.59 988.52 686.9 987.31 690.7 984.88 C715.7 968.91 740.62 952.9 765.51 936.89 C827.6 896.97 891.83 855.69 955.59 816.39 C1026.43 772.71 1060.73 709.25 1060.48 622.39 C1060.06 474.54 1060.39 195.08 1060.47 132.68 Z"/>'
+      +     '<path d="M836.43 646.36 C843.15 641.94 851.51 636.44 851.76 627.81 C852.55 601.63 852.47 575.65 852.39 548.13 L852.35 523.93 L851.89 517.58 L841.1 512.29 L814.46 529.89 C799.52 539.75 785.74 548.85 771.99 558.0 L718.74 593.47 C646.96 641.25 575.17 689.03 503.65 737.2 C495.88 742.45 493.09 742.44 486.17 737.23 C475.32 729.06 463.82 721.66 452.7 714.5 C443.81 708.78 434.91 703.06 426.31 696.92 C396.88 675.94 382.61 648.04 382.66 611.64 C382.85 495.02 382.82 386.54 382.79 274.51 L382.77 188.16 L1044.71 -261.25 L1049.52 -265.31 L1048.21 -372.0 C1048.14 -376.01 1045.9 -379.64 1042.34 -381.48 L1035.86 -383.96 L284.21 128.33 C275.6 134.18 275.6 143.99 275.6 148.16 C275.6 148.16 275.25 476.47 275.6 619.07 C275.77 688.48 305.54 744.66 364.07 786.03 C381.23 798.17 398.74 809.82 416.25 821.47 C434.79 833.8 453.33 846.14 471.46 859.07 C479.72 864.96 487.04 867.88 494.42 867.88 C501.45 867.88 508.53 865.21 516.46 859.86 C588.51 811.33 660.83 763.22 733.16 715.11 L836.43 646.36 Z"/>'
+      +     '<path d="M1044.68 -137.1 L484.2 249.07 C481.66 250.83 480.14 253.72 480.14 256.81 L480.14 359.62 C480.14 363.1 482.41 366.87 485.49 368.5 C486.85 369.22 488.47 369.57 490.1 369.57 C492.16 369.57 494.24 369.01 495.85 367.91 L1057.49 -17.1 C1060.07 -18.88 1061.61 -21.82 1061.57 -24.97 L1060.29 -129.02 C1060.25 -132.48 1057.85 -135.88 1054.77 -137.47 L1054.35 -137.69 C1051.28 -139.28 1047.55 -139.07 1044.68 -137.1 Z"/>'
+      +   '</g>'
+      + '</svg>'
+      + '<svg class="cv-cinta" viewBox="0 0 21.4 252.8" preserveAspectRatio="none" aria-hidden="true">'
+      +   '<rect x="0" y="150.2" width="21.4" height="102.6" fill="#49BA79"/>'
+      +   '<polygon points="0,75.3 0,190.8 21.4,172.1 21.4,75.3" fill="#8BB4D8"/>'
+      +   '<polygon points="0,0 0,104.8 21.4,87.6 21.4,0" fill="#6492B5"/>'
+      + '</svg>'
+      + '<div class="cv-iso">' + isotipo(79.9) + '</div>'
+      + '<div class="cv-logo">' + logotipo(143.9) + '</div>'
+      + '<div class="cv-titulo" style="top:' + topTitulo + 'pt">'
+      +   '<div style="margin-top:0">Imagen /</div>'
+      +   '<div style="margin-top:-11.6pt">Apertura</div>'
+      + '</div>'
+      + '<div class="cv-meta">'
+      +   '<span class="campo"><i>Cliente</i>: ' + esc(PI.cliente) + (PI.sitio ? '<br>' + esc(PI.sitio) : '') + '</span>'
+      +   '<span class="campo"><i>Fecha</i>:&nbsp; ' + esc(PI.fecha) + '</span>'
+      +   '<span class="campo"><i>Proyecto:</i> ' + esc(PI.nombreProyecto || PI.tipoEtiqueta) + '</span>'
+      + '</div>'
+      + '<div class="cv-tagline">Sostenemos a los que sostienen todo.</div>'
+      + '</div>';
+  }
+
   function cabeceraHTML(conMeta){
     return '<div class="cab">'
       +   '<div class="logo-tl">' + isotipo(40) + '</div>'
@@ -502,7 +562,7 @@ if(!PI){
 
   async function pintarPaginas(){
     const paginasCostos = paginarCostos();
-    let html = paginasCostos.map((indices, i) => paginaCostosHTML(indices, i === 0)).join('');
+    let html = paginaPortadaHTML() + paginasCostos.map((indices, i) => paginaCostosHTML(indices, i === 0)).join('');
 
     /* Aserción permanente, por cada tabla que se paginó: lo que se coloca
        tiene que ser exactamente lo que había que colocar. */

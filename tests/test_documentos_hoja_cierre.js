@@ -7,14 +7,24 @@
    el mismo molde de paginación por medición (.page/.sheet, isotipo()/
    logotipo()): Cotizaciones, Órdenes de Compra, Levantamientos y Pólizas.
 
+   Ajustes del 23-sep-2026, mismo pedido de Victor:
+   - Órdenes de Compra: "omite esa hoja en blanco" — se le quitó la hoja
+     de cierre (decisión suya: para OC no la quiere), pero se le queda el
+     arreglo real de la hoja en blanco de más al imprimir
+     (page-break-after en la ÚLTIMA hoja de verdad).
+   - Levantamientos e Imagen/Aperturas: "añade la hoja de azul del inicio
+     de pólizas de portada" — se les agregó la MISMA portada navy/azul
+     medida que ya traía Pólizas (fondo, marca de agua, cinta, tipografía),
+     cambiando solo el título fijo y los datos de Cliente/Fecha/Proyecto.
+     Imagen/Aperturas se prueba aparte, en test_proyecto_imagen_hoja_cierre.js
+     (ya la tenía la de cierre; aquí solo se le sumó la portada).
+
    Quedaron FUERA a propósito plantilla_resultados.html y
    plantilla_ruta_visitas.html: son documentos operativos internos, sin la
    identidad de marca de los otros cinco (sin isotipo/logotipo, sin
    Poppins embebida, paginación automática del navegador en vez de medir/
    cortar) — sus propios comentarios lo dicen explícito ("no es uno que se
-   le entrega al cliente"). Agregarles una hoja de cierre grande con el
-   logo es una decisión de diseño aparte, no algo que se coló al copiar el
-   patrón de los otros cinco. */
+   le entrega al cliente"). */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -62,7 +72,8 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     })];
   });
 
-  async function abrirYRevisar(nombre, prepararEnPagina, archivo){
+  async function abrirYRevisar(nombre, prepararEnPagina, opciones){
+    const { conCierre = true, conPortada = false } = opciones || {};
     const [docPage] = await Promise.all([
       context.waitForEvent('page'),
       page.evaluate(prepararEnPagina)
@@ -73,17 +84,30 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
 
     const totalPaginas = await docPage.locator('.page').count();
     const ultima = docPage.locator('.page').last();
-    const traeCierre = await ultima.locator('.pagina-cierre').count() === 1;
-    const traeDosSvg = await ultima.locator('.pagina-cierre svg').count() === 2;
-    const sinCabecera = await ultima.locator('.metabar, .cab, .cv-titulo').count() === 0;
 
-    chkF(nombre + ': el documento SÍ trae más de una hoja (con la de cierre incluida)', totalPaginas >= 2);
-    chkF(nombre + ': la ÚLTIMA hoja es la de cierre (isotipo + wordmark)', traeCierre && traeDosSvg);
-    chkF(nombre + ': la hoja de cierre va sola, sin cabecera de las demás hojas', sinCabecera);
+    if(conPortada){
+      const primera = docPage.locator('.page').first();
+      chkF(nombre + ': la PRIMERA hoja es la portada azul (fondo navy + marca de agua)',
+        await primera.evaluate(el => el.classList.contains('cover')) && await primera.locator('.cv-marca').count() === 1);
+      chkF(nombre + ': la portada trae el logo y los datos de Cliente/Fecha/Proyecto', await primera.locator('.cv-iso, .cv-logo').count() === 2 && await primera.locator('.cv-meta .campo').count() === 3);
+    }else{
+      chkF(nombre + ': NO se le agregó una portada (no la pidió Victor para este documento)', await docPage.locator('.cover').count() === 0);
+    }
+
+    if(conCierre){
+      const traeCierre = await ultima.locator('.pagina-cierre').count() === 1;
+      const traeDosSvg = await ultima.locator('.pagina-cierre svg').count() === 2;
+      const sinCabecera = await ultima.locator('.metabar, .cab, .cv-titulo').count() === 0;
+      chkF(nombre + ': el documento SÍ trae más de una hoja (con la de cierre incluida)', totalPaginas >= (conPortada ? 3 : 2));
+      chkF(nombre + ': la ÚLTIMA hoja es la de cierre (isotipo + wordmark)', traeCierre && traeDosSvg);
+      chkF(nombre + ': la hoja de cierre va sola, sin cabecera de las demás hojas', sinCabecera);
+    }else{
+      chkF(nombre + ': "omite esa hoja en blanco" — YA NO trae la hoja de cierre', await docPage.locator('.pagina-cierre').count() === 0);
+    }
 
     await docPage.emulateMedia({ media: 'print' });
     const salto = await ultima.evaluate(el => getComputedStyle(el).breakAfter || getComputedStyle(el).pageBreakAfter);
-    chkF(nombre + ': en impresión, la ÚLTIMA hoja ya no pide salto de página después (sin hoja en blanco extra)', salto === 'auto');
+    chkF(nombre + ': en impresión, la ÚLTIMA hoja de verdad ya no pide salto de página después (sin hoja en blanco extra)', salto === 'auto');
 
     await docPage.close();
   }
@@ -96,17 +120,17 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await abrirYRevisar('Orden de compra', () => {
     sessionStorage.setItem('forguard.documento.ordenCompra', JSON.stringify(armarPayloadOrdenCompra(ordenCompraPorId('o1'))));
     window.open('docs/plantilla_orden_compra.html', '_blank');
-  });
+  }, { conCierre: false });
 
   await abrirYRevisar('Levantamiento', () => {
     sessionStorage.setItem('forguard.documento.levantamiento', JSON.stringify(armarPayloadLevantamiento(levantamientoPorId('l1'))));
     window.open('docs/plantilla_levantamiento.html', '_blank');
-  });
+  }, { conPortada: true });
 
   await abrirYRevisar('Póliza', () => {
     sessionStorage.setItem('forguard.documento.poliza', JSON.stringify(armarPayloadPoliza(polizaPorId('p1'))));
     window.open('docs/plantilla_poliza_forguard.html', '_blank');
-  });
+  }, { conPortada: true });
 
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 

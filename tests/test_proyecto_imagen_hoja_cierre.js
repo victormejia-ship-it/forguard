@@ -15,7 +15,14 @@
    2) Pedido explícito: en vez de que la última hoja quede vacía sin más,
       ahora la plantilla agrega a propósito una hoja de cierre — mismo
       logotipo de Forguard que trae la portada (página 1), pero SOLA, sin
-      cabecera, metabar, tabla ni pie — como página final de branding. */
+      cabecera, metabar, tabla ni pie — como página final de branding.
+
+   Actualización (23-sep-2026, mismo pedido de Victor): "añade la hoja de
+   azul del inicio de pólizas de portada a ... proyectos imagen" — ahora
+   además hay una portada de verdad al principio (antes la "página 1" ERA
+   el resumen de costos; ahora es la portada navy/azul, y el resumen pasa
+   a ser la segunda hoja). Por eso el documento de este test pasa de 2 a 3
+   hojas: portada + resumen de costos + cierre. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -57,7 +64,13 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await docPage.waitForTimeout(400);
 
   const paginas = await docPage.locator('.page').all();
-  chkF('El documento trae exactamente 2 hojas (resumen de costos + cierre, sin imágenes)', paginas.length === 2);
+  chkF('El documento trae exactamente 3 hojas (portada + resumen de costos + cierre, sin imágenes)', paginas.length === 3);
+
+  const portada = paginas[0];
+  chkF('La PRIMERA hoja es la portada azul (fondo navy + marca de agua)',
+    await portada.evaluate(el => el.classList.contains('cover')) && await portada.locator('.cv-marca').count() === 1);
+  chkF('La portada trae el logo y los datos de Cliente/Fecha/Proyecto (con el nombre real del proyecto)',
+    await portada.locator('.cv-iso, .cv-logo').count() === 2 && (await portada.locator('.cv-meta').textContent()).includes('Remodelación comedor'));
 
   const ultima = paginas[paginas.length - 1];
   chkF('La última hoja SÍ trae el logo (isotipo + wordmark)', await ultima.locator('.pagina-cierre svg').count() === 2);
