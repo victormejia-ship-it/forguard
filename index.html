@@ -1201,6 +1201,32 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .notif-fila .notif-cuando{font-size:11px; color:var(--gray); margin-top:2px;}
 .notif-vacio{padding:26px 16px; text-align:center; color:var(--gray); font-size:12.5px;}
 
+/* Pendientes personales (agregado 23-sep-2026, pedido de Victor): misma
+   franja desplegable que la campanita de notificaciones —reutiliza
+   .notif-panel/.notif-cabeza/.notif-vacio—, pero es una libreta propia:
+   cada quien captura y borra sus propios recordatorios, nadie más los ve
+   (ver /pendientes en firestore.rules). No es la agenda de visitas del
+   técnico (eso ya vive en el módulo Visitas) — es de texto libre, para lo
+   que a cada quien se le ocurra anotar. */
+.pend-zona{position:relative;}
+#btnPendientes{position:relative; padding:7px 9px;}
+#btnPendientes .punto-alerta{position:absolute; top:5px; right:5px; width:auto; height:auto; min-width:16px;
+  border-radius:9px; padding:0 4px; font-size:10px; line-height:16px; font-weight:800; color:#fff;
+  background:var(--accent); box-shadow:0 0 0 2px #fff; text-align:center;}
+.pend-nuevo{display:flex; gap:8px; padding:11px 14px; border-bottom:1px solid var(--line);}
+.pend-nuevo input{flex:1; min-width:0; font:inherit; font-size:12.5px; padding:7px 9px;
+  border:1px solid var(--line); border-radius:8px; color:var(--ink);}
+.pend-nuevo input:focus{outline:none; border-color:var(--accent);}
+.pend-nuevo button{white-space:nowrap; flex-shrink:0;}
+.pend-fila{display:flex; align-items:flex-start; gap:9px; padding:9px 14px; border-bottom:1px solid var(--line);}
+.pend-fila:last-child{border-bottom:none;}
+.pend-fila .pend-check{width:15px; height:15px; margin-top:2px; flex-shrink:0; cursor:pointer; accent-color:var(--accent);}
+.pend-fila .pend-texto{flex:1; min-width:0; font-size:12.5px; line-height:1.45; color:var(--ink); word-break:break-word;}
+.pend-fila.hecho .pend-texto{color:var(--gray); text-decoration:line-through;}
+.pend-fila .pend-borrar{all:unset; cursor:pointer; color:var(--gray); font-size:17px; line-height:1;
+  padding:1px 5px; border-radius:6px; flex-shrink:0;}
+.pend-fila .pend-borrar:hover{color:var(--error); background:var(--error-suave);}
+
 /* ---------- Etiquetas de permiso, con su color ---------- */
 .rol{
   display:inline-flex; align-items:center; font-size:11px; font-weight:700; letter-spacing:.02em;
@@ -1625,6 +1651,13 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
         <span class="punto-alerta" id="puntoNotificaciones" hidden></span>
       </button>
       <div class="notif-panel" id="panelNotificaciones" hidden></div>
+    </div>
+    <div class="pend-zona">
+      <button type="button" class="btn-cabeza" id="btnPendientes" style="display:none" title="Mis pendientes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 3v3h6V3"/><path d="M8 12.5l2.2 2.2L16 9.5"/></svg>
+        <span class="punto-alerta" id="puntoPendientes" hidden></span>
+      </button>
+      <div class="notif-panel" id="panelPendientes" hidden></div>
     </div>
     <button type="button" class="btn-cabeza" id="btnVistaPrevia" style="display:none" title="Ver la app como otro rol, sin salir de tu cuenta">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -22206,6 +22239,116 @@ function pintarNotificaciones(){
   });
 }
 
+/* ==================== Pendientes personales ====================
+   Pedido de Victor (23-sep-2026): una libreta de recordatorios propia,
+   junto a "Mi cuenta" — cada quien anota y borra los suyos, nadie más los
+   ve (ver /pendientes en firestore.rules, mismo candado por usuarioUid que
+   /notificaciones por destinatarioUid). No reemplaza la agenda de visitas
+   del técnico (módulo Visitas) — esto es texto libre, para cualquier
+   pendiente suelto que a alguien se le ocurra anotar. */
+const pend = { lista: [], cargando:false, abierto:false };
+
+function normalizarPendiente(p){
+  return {
+    usuarioUid: (p && p.usuarioUid ? String(p.usuarioUid) : '').trim(),
+    texto: (p && p.texto ? String(p.texto) : '').trim(),
+    hecho: !!(p && p.hecho),
+    creadoEn: (p && p.creadoEn) || new Date().toISOString(),
+    hechoEn: (p && p.hechoEn) || ''
+  };
+}
+function ordenarPendientes(){
+  pend.lista.sort((a,b)=>{
+    if(!!a.hecho !== !!b.hecho) return a.hecho ? 1 : -1; // pendientes primero, hechos al final
+    return (b.creadoEn||'').localeCompare(a.creadoEn||''); // más reciente arriba, dentro de cada grupo
+  });
+}
+
+async function cargarPendientes(){
+  if(!HAY_NUBE || !haySesion() || esCliente() || pend.cargando) return;
+  pend.cargando = true;
+  try{
+    pend.lista = await consultarNubePorCampo('pendientes', 'usuarioUid', sesion.uid);
+    ordenarPendientes();
+  }catch(e){ /* silencioso: una libreta que no cargó no debe tronar nada más */ }
+  pend.cargando = false;
+  pintarPendientes();
+}
+
+function pintarPendientes(){
+  const btn = $('btnPendientes');
+  if(!btn) return;
+  const activos = pend.lista.filter(p => !p.hecho).length;
+  let punto = btn.querySelector('.punto-alerta');
+  if(!punto){
+    punto = document.createElement('span');
+    punto.className = 'punto-alerta';
+    btn.appendChild(punto);
+  }
+  punto.hidden = !activos;
+  punto.textContent = activos > 9 ? '9+' : String(activos);
+
+  const panel = $('panelPendientes');
+  if(!panel || !pend.abierto) return;
+  panel.innerHTML =
+      '<div class="notif-cabeza"><h4>Mis pendientes</h4></div>'
+    + '<form id="formNuevoPendiente" class="pend-nuevo">'
+    +   '<input type="text" id="pendTexto" placeholder="Escribe un pendiente…" maxlength="200" autocomplete="off">'
+    +   '<button type="submit" class="btn btn-mini btn-primario">Agregar</button>'
+    + '</form>'
+    + (pend.lista.length
+        ? pend.lista.map(p => '<div class="pend-fila' + (p.hecho ? ' hecho' : '') + '" data-pend-id="' + esc(p.id) + '">'
+            +   '<input type="checkbox" class="pend-check"' + (p.hecho ? ' checked' : '') + '>'
+            +   '<span class="pend-texto">' + esc(p.texto) + '</span>'
+            +   '<button type="button" class="pend-borrar" title="Eliminar">&times;</button>'
+            + '</div>').join('')
+        : '<div class="notif-vacio">No tienes pendientes. ¡Buen trabajo!</div>');
+
+  $('formNuevoPendiente').addEventListener('submit', ev=>{
+    ev.preventDefault();
+    const input = $('pendTexto');
+    const texto = input.value.trim();
+    if(!texto) return;
+    const id = nuevoId();
+    const nuevo = normalizarPendiente({ usuarioUid: sesion.uid, texto });
+    encolar({ tipo:'poner', coleccion:'pendientes', id, obj: nuevo });
+    pend.lista.unshift(Object.assign({ id }, nuevo));
+    ordenarPendientes();
+    pintarPendientes();
+    setTimeout(()=>{ const i = $('pendTexto'); if(i) i.focus(); }, 0);
+  });
+  panel.querySelectorAll('.pend-check').forEach(chk=>{
+    chk.addEventListener('change', ()=>{
+      const p = pend.lista.find(x => x.id === chk.closest('[data-pend-id]').dataset.pendId);
+      if(!p) return;
+      p.hecho = chk.checked;
+      p.hechoEn = p.hecho ? new Date().toISOString() : '';
+      encolar({ tipo:'poner', coleccion:'pendientes', id:p.id, obj: normalizarPendiente(p) });
+      ordenarPendientes();
+      pintarPendientes();
+    });
+  });
+  panel.querySelectorAll('.pend-borrar').forEach(botonBorrar=>{
+    botonBorrar.addEventListener('click', ()=>{
+      const id = botonBorrar.closest('[data-pend-id]').dataset.pendId;
+      pend.lista = pend.lista.filter(x => x.id !== id);
+      encolar({ tipo:'borrar', coleccion:'pendientes', id });
+      pintarPendientes();
+    });
+  });
+}
+
+function abrirPanelPendientes(){
+  pend.abierto = true;
+  $('panelPendientes').hidden = false;
+  if(!pend.lista.length) cargarPendientes(); else pintarPendientes();
+}
+function cerrarPanelPendientes(){
+  pend.abierto = false;
+  const panel = $('panelPendientes');
+  if(panel) panel.hidden = true;
+}
+
 function abrirPanelNotificaciones(){
   notif.abierto = true;
   $('panelNotificaciones').hidden = false;
@@ -22246,6 +22389,7 @@ function pintarCabecera(){
      esCliente() nunca tiene técnicos que le asignen ni comentarios que le
      lleguen — ver notificarInteresadosReporte(). */
   $('btnNotificaciones').style.display = (dentro && !esCliente()) ? '' : 'none';
+  $('btnPendientes').style.display = (dentro && !esCliente()) ? '' : 'none';
   $('btnAdmin').style.display = (dentro && esAdmin()) ? '' : 'none';
   /* "Ver como…" es del Owner de VERDAD (esOwnerReal(), no esOwner()): tiene
      que seguir a la mano incluso a media vista previa, para poder cambiar de
@@ -30321,6 +30465,16 @@ document.addEventListener('mousedown', ev=>{
   if(ev.target.closest('.notif-zona')) return;
   cerrarPanelNotificaciones();
 });
+$('btnPendientes').addEventListener('click', ()=>{
+  if(pend.abierto) cerrarPanelPendientes();
+  else abrirPanelPendientes();
+});
+/* Mismo criterio que el panel de notificaciones: clic fuera lo cierra. */
+document.addEventListener('mousedown', ev=>{
+  if(!pend.abierto) return;
+  if(ev.target.closest('.pend-zona')) return;
+  cerrarPanelPendientes();
+});
 /* Mismo criterio que el panel de notificaciones: clic fuera lo cierra. */
 document.addEventListener('mousedown', ev=>{
   if(!masModulosAbierto) return;
@@ -30406,6 +30560,7 @@ async function refrescarDesdeNube(){
          sin tocar ninguna de las 17 colecciones. */
       sincronizado = true;
       cargarNotificaciones();
+      cargarPendientes();
       return;
     }
     /* Sin marcas todavía (instalación recién llegada a esta versión, la
@@ -30429,6 +30584,7 @@ async function refrescarDesdeNube(){
       else render();
     }
     cargarNotificaciones();
+    cargarPendientes();
   }catch(e){
     if(/SIN_SESION|SESION_VENCIDA/.test(String(e.message))) salir(true);
   }
@@ -30509,6 +30665,7 @@ async function arrancarNube(){
     });
     arrancarVigilancia();
     cargarNotificaciones();
+    cargarPendientes();
     /* Primera conexión: el servidor está vacío y aquí ya había capturas. Se suben. */
     if(r === 'vacia'){
       if(puedeEditar()){

@@ -269,6 +269,21 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Pendientes personales (agregado 23-sep-2026, pedido de Victor) ---
+       La libreta de recordatorios de "Mis pendientes" (ver pintarPendientes()
+       en index.html): texto libre, propio de CADA cuenta — a diferencia de
+       /notificaciones (que ni Admin puede borrar, son un aviso del sistema),
+       aquí sí puede su dueño editar y borrar lo suyo con libertad, porque es
+       su propia libreta, no un aviso que alguien más mandó. Ni siquiera
+       Admin puede leer la de otra cuenta desde aquí — si algún día hace
+       falta un tablero de equipo, sería su propia colección aparte, no una
+       excepción a esta. */
+    match /pendientes/{id} {
+      allow read: if conAcceso() && resource.data.usuarioUid == request.auth.uid;
+      allow create: if conAcceso() && !esCliente() && request.resource.data.usuarioUid == request.auth.uid;
+      allow update, delete: if conAcceso() && resource.data.usuarioUid == request.auth.uid;
+    }
+
     /* --- Levantamientos (recorridos de sitio) ---
        Séptimo módulo: el registro de una visita completa, con varios
        hallazgos (correctivos o preventivos) dentro. A propósito "para todos
