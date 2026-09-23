@@ -84,6 +84,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Se agrega el registro con el concepto por default "Nómina"', tras1.total === 1 && tras1.reg.concepto === 'Nómina');
   chkF('El monto se guarda tal cual se capturó', tras1.reg.monto === 850000);
   chkF('La fecha queda como el primer día del mes elegido', tras1.reg.fecha.endsWith('-01'));
+  chkF('Por default, el pilar es "transversal" (Framework de Proforma, 23-sep-2026)', tras1.reg.pilar === 'transversal');
 
   const kpisTras1 = await page.evaluate(() => ({
     esteMes: document.querySelectorAll('.kpi .k-valor')[0].textContent,
@@ -94,17 +95,21 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('El KPI "Este año" también lo incluye (es el único registro)', kpisTras1.esteAnio.includes('850,000'));
   chkF('El promedio mensual es igual al único mes capturado', kpisTras1.promedio.includes('850,000'));
 
-  // --------- 4) Un segundo registro, mismo mes, concepto distinto (aguinaldo) ---------
+  // --------- 4) Un segundo registro, mismo mes, concepto distinto (aguinaldo), pilar específico ---------
   await page.click('[data-accion="nueva-nomina"]');
   await page.waitForTimeout(150);
   await page.fill('#nomConcepto', 'Aguinaldo');
   await page.fill('#nomMonto', '150000');
+  await page.selectOption('#nomPilar', 'tecnicos');
   await page.click('#modalPie [data-modal="guardar"]');
   await page.waitForTimeout(150);
   const tras2 = await page.evaluate(() => ({
     total: datos.nomina.length,
     aguinaldo: datos.nomina.find(n => n.concepto === 'Aguinaldo'),
   }));
+  chkF('Se puede clasificar un registro a un pilar específico (Servicios Técnicos)', tras2.aguinaldo && tras2.aguinaldo.pilar === 'tecnicos');
+  const columnaPilar = await page.evaluate(() => document.querySelector('.tabla tbody tr').textContent);
+  chkF('La columna "Pilar" de la lista muestra el nombre completo del pilar', /Servicios Técnicos|Transversal/.test(columnaPilar));
   chkF('El segundo registro se agrega aparte, sin reemplazar el primero', tras2.total === 2);
   chkF('...con el concepto distinto capturado', tras2.aguinaldo && tras2.aguinaldo.monto === 150000);
 

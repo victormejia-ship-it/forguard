@@ -5315,6 +5315,29 @@ function calcularGastoProveedor(g){
   return { totalAbonado, saldo, pagado, vencido, diasParaVencer, estado, tono, tonoInsignia };
 }
 
+/* ==================== Pilares de negocio (Framework de Proforma, 23-sep-2026) ====================
+   Victor compartió el "Framework de Proforma" que usan para el cierre de
+   indicadores/estados financieros: en vez de organizar Resultados por
+   FUENTE de ingreso (Forpass/Pólizas/Cotizaciones), lo organiza por PILAR
+   de negocio, cada uno con su propio ingreso/costo directo/utilidad/margen
+   — y una nómina que se reparte entre "directa del pilar" (personal
+   dedicado) o "transversal" (Gastos de Estructura Forguard, sin prorrateo).
+   Este mapa es la base tanto de la clasificación de cada registro de
+   Nómina como del reporte "Por pilares" de Resultados (ver
+   calcularResultadosPorPilar()). 'transversal' no es un pilar del negocio
+   —es la nómina administrativa que NO se reparte—, pero vive en el mismo
+   catálogo porque es una opción más al clasificar un registro de nómina. */
+const PILARES_FORGUARD = {
+  tecnicos:    { nombre:'Servicios Técnicos' },
+  operativos:  { nombre:'Servicios Operativos' },
+  proyectos:   { nombre:'Proyectos e Infraestructura' },
+  tecnologia:  { nombre:'Tecnología y Control' },
+  transversal: { nombre:'Transversal (administrativo)' }
+};
+/* Los 4 pilares de negocio de verdad, en el orden del Framework — sin
+   'transversal', que no es un pilar sino Gastos de Estructura. */
+const ORDEN_PILARES = ['tecnicos', 'operativos', 'proyectos', 'tecnologia'];
+
 /* ==================== Nómina (agregada 23-sep-2026) ====================
    Fase 1 del rediseño de Resultados: Victor mostró su "Cierre de mes" real
    (Excel) y Nómina es, de lejos, el gasto más grande del negocio (70-80%
@@ -5324,7 +5347,15 @@ function calcularGastoProveedor(g){
    concepto — aguinaldo, PTU, bono — cuando aplique), nada de detalle por
    empleado. Es información sensible: el módulo completo es exclusivo de
    Owner/Admin (ver modulosPermitidos() y firestore.rules — /nomina ni
-   siquiera se puede LEER desde otro rol, no nomás se esconde la pestaña). */
+   siquiera se puede LEER desde otro rol, no nomás se esconde la pestaña).
+
+   `pilar` (agregado con el Framework de Proforma): a qué pilar de negocio
+   pertenece este gasto —"personal dedicado → costo directo del pilar;
+   personal transversal → Gastos de Estructura Forguard", tal cual lo pidió
+   Victor—. Por default 'transversal': los registros ya capturados antes de
+   este campo (y cualquiera que nadie reclasifique) cuentan como
+   administrativos hasta que alguien los mueva a su pilar correcto — nunca
+   se inventa un pilar por adivinar. */
 function normalizarRegistroNomina(n){
   return {
     id: (n && n.id) || nuevoId(),
@@ -5333,6 +5364,7 @@ function normalizarRegistroNomina(n){
     fecha: /^\d{4}-\d{2}-\d{2}$/.test(n && n.fecha) ? n.fecha : hoyISO(),
     concepto: (n && n.concepto ? String(n.concepto) : '').trim() || 'Nómina',
     monto: Math.max(0, Math.round(Number(n && n.monto) || 0)),
+    pilar: PILARES_FORGUARD[n && n.pilar] ? n.pilar : 'transversal',
     notas: (n && n.notas ? String(n.notas) : '').trim()
   };
 }
@@ -12426,6 +12458,104 @@ function calcularResultados(inicio, fin, sitioId){
   return r;
 }
 
+/* ==================== Resultados por pilar (Framework de Proforma, 23-sep-2026) ====================
+   Segunda forma de leer Resultados, pedida por Victor: en vez de ingreso/
+   costo por FUENTE (Forpass/pólizas/cotizaciones, ver calcularResultados()
+   arriba), esto reorganiza los MISMOS números —más la nómina ya
+   clasificada por pilar— siguiendo el "Framework de Proforma" que Victor
+   comparte con su equipo para el cierre de indicadores.
+
+   Varios renglones del Framework no tienen TODAVÍA de dónde sacar un
+   número real en esta app (Servicios Operativos completo: Limpieza/
+   Fumigación/Transporte; el ingreso de Aperturas/Remodelaciones/Venta de
+   equipos; el costo y la venta de equipos de FORPASS; los gastos
+   administrativos/corporativos) — se dejan en 0 A PROPÓSITO, nunca
+   inventados ni repartidos de otro rubro, para que el reporte tenga la
+   forma final del Framework desde ya y se vaya llenando solo conforme se
+   construyan las fases que faltan (ver vistaResultadosPorPilares(), que
+   avisa cuáles siguen en 0). */
+function nominaPorPilarEnPeriodo(inicio, fin){
+  const suma = { tecnicos:0, operativos:0, proyectos:0, tecnologia:0, transversal:0 };
+  datos.nomina.forEach(n=>{
+    if(n.fecha >= inicio && n.fecha <= fin) suma[n.pilar] += n.monto;
+  });
+  return suma;
+}
+function armarPilarResultados(nombre, ingresosDef, costosDef){
+  const ingresos = ingresosDef.map(([label, monto]) => ({ label, monto }));
+  const costos = costosDef.map(([label, monto]) => ({ label, monto }));
+  const totalIngresos = ingresos.reduce((t,x)=> t + x.monto, 0);
+  const totalCostos = costos.reduce((t,x)=> t + x.monto, 0);
+  const utilidadBruta = totalIngresos - totalCostos;
+  const margenBruto = totalIngresos ? (utilidadBruta / totalIngresos * 100) : 0;
+  return { nombre, ingresos, totalIngresos, costos, totalCostos, utilidadBruta, margenBruto };
+}
+function calcularResultadosPorPilar(inicio, fin, sitioId){
+  const r = calcularResultados(inicio, fin, sitioId);
+  const nom = nominaPorPilarEnPeriodo(inicio, fin);
+
+  const pilares = {
+    tecnicos: armarPilarResultados(PILARES_FORGUARD.tecnicos.nombre,
+      [ ['Pólizas de mantenimiento', r.ingresoPolizasCliente],
+        ['Pólizas de mantenimiento incluidas en precio', r.ingresoPolizasInterno],
+        ['Trabajos correctivos / preventivo', r.ingresoCotizaciones] ],
+      [ ['Nómina directa del pilar', nom.tecnicos],
+        ['Refacciones y materiales', r.costoPolizas],
+        ['Proveedores / servicios subcontratados', r.costoCotizaciones],
+        ['Otros costos directos', 0] ]),
+
+    /* Sin ningún módulo propio todavía (ver Ayuda → Nómina): los 4 renglones
+       de ingreso y 3 de costo quedan en 0 salvo la nómina ya clasificada. */
+    operativos: armarPilarResultados(PILARES_FORGUARD.operativos.nombre,
+      [ ['Limpieza', 0], ['Fumigación', 0], ['Transporte de personal', 0], ['Otros servicios operativos', 0] ],
+      [ ['Nómina directa del pilar', nom.operativos],
+        ['Materiales e insumos', 0], ['Proveedores / servicios subcontratados', 0], ['Otros costos directos', 0] ]),
+
+    /* Imagen/Aperturas hoy solo registra COSTO (materiales/mano de obra),
+       nunca un ingreso propio —no genera una cotización formal, ver Ayuda
+       → Imagen/Aperturas—, así que "Aperturas"/"Remodelaciones"/"Venta de
+       equipos" quedan en 0 aunque el pilar sí tenga costo real. */
+    proyectos: armarPilarResultados(PILARES_FORGUARD.proyectos.nombre,
+      [ ['Aperturas', 0], ['Remodelaciones', 0], ['Venta / renta de equipos', 0], ['Otros proyectos', 0] ],
+      [ ['Nómina directa del pilar', nom.proyectos],
+        ['Materiales', r.imagenMateriales],
+        ['Contratistas / proveedores', r.imagenManoObra],
+        ['Costo de equipos', 0], ['Otros costos directos', 0] ]),
+
+    /* Forpass nunca tuvo costo interno capturado (ver Ayuda → Forpass): el
+       ingreso recurrente sí es real, el resto queda en 0. */
+    tecnologia: armarPilarResultados(PILARES_FORGUARD.tecnologia.nombre,
+      [ ['FORPASS – renta / licenciamiento', r.ingresoForpass],
+        ['FORPASS – venta de equipos', 0], ['Otros ingresos de tecnología', 0] ],
+      [ ['Nómina directa del pilar', nom.tecnologia],
+        ['Hardware / equipos FORPASS', 0], ['Licencias y software directo', 0],
+        ['Instalación / soporte directo', 0], ['Otros costos directos', 0] ])
+  };
+
+  const listaPilares = ORDEN_PILARES.map(id => pilares[id]);
+  const totalIngresos = listaPilares.reduce((t,p)=> t + p.totalIngresos, 0);
+  const totalCostos = listaPilares.reduce((t,p)=> t + p.totalCostos, 0);
+  const utilidadBruta = totalIngresos - totalCostos;
+  const margenBruto = totalIngresos ? (utilidadBruta / totalIngresos * 100) : 0;
+
+  /* Gastos de Estructura: a propósito NO se reparte entre pilares (pedido
+     explícito de Victor, nota del Framework: "evitar prorrateos
+     arbitrarios") — la nómina transversal es el único renglón con un
+     número real hoy; los otros tres esperan al módulo de gastos generales. */
+  const estructura = [
+    { label:'Nómina administrativa / transversal', monto: nom.transversal },
+    { label:'Gastos administrativos', monto:0 },
+    { label:'Gastos corporativos asignados', monto:0 },
+    { label:'Otros gastos de estructura', monto:0 }
+  ];
+  const totalEstructura = estructura.reduce((t,x)=> t + x.monto, 0);
+  const utilidadOperativa = utilidadBruta - totalEstructura;
+  const margenOperativo = totalIngresos ? (utilidadOperativa / totalIngresos * 100) : 0;
+
+  return { pilares: listaPilares, resumen:{ totalIngresos, totalCostos, utilidadBruta, margenBruto },
+           estructura, totalEstructura, utilidadOperativa, margenOperativo };
+}
+
 /* ==================== Cocinas: funcionalidad de equipos ====================
    Salud operativa de "una cocina" (un sitio) medida con la bitácora REAL a lo
    largo del tiempo — a diferencia del "Análisis de funcionamiento" de
@@ -12680,8 +12810,12 @@ const TEMAS_AYUDA = [
           ])
         + guiaTip('Otros detalles que casi nadie nota', [
             'Todo se recalcula al vuelo cada vez que entras o cambias el periodo — nada de esto se guarda, así que nunca puede quedar desactualizado.',
-            'Resultados también se puede ver como tarjetas (quién deja más, de un vistazo) o como tabla (el ranking completo de clientes, sitios y técnicos) con los botones junto al selector de período — y desde ahí mismo se exporta a Excel o PDF.',
+            'Resultados también se puede ver como tarjetas (quién deja más, de un vistazo), como tabla (el ranking completo de clientes, sitios y técnicos) o <b>por pilares</b> (ver abajo) con los botones junto al selector de período — y desde ahí mismo se exporta a Excel o PDF.',
             'Un equipo del catálogo de Pólizas dejado en $0 de costo entiende que "no cuesta nada" y silenciosamente infla el margen — vale la pena revisar la Lista de precios si algo se ve raro.'
+          ])
+        + guiaTip('La vista "Por pilares" (Framework de Proforma, 23-sep-2026)', [
+            'Reorganiza los MISMOS números de arriba —más la nómina ya clasificada en el módulo Nómina— siguiendo el "Framework de Proforma" que Victor comparte con su equipo: 4 pilares de negocio (Servicios Técnicos, Servicios Operativos, Proyectos e Infraestructura, Tecnología y Control), cada uno con su ingreso, su costo directo (incluida la nómina de personal dedicado a ESE pilar) y su margen bruto propio, sumados en un "Resumen Forguard" del que se resta la "Nómina administrativa/transversal" para llegar a la utilidad y el margen operativo.',
+            'Todavía tiene renglones en $0 a propósito, nunca inventados: Servicios Técnicos y Tecnología y Control (Forpass) ya jalan datos reales; Servicios Operativos (Limpieza, Fumigación, Transporte) no tiene módulo de captura; Proyectos e Infraestructura (Imagen/Aperturas) trae su costo pero no un ingreso propio; y los gastos administrativos/corporativos de estructura tampoco están capturados — se van llenando conforme avanza el rediseño (ver Nómina, en Más).'
           ])) },
 
   { id:'clientes', titulo:'Clientes',
@@ -13058,10 +13192,14 @@ const TEMAS_AYUDA = [
     resumen:'El gasto de nómina real, mes a mes — para que Resultados por fin lo pueda incluir. Exclusivo de Owner/Admin.',
     contenido:
       guiaSeccion('Lo básico', guiaPasos([
-        'Usa <b>Registrar nómina</b>: Mes*, Monto*, Concepto (por default "Nómina" — cámbialo a "Aguinaldo", "PTU" o "Bono" para un registro aparte de ese mes) y Notas.',
-        'La lista se ve más reciente arriba, con el monto y el mes de cada registro; usa el lápiz para editarlo o el bote de basura para eliminarlo.',
-        'Tres indicadores de cabecera: <b>Este mes</b>, <b>Este año</b> (suma de todos los registros del año en curso, cualquier concepto) y el <b>Promedio mensual</b> (el total del año entre los meses que ya tienen algo capturado).'
+        'Usa <b>Registrar nómina</b>: Mes*, Monto*, Concepto (por default "Nómina" — cámbialo a "Aguinaldo", "PTU" o "Bono" para un registro aparte de ese mes), <b>Pilar*</b> y Notas.',
+        'La lista se ve más reciente arriba, con el monto, el mes y el pilar de cada registro; usa el lápiz para editarlo o el bote de basura para eliminarlo.',
+        'Tres indicadores de cabecera: <b>Este mes</b>, <b>Este año</b> (suma de todos los registros del año en curso, cualquier concepto o pilar) y el <b>Promedio mensual</b> (el total del año entre los meses que ya tienen algo capturado).'
       ]))
+      + guiaTip('Qué es el "Pilar" (Framework de Proforma, 23-sep-2026)', [
+          'Victor comparte con su equipo un "Framework de Proforma" que organiza el cierre de indicadores por PILAR de negocio (Servicios Técnicos, Servicios Operativos, Proyectos e Infraestructura, Tecnología y Control) en vez de por fuente de ingreso — y reparte la nómina entre "directa del pilar" (personal dedicado, cuenta como costo de ESE pilar) o "Transversal" (personal administrativo/compartido, va a Gastos de Estructura Forguard, sin repartirse entre pilares).',
+          'Elige el pilar correcto al capturar cada registro: de ahí sale directo el desglose de la vista "Por pilares" en Resultados (ver ese tema). Un registro capturado antes de que existiera este campo, o cualquiera que nadie reclasifique, cuenta como "Transversal" por default — nunca se le adivina un pilar.'
+        ])
       + guiaTip('Por qué es su propio módulo, aparte', [
           'Es información sensible del negocio: ni la pestaña aparece ni el registro se puede leer para ningún rol que no sea Owner o Admin — Analyst, Viewer, Técnico, Reportero y Cliente no tienen forma de verlo, ni desde el propio servidor (no es solo un botón escondido).',
           'Es la primera fase de un rediseño más grande de Resultados (23-sep-2026): el "Cierre de mes" real de Victor incluye varios rubros que la app todavía no captura (Gasolinas, Trampas de grasa, Extracciones, Renders, compras y consumibles) — Nómina se hizo primero por ser, de lejos, el gasto más grande (70-80% del costo total cada mes). Los demás llegan en fases siguientes, y hasta que estén todos capturados, Resultados TODAVÍA no incluye ninguno de estos gastos en su cálculo de utilidad.'
@@ -13235,6 +13373,59 @@ function tablasComparativasResultados(r){
   return h;
 }
 
+/* Un bloque .tabla-pyl por pilar, mismo molde que ya usa el desglose de
+   ingresos/costos de vistaResultados() más abajo — así el reporte por
+   pilares se siente parte de la misma pantalla, no un widget aparte. */
+function bloquePilarResultadosHTML(p){
+  return '<div class="bloque"><div class="bloque-cabeza"><div>'
+       +   '<h3>' + esc(p.nombre) + '</h3><p>Margen bruto: ' + p.margenBruto.toFixed(1) + '%</p>'
+       + '</div></div>'
+       + '<div class="tabla-pyl">'
+       +   '<div class="tp-seccion">Ingresos</div>'
+       +   p.ingresos.map(x => '<div class="tp-fila"><span>' + esc(x.label) + '</span><span class="tp-monto">' + dinero(x.monto) + '</span></div>').join('')
+       +   '<div class="tp-fila tp-total"><span>Total ingresos</span><span class="tp-monto">' + dinero(p.totalIngresos) + '</span></div>'
+       +   '<div class="tp-seccion">Costos directos</div>'
+       +   p.costos.map(x => '<div class="tp-fila tp-negativo"><span>' + esc(x.label) + '</span><span class="tp-monto">' + dinero(x.monto) + '</span></div>').join('')
+       +   '<div class="tp-fila tp-total"><span>Total costos directos</span><span class="tp-monto">' + dinero(p.totalCostos) + '</span></div>'
+       + '</div>'
+       + '<div class="tp-final"><span class="tp-label">Utilidad bruta · ' + esc(p.nombre) + '</span>'
+       +   '<span class="tp-monto" style="color:' + (p.utilidadBruta >= 0 ? 'var(--ok)' : 'var(--error)') + '">' + dinero(p.utilidadBruta) + '</span></div>'
+       + '</div>';
+}
+/* Estado de resultados organizado por pilar de negocio, siguiendo el
+   "Framework de Proforma" que Victor comparte con su equipo (23-sep-2026)
+   — en vez de por fuente de ingreso (Forpass/pólizas/cotizaciones), que es
+   como ya lo ve el resto de esta pantalla. Ver calcularResultadosPorPilar()
+   para de dónde sale cada número, y por qué varios todavía están en 0. */
+function vistaResultadosPorPilares(pr){
+  let h = pr.pilares.map(bloquePilarResultadosHTML).join('');
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Resumen Forguard</h3>'
+     +   '<p>Suma de los 4 pilares — margen bruto: ' + pr.resumen.margenBruto.toFixed(1) + '%</p></div></div>'
+     + '<div class="tabla-pyl">'
+     +   '<div class="tp-fila"><span>Total ingresos Forguard</span><span class="tp-monto">' + dinero(pr.resumen.totalIngresos) + '</span></div>'
+     +   '<div class="tp-fila tp-negativo"><span>Total costos directos</span><span class="tp-monto">' + dinero(pr.resumen.totalCostos) + '</span></div>'
+     +   '<div class="tp-fila tp-total"><span>Utilidad bruta</span><span class="tp-monto">' + dinero(pr.resumen.utilidadBruta) + '</span></div>'
+     + '</div></div>';
+
+  h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Gastos de estructura Forguard</h3>'
+     +   '<p>Nómina administrativa y gastos generales — a propósito NO se reparten entre pilares, para evitar prorrateos arbitrarios.</p></div></div>'
+     + '<div class="tabla-pyl">'
+     +   pr.estructura.map(x => '<div class="tp-fila tp-negativo"><span>' + esc(x.label) + '</span><span class="tp-monto">' + dinero(x.monto) + '</span></div>').join('')
+     +   '<div class="tp-fila tp-total"><span>Total gastos de estructura</span><span class="tp-monto">' + dinero(pr.totalEstructura) + '</span></div>'
+     + '</div></div>';
+
+  h += '<div class="tp-final">'
+     +   '<span class="tp-label">Utilidad operativa Forguard</span>'
+     +   '<span class="tp-monto" style="color:' + (pr.utilidadOperativa >= 0 ? 'var(--ok)' : 'var(--error)') + '">' + dinero(pr.utilidadOperativa) + '</span>'
+     + '</div>'
+     + '<p class="pista" style="text-align:right; margin-top:-10px">Margen operativo: ' + pr.margenOperativo.toFixed(1) + '%</p>';
+
+  h += '<p class="pista" style="margin-top:14px">Formato basado en el Framework de Proforma que Victor comparte con su equipo (23-sep-2026). Varios renglones siguen en $0 porque todavía no tienen de dónde sacar el número: Servicios Operativos completo (Limpieza, Fumigación, Transporte de personal) no tiene módulo de captura; Proyectos e Infraestructura no factura Aperturas/Remodelaciones como ingreso propio ni Venta/renta de equipos; Tecnología y Control no tiene costo ni venta de equipos de FORPASS capturados; y los gastos administrativos/corporativos de estructura tampoco — se van llenando en las siguientes fases.</p>';
+
+  return h;
+}
+
 function vistaResultados(){
   const modo = estado.periodoResultados;
   const { inicio, fin } = rangoPeriodoResultados(modo, estado.resultadosDesde, estado.resultadosHasta);
@@ -13250,7 +13441,7 @@ function vistaResultados(){
 
   const r = calcularResultados(inicio, fin, estado.resultadosSitioId);
   const vista = estado.vistaResultados || 'graficas';
-  const enTabla = vista === 'tabla', enTarjetas = vista === 'tarjetas';
+  const enTabla = vista === 'tabla', enTarjetas = vista === 'tarjetas', enPilares = vista === 'pilares';
 
   let h = '<div class="titulo-zona"><div>'
         +   '<h2>Estado de resultados</h2>'
@@ -13279,15 +13470,17 @@ function vistaResultados(){
            }).join('')
      +   '</select>'
      +   (sitioActivo ? '<button type="button" class="btn btn-suave btn-mini" data-accion="quitar-filtro-sitio-resultados">Quitar filtro</button>' : '')
-     /* Tres formas de leer lo mismo: gráficas (dirección, tendencia visual),
-        tarjetas (vistazo rápido de quién deja más) y tabla (el desglose
-        completo, la misma que se manda a Excel/PDF). Mismo mecanismo de
-        controlAlternaVista() que ya usan Pólizas/Cotizaciones/Reportes, nada
-        más con un tercer botón, igual que ya hace vistaProyectosImagen(). */
+     /* Cuatro formas de leer lo mismo: gráficas (dirección, tendencia visual),
+        tarjetas (vistazo rápido de quién deja más), tabla (el desglose
+        completo, la misma que se manda a Excel/PDF) y pilares (el mismo
+        desglose, pero organizado como el Framework de Proforma de Victor,
+        23-sep-2026 — ver vistaResultadosPorPilares()). Mismo mecanismo de
+        controlAlternaVista() que ya usan Pólizas/Cotizaciones/Reportes. */
      +   '<div class="alterna-vista" role="group" aria-label="Cómo ver los resultados">'
-     +     '<button type="button" data-accion="vista-lista" data-campo="vistaResultados" data-modo="graficas" aria-pressed="' + (!enTabla && !enTarjetas) + '" title="Ver gráficas">' + ICONO.grafica + '</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaResultados" data-modo="graficas" aria-pressed="' + (!enTabla && !enTarjetas && !enPilares) + '" title="Ver gráficas">' + ICONO.grafica + '</button>'
      +     '<button type="button" data-accion="vista-lista" data-campo="vistaResultados" data-modo="tarjetas" aria-pressed="' + enTarjetas + '" title="Ver tarjetas resumen">' + ICONO.tarjetas + '</button>'
      +     '<button type="button" data-accion="vista-lista" data-campo="vistaResultados" data-modo="tabla" aria-pressed="' + enTabla + '" title="Ver tabla y comparativas">' + ICONO.tabla + '</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaResultados" data-modo="pilares" aria-pressed="' + enPilares + '" title="Ver por pilar de negocio (Framework de Proforma)">' + ICONO.edificio + '</button>'
      +   '</div>'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="excel-resultados">' + ICONO.excel + 'Excel</button>'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-resultados">' + ICONO.imprimir + 'PDF</button>'
@@ -13303,6 +13496,11 @@ function vistaResultados(){
   if(enTarjetas){
     h += tarjetasComparativasResultados(r);
     h += '<p class="pista" style="margin-top:14px">Vista rápida del período — cambia a "Tabla" para ver el desglose completo de ingresos y costos, o a "Gráficas" para la tendencia de los últimos 12 meses.</p>';
+    return h;
+  }
+
+  if(enPilares){
+    h += vistaResultadosPorPilares(calcularResultadosPorPilar(inicio, fin, estado.resultadosSitioId));
     return h;
   }
 
@@ -16535,11 +16733,12 @@ function vistaNomina(){
   }
 
   h += '<div class="rodillo"><table class="tabla"><thead><tr>'
-     +   '<th>Mes</th><th>Concepto</th><th>Monto</th><th>Notas</th><th></th>'
+     +   '<th>Mes</th><th>Concepto</th><th>Pilar</th><th>Monto</th><th>Notas</th><th></th>'
      + '</tr></thead><tbody>'
      + lista.map(n => '<tr>'
          +   '<td>' + esc(fmtFecha(n.fecha)) + '</td>'
          +   '<td>' + esc(n.concepto) + '</td>'
+         +   '<td>' + esc(PILARES_FORGUARD[n.pilar].nombre) + '</td>'
          +   '<td>' + dinero(n.monto) + '</td>'
          +   '<td>' + esc(n.notas || '—') + '</td>'
          +   '<td style="white-space:nowrap; text-align:right">'
@@ -17630,6 +17829,9 @@ function modalNomina(id){
     + '<div class="campo"><label>Concepto</label>'
     +   '<input type="text" id="nomConcepto" placeholder="Nómina" value="' + esc(n ? n.concepto : 'Nómina') + '">'
     +   '<div class="pista">Normalmente "Nómina" — usa un texto distinto para un registro aparte, como "Aguinaldo" o "PTU".</div></div>'
+    + '<div class="campo"><label>Pilar *</label><select id="nomPilar">'
+    +   ORDEN_PILARES.concat('transversal').map(p => '<option value="' + p + '"' + ((n ? n.pilar : 'transversal') === p ? ' selected' : '') + '>' + esc(PILARES_FORGUARD[p].nombre) + '</option>').join('')
+    + '</select><div class="pista">Personal dedicado a un pilar es SU costo directo; personal administrativo/compartido va en "Transversal" (Gastos de Estructura, no se reparte entre pilares).</div></div>'
     + '<div class="campo"><label>Notas</label>'
     +   '<textarea id="nomNotas" placeholder="Cualquier detalle útil…">' + esc(n ? n.notas : '') + '</textarea></div>';
 
@@ -17648,6 +17850,7 @@ function modalNomina(id){
       fecha: mes + '-01',
       concepto: $('nomConcepto').value.trim(),
       monto,
+      pilar: $('nomPilar').value,
       notas: $('nomNotas').value.trim()
     };
 
