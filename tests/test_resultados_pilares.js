@@ -12,7 +12,10 @@
    conocidos (la lógica de ESA función ya la cubren otras pruebas) para
    probar en aislado solo lo nuevo: que calcularResultadosPorPilar() meta
    cada número en el pilar correcto, que la nómina se sume por pilar y
-   respete el periodo, y que la vista "Por pilares" lo pinte bien. */
+   respete el periodo, que el ingreso de Imagen/Aperturas (agregado
+   23-sep-2026: cuenta desde "Aprobado" en adelante, nunca antes — el costo
+   sigue igual que siempre, sin esperar ningún estatus) se sume por tipo de
+   proyecto, y que la vista "Por pilares" lo pinte bien. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -55,6 +58,32 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
       /* Fuera del periodo de prueba (agosto) — NO debe contarse en nada. */
       normalizarRegistroNomina({ id:'n6', fecha:'2026-08-01', monto:999999, pilar:'tecnicos' })
     ];
+
+    /* proyectosImagenIngresoPorTipo(): el costo (imagenMateriales/imagenManoObra)
+       viene del mock de calcularResultados() de arriba, fijo — estos proyectos
+       son solo para probar el INGRESO nuevo (23-sep-2026, pedido de Victor vía
+       AskUserQuestion: cuenta desde "Aprobado" en adelante, nunca antes). */
+    datos.proyectosImagen = [
+      /* Aprobado, dentro del periodo → SÍ cuenta (Aperturas). */
+      normalizarProyectoImagen({ id:'pi1', tipo:'apertura', estatus:'aprobado', fecha:'2026-09-05',
+        conceptos:[{ concepto:'Barra', cantidad:2, costoUnitario:1000, precioVenta:1500 }] }),
+      /* Terminado, dentro del periodo → SÍ cuenta (Remodelaciones). */
+      normalizarProyectoImagen({ id:'pi2', tipo:'remodelacion', estatus:'terminado', fecha:'2026-09-10',
+        conceptos:[{ concepto:'Piso', cantidad:1, costoUnitario:500, precioVenta:800 }] }),
+      /* En obra, dentro del periodo → SÍ cuenta (Otros proyectos: cambio_imagen). */
+      normalizarProyectoImagen({ id:'pi3', tipo:'cambio_imagen', estatus:'obra', fecha:'2026-09-15',
+        conceptos:[{ concepto:'Rótulo', cantidad:1, costoUnitario:300, precioVenta:400 }] }),
+      /* Todavía en diseño → el costo cuenta en otras pruebas, pero el INGRESO
+         no: el cliente ni siquiera ha aprobado el presupuesto. */
+      normalizarProyectoImagen({ id:'pi4', tipo:'apertura', estatus:'diseno', fecha:'2026-09-20',
+        conceptos:[{ concepto:'Mostrador', cantidad:1, costoUnitario:200, precioVenta:999 }] }),
+      /* Cancelado → no se invirtió nada de verdad, no cuenta ni ingreso ni costo. */
+      normalizarProyectoImagen({ id:'pi5', tipo:'apertura', estatus:'cancelado', fecha:'2026-09-22',
+        conceptos:[{ concepto:'Freidora', cantidad:1, costoUnitario:9999, precioVenta:9999 }] }),
+      /* Aprobado pero FUERA del periodo (agosto) → no debe contarse. */
+      normalizarProyectoImagen({ id:'pi6', tipo:'apertura', estatus:'aprobado', fecha:'2026-08-01',
+        conceptos:[{ concepto:'Fuera de periodo', cantidad:1, costoUnitario:9999, precioVenta:9999 }] })
+    ];
   });
 
   // --------- 1) calcularResultadosPorPilar(): cada número en su pilar ---------
@@ -68,18 +97,22 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Servicios Operativos: sin ingresos capturados todavía (0)', operativos.totalIngresos === 0);
   chkF('Servicios Operativos: el único costo real es su nómina (50,000)', operativos.totalCostos === 50000);
 
-  chkF('Proyectos e Infraestructura: sin ingreso propio todavía (0)', proyectos.totalIngresos === 0);
-  chkF('Proyectos e Infraestructura: costos = nómina + materiales + mano de obra de Imagen (82,000)', proyectos.totalCostos === 82000);
+  chkF('Proyectos e Infraestructura: Aperturas cuenta el proyecto Aprobado (3,000 = 2×1,000 costo → 2×1,500 venta)', proyectos.ingresos.find(x => x.label === 'Aperturas').monto === 3000);
+  chkF('...Remodelaciones cuenta el proyecto Terminado (800)', proyectos.ingresos.find(x => x.label === 'Remodelaciones').monto === 800);
+  chkF('...Otros proyectos cuenta el "cambio_imagen" En obra (400)', proyectos.ingresos.find(x => x.label === 'Otros proyectos').monto === 400);
+  chkF('...Venta/renta de equipos sigue en 0 (sin módulo de captura)', proyectos.ingresos.find(x => x.label === 'Venta / renta de equipos').monto === 0);
+  chkF('...En diseño, cancelado y fuera de periodo NO se cuentan (total ingreso = 4,200)', proyectos.totalIngresos === 4200);
+  chkF('Proyectos e Infraestructura: costos = nómina + materiales + mano de obra de Imagen (82,000, del mock — el ingreso nuevo no lo toca)', proyectos.totalCostos === 82000);
 
   chkF('Tecnología y Control: el ingreso es el de FORPASS (60,000)', tecnologia.totalIngresos === 60000);
   chkF('Tecnología y Control: el costo es su nómina, FORPASS no tiene costo capturado (30,000)', tecnologia.totalCostos === 30000);
 
-  chkF('Resumen Forguard: ingresos = suma de los 4 pilares (230,000)', pr.resumen.totalIngresos === 230000);
+  chkF('Resumen Forguard: ingresos = suma de los 4 pilares (234,200)', pr.resumen.totalIngresos === 234200);
   chkF('Resumen Forguard: costos = suma de los 4 pilares (407,000)', pr.resumen.totalCostos === 407000);
-  chkF('Resumen Forguard: utilidad bruta correcta (-177,000)', pr.resumen.utilidadBruta === -177000);
+  chkF('Resumen Forguard: utilidad bruta correcta (-172,800)', pr.resumen.utilidadBruta === -172800);
 
   chkF('Gastos de estructura: solo la nómina transversal cuenta hoy (400,000)', pr.totalEstructura === 400000);
-  chkF('Utilidad operativa = utilidad bruta - gastos de estructura (-577,000)', pr.utilidadOperativa === -577000);
+  chkF('Utilidad operativa = utilidad bruta - gastos de estructura (-572,800)', pr.utilidadOperativa === -572800);
 
   // --------- 2) La vista "Por pilares" lo pinta correctamente ---------
   await page.evaluate(() => {
@@ -96,7 +129,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Se ven los 4 pilares por su nombre', ['Servicios Técnicos','Servicios Operativos','Proyectos e Infraestructura','Tecnología y Control'].every(n => vista.includes(n)));
   chkF('Se ve "Resumen Forguard" y "Gastos de estructura Forguard"', vista.includes('Resumen Forguard') && vista.includes('Gastos de estructura Forguard'));
   chkF('Se ve la utilidad operativa final', vista.includes('Utilidad operativa Forguard'));
-  chkF('Avisa cuáles renglones siguen en $0 por falta de captura', /Proyectos e Infraestructura no factura/.test(vista));
+  chkF('Avisa cuáles renglones siguen en $0 por falta de captura', vista.includes('de Proyectos no tiene módulo propio'));
 
   const botonPresionado = await page.evaluate(() =>
     document.querySelector('[data-accion="vista-lista"][data-modo="pilares"]').getAttribute('aria-pressed'));

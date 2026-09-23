@@ -6801,6 +6801,15 @@ const ETIQUETA_TIPO_PROYECTO_IMAGEN = { apertura:'Apertura nueva', remodelacion:
 const ESTATUS_PROYECTO_IMAGEN = ['diseno', 'cotizacion', 'aprobado', 'obra', 'terminado', 'cancelado'];
 const ETIQUETA_ESTATUS_PROYECTO_IMAGEN = { diseno:'En diseño', cotizacion:'En cotización', aprobado:'Aprobado', obra:'En obra', terminado:'Terminado', cancelado:'Cancelado' };
 const TONO_ESTATUS_PROYECTO_IMAGEN = { diseno:'info', cotizacion:'info', aprobado:'alerta', obra:'alerta', terminado:'ok', cancelado:'neutro' };
+/* Framework de Proforma (ver calcularResultadosPorPilar): el precio de venta
+   por concepto ya se captura desde siempre, pero hasta el 23-sep-2026 nunca
+   contaba como ingreso —solo era informativo (ver el comentario de
+   r.imagenMateriales en calcularResultados). Ahora SÍ cuenta, pero no desde
+   que se captura: hasta que el cliente aprobó el presupuesto (pedido
+   explícito de Victor, vía AskUserQuestion) — 'diseño'/'cotización' todavía
+   pueden cambiar o no concretarse. El COSTO sigue igual que siempre, se
+   cuenta desde que se captura sin esperar ningún estatus. */
+const ESTATUS_PROYECTO_IMAGEN_INGRESO = ['aprobado', 'obra', 'terminado'];
 const TIPO_IMAGEN_PROYECTO = ['render', 'plano', 'foto'];
 const ETIQUETA_TIPO_IMAGEN_PROYECTO = { render:'Render', plano:'Plano / layout', foto:'Foto' };
 const IMAGENES_MAX_POR_PROYECTO = 12;
@@ -12565,16 +12574,17 @@ function calcularResultados(inicio, fin, sitioId){
    comparte con su equipo para el cierre de indicadores.
 
    Varios renglones del Framework no tienen TODAVÍA de dónde sacar un
-   número real en esta app (el ingreso de Aperturas/Remodelaciones/Venta de
-   equipos; el costo y la venta de equipos de FORPASS; los gastos
-   administrativos/corporativos) — se dejan en 0 A PROPÓSITO, nunca
-   inventados ni repartidos de otro rubro, para que el reporte tenga la
-   forma final del Framework desde ya y se vaya llenando solo conforme se
-   construyan las fases que faltan (ver vistaResultadosPorPilares(), que
-   avisa cuáles siguen en 0). Servicios Operativos (Limpieza/Fumigación/
-   Transporte) SÍ tiene ya su módulo de captura — ver
-   serviciosOperativosEnPeriodo() — así que su pilar se llena solo conforme
-   se registren contratos y trabajos ahí. */
+   número real en esta app (Venta / renta de equipos de Proyectos; el costo
+   y la venta de equipos de FORPASS; los gastos administrativos/
+   corporativos) — se dejan en 0 A PROPÓSITO, nunca inventados ni
+   repartidos de otro rubro, para que el reporte tenga la forma final del
+   Framework desde ya y se vaya llenando solo conforme se construyan las
+   fases que faltan (ver vistaResultadosPorPilares(), que avisa cuáles
+   siguen en 0). Servicios Operativos (Limpieza/Fumigación/Transporte, ver
+   serviciosOperativosEnPeriodo()) y el ingreso de Proyectos e
+   Infraestructura (Aperturas/Remodelaciones, ver
+   proyectosImagenIngresoPorTipo()) SÍ tienen ya de dónde sacar el número —
+   sus pilares se llenan solos conforme se registre/apruebe algo ahí. */
 function nominaPorPilarEnPeriodo(inicio, fin){
   const suma = { tecnicos:0, operativos:0, proyectos:0, tecnologia:0, transversal:0 };
   datos.nomina.forEach(n=>{
@@ -12598,6 +12608,22 @@ function serviciosOperativosEnPeriodo(inicio, fin, sitioId){
   });
   return suma;
 }
+/* Mismo criterio de fecha que ya usa calcularResultados() para el costo de
+   Imagen/Aperturas (p.fecha, sin importar si el estatus cambió después):
+   aquí nada más se agrega el filtro de estatus para el INGRESO —ver
+   ESTATUS_PROYECTO_IMAGEN_INGRESO— porque el costo no espera a nada, pero
+   el ingreso sí. cambio_imagen no tiene su propio renglón en el Framework
+   de Proforma, así que se agrupa dentro de "Otros proyectos". */
+function proyectosImagenIngresoPorTipo(inicio, fin, sitioId){
+  const suma = { apertura:0, remodelacion:0, cambio_imagen:0 };
+  datos.proyectosImagen.forEach(p=>{
+    if(sitioId && p.sitioId !== sitioId) return;
+    if(!ESTATUS_PROYECTO_IMAGEN_INGRESO.includes(p.estatus)) return;
+    if(!(p.fecha >= inicio && p.fecha <= fin)) return;
+    suma[p.tipo] += desgloseConceptosProyecto(p).totalVenta;
+  });
+  return suma;
+}
 function armarPilarResultados(nombre, ingresosDef, costosDef){
   const ingresos = ingresosDef.map(([label, monto]) => ({ label, monto }));
   const costos = costosDef.map(([label, monto]) => ({ label, monto }));
@@ -12611,6 +12637,7 @@ function calcularResultadosPorPilar(inicio, fin, sitioId){
   const r = calcularResultados(inicio, fin, sitioId);
   const nom = nominaPorPilarEnPeriodo(inicio, fin);
   const so = serviciosOperativosEnPeriodo(inicio, fin, sitioId);
+  const pi = proyectosImagenIngresoPorTipo(inicio, fin, sitioId);
 
   const pilares = {
     tecnicos: armarPilarResultados(PILARES_FORGUARD.tecnicos.nombre,
@@ -12635,12 +12662,15 @@ function calcularResultadosPorPilar(inicio, fin, sitioId){
         ['Proveedores / servicios subcontratados', so.limpieza.costo + so.fumigacion.costo + so.transporte.costo],
         ['Otros costos directos', 0] ]),
 
-    /* Imagen/Aperturas hoy solo registra COSTO (materiales/mano de obra),
-       nunca un ingreso propio —no genera una cotización formal, ver Ayuda
-       → Imagen/Aperturas—, así que "Aperturas"/"Remodelaciones"/"Venta de
-       equipos" quedan en 0 aunque el pilar sí tenga costo real. */
+    /* El precio de venta por concepto de Imagen/Aperturas ya cuenta como
+       ingreso (23-sep-2026, pedido de Victor) desde que el proyecto queda
+       Aprobado en adelante —ver ESTATUS_PROYECTO_IMAGEN_INGRESO—, agrupado
+       por tipo. "Venta / renta de equipos" sigue en 0: no hay módulo que
+       capture eso todavía, es un negocio distinto de remodelar/abrir un
+       sitio. */
     proyectos: armarPilarResultados(PILARES_FORGUARD.proyectos.nombre,
-      [ ['Aperturas', 0], ['Remodelaciones', 0], ['Venta / renta de equipos', 0], ['Otros proyectos', 0] ],
+      [ ['Aperturas', pi.apertura], ['Remodelaciones', pi.remodelacion],
+        ['Venta / renta de equipos', 0], ['Otros proyectos', pi.cambio_imagen] ],
       [ ['Nómina directa del pilar', nom.proyectos],
         ['Materiales', r.imagenMateriales],
         ['Contratistas / proveedores', r.imagenManoObra],
@@ -12939,7 +12969,7 @@ const TEMAS_AYUDA = [
           ])
         + guiaTip('La vista "Por pilares" (Framework de Proforma, 23-sep-2026)', [
             'Reorganiza los MISMOS números de arriba —más la nómina ya clasificada en el módulo Nómina— siguiendo el "Framework de Proforma" que Victor comparte con su equipo: 4 pilares de negocio (Servicios Técnicos, Servicios Operativos, Proyectos e Infraestructura, Tecnología y Control), cada uno con su ingreso, su costo directo (incluida la nómina de personal dedicado a ESE pilar) y su margen bruto propio, sumados en un "Resumen Forguard" del que se resta la "Nómina administrativa/transversal" para llegar a la utilidad y el margen operativo.',
-            'Todavía tiene renglones en $0 a propósito, nunca inventados: Servicios Técnicos y Tecnología y Control (Forpass) ya jalan datos reales; Servicios Operativos (Limpieza, Fumigación, Transporte) no tiene módulo de captura; Proyectos e Infraestructura (Imagen/Aperturas) trae su costo pero no un ingreso propio; y los gastos administrativos/corporativos de estructura tampoco están capturados — se van llenando conforme avanza el rediseño (ver Nómina, en Más).'
+            'Todavía tiene renglones en $0 a propósito, nunca inventados: "Venta / renta de equipos" de Proyectos e Infraestructura y la venta de equipos/costo de FORPASS en Tecnología y Control no tienen módulo de captura; los gastos administrativos/corporativos de estructura tampoco están capturados. El resto ya jala datos reales: Servicios Técnicos, Servicios Operativos (módulo propio, ver ese tema), Proyectos e Infraestructura (Aperturas/Remodelaciones cuentan como ingreso desde que el proyecto queda Aprobado — ver Imagen/Aperturas) y FORPASS en Tecnología y Control — se va llenando lo que falta conforme avanza el rediseño (ver Nómina, en Más).'
           ])) },
 
   { id:'clientes', titulo:'Clientes',
@@ -13306,7 +13336,8 @@ const TEMAS_AYUDA = [
         + guiaTip('Cómo se refleja en Resultados', [
             'El costo se separa en materiales vs. mano de obra por una regla de texto: un concepto con proveedor "Servicios" o "Servicios/IT" cuenta como mano de obra, cualquier otro (incluido vacío) cuenta como material.',
             'La duración en sitio se calcula sola a partir de las fechas de entrada y salida (incluyendo ambos días).',
-            'A propósito, estos proyectos NO se suman a la utilidad bruta del módulo Resultados ni generan una cotización formal — son solo informativos; una cotización real para el cliente se arma aparte en el módulo Cotizaciones.'
+            'En la vista clásica de Resultados (por fuente) estos proyectos siguen siendo solo informativos, a propósito: no se suman a la utilidad bruta ni generan una cotización formal para el cliente (esa se arma aparte en Cotizaciones).',
+            'En la vista "Por pilares" (Framework de Proforma, 23-sep-2026) sí es dinero real: el costo entra igual que siempre al pilar Proyectos e Infraestructura, y el <b>precio de venta</b> por concepto ya cuenta como INGRESO de ese pilar desde que el proyecto queda <b>Aprobado</b> en adelante (En diseño/En cotización todavía no, por si se cae) — ver el tema Resultados.'
           ])
         + guiaTip('El único módulo oculto del todo a quien no edita', [
             'A diferencia de Levantamientos (que sigue visible de solo lectura), Imagen/Aperturas desaparece por completo del selector de módulos para cualquiera que no tenga permiso de edición — ni Viewer, ni Técnico, ni Reportero lo ven jamás.'
@@ -13564,7 +13595,7 @@ function vistaResultadosPorPilares(pr){
      + '</div>'
      + '<p class="pista" style="text-align:right; margin-top:-10px">Margen operativo: ' + pr.margenOperativo.toFixed(1) + '%</p>';
 
-  h += '<p class="pista" style="margin-top:14px">Formato basado en el Framework de Proforma que Victor comparte con su equipo (23-sep-2026). Varios renglones siguen en $0 porque todavía no tienen de dónde sacar el número: Servicios Operativos ya tiene su módulo de captura (Limpieza, Fumigación, Transporte de personal), pero se ve en $0 mientras no se registre nada ahí; Proyectos e Infraestructura no factura Aperturas/Remodelaciones como ingreso propio ni Venta/renta de equipos; Tecnología y Control no tiene costo ni venta de equipos de FORPASS capturados; y los gastos administrativos/corporativos de estructura tampoco — se van llenando en las siguientes fases.</p>';
+  h += '<p class="pista" style="margin-top:14px">Formato basado en el Framework de Proforma que Victor comparte con su equipo (23-sep-2026). Varios renglones siguen en $0 porque todavía no tienen de dónde sacar el número: Servicios Operativos y Proyectos e Infraestructura ya tienen su módulo de captura (Limpieza/Fumigación/Transporte; Aperturas/Remodelaciones desde que el proyecto queda Aprobado), pero se ven en $0 mientras no se registre nada ahí; "Venta / renta de equipos" de Proyectos no tiene módulo propio; Tecnología y Control no tiene costo ni venta de equipos de FORPASS capturados; y los gastos administrativos/corporativos de estructura tampoco — se van llenando en las siguientes fases.</p>';
 
   return h;
 }
