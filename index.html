@@ -10073,11 +10073,15 @@ function armarPayloadPoliza(p, soloCalendario){
 
     /* Resuelto aquí, no en la plantilla: solo una póliza VIVA se imprime como
        póliza; todo lo demás —incluidas perdida y cancelada— es una cotización.
-       Las líneas son las del documento real: tres de las cuatro cotizaciones
-       de referencia titulan «Cotización / Póliza de / Mtto Prev.», y quitarle
-       «Cotización» es exactamente lo que distingue a la póliza cerrada. */
+       La póliza activa escribe el título completo (pedido de Victor: "coloca
+       la leyenda completa 'Póliza de mantenimiento preventivo'"), lo que a su
+       vez deja sin sentido el campo "Proyecto" del cv-meta (ver pageCover en
+       la plantilla) porque ahí ya no dice nada que el título no diga. La
+       cotización/borrador se queda con la versión abreviada de las cuatro
+       cotizaciones de referencia («Cotización / Póliza de / Mtto Prev.»): un
+       cuarto renglón («Preventivo») ahí sí choca con el cv-meta — se midió. */
     titulo: { lineas: p.estatus === 'activa'
-                ? ['Póliza de', 'Mtto Prev.']
+                ? ['Póliza de', 'Mantenimiento', 'Preventivo']
                 : ['Cotización', 'Póliza de', 'Mtto Prev.'] },
     /* Los textos de las hojas INTERIORES también cambian con el estatus: la
        portada ya decía «Póliza de Mtto Prev.» pero adentro cada hoja seguía

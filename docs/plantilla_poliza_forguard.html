@@ -565,16 +565,35 @@ function sheetFoot(nota){
      cruce del escudo con los bordes de la hoja cae donde en el papel real. */
 function pageCover(){
   const L = POLIZA.titulo.lineas;
+  /* Caso nuevo (24-sep-2026, pedido de Victor: "coloca la leyenda completa
+     'Póliza de mantenimiento preventivo'"): la póliza activa con título de
+     tres líneas COMPLETAS ('Póliza de'/'Mantenimiento'/'Preventivo'). A
+     diferencia de todo lo demás en esta portada, este texto NO existe en
+     ninguno de los PDF de referencia —"Mantenimiento" ahí siempre iba
+     abreviado como "Mtto."— así que no hay tinta real contra la cual medir
+     un tamaño/posición "correctos". Se midió en cambio contra el propio
+     ancho de la hoja: a 72pt (el tamaño de todo lo demás aquí) la palabra
+     "Mantenimiento" mide ~472pt y se sale de las 612pt de la hoja empezando
+     en left:145.6pt. 60pt es el primer tamaño redondo que la deja adentro
+     con margen de sobra (~539pt de borde derecho, contra los 612pt de la
+     hoja y los 561.4pt que usa cv-meta) — deliberadamente sin reusar los
+     saltos de línea de 60.4/89.4pt de abajo (esos SÍ son de un PDF real, de
+     un tamaño de letra distinto; mezclarlos aquí sería inventar precisión
+     que no existe). */
+  const esActivaCompleta = POLIZA.estatus === 'activa' && L.length === 3;
   /* Caja del título anclada por dónde arranca la primera línea en el papel:
-     con 3 líneas (cotización) arranca en y=280.6; con 2 (póliza) en y=338.8.
-     El -5.2 es CALIBRADO contra el papel con la Helvetica del sistema — la
-     misma del PDF de referencia, así que ápice del acento, mayúsculas y ancho
-     de tinta empatan en cero. Si algún día la fuente de la portada cambia,
-     este número se recalibra midiendo tinta contra tinta, no se calcula. */
-  const topTitulo = (L.length >= 3 ? 280.6 : 338.8) - 5.2;
+     con 3 líneas (cotización) arranca en y=280.6; con 2 (póliza abreviada)
+     en y=338.8. El -5.2 es CALIBRADO contra el papel con la Helvetica del
+     sistema — la misma del PDF de referencia, así que ápice del acento,
+     mayúsculas y ancho de tinta empatan en cero. Si algún día la fuente de
+     la portada cambia, este número se recalibra midiendo tinta contra
+     tinta, no se calcula. El caso de tres líneas completas usa su propio
+     ancla (298pt), consistente con el bloque más chico de 60pt. */
+  const topTitulo = esActivaCompleta ? 298 : (L.length >= 3 ? 280.6 : 338.8) - 5.2;
   const lineas = L.map((t, i) => {
-    const margen = i === 0 ? 0 : (L.length === 3 && i === 1 ? 17.4 : -11.6);
-    return `<div style="margin-top:${margen}pt">${esc(t)}</div>`;
+    const margen = esActivaCompleta ? 0 : (i === 0 ? 0 : (L.length === 3 && i === 1 ? 17.4 : -11.6));
+    const estiloLinea = esActivaCompleta ? ` style="margin-top:${margen}pt;line-height:60pt"` : ` style="margin-top:${margen}pt"`;
+    return `<div${estiloLinea}>${esc(t)}</div>`;
   }).join('');
 
   return `<section class="page cover">
@@ -601,11 +620,11 @@ function pageCover(){
     </svg>
     <div class="cv-iso">${isotipo(79.9)}</div>
     <div class="cv-logo">${logotipo(143.9)}</div>
-    <div class="cv-titulo" style="top:${topTitulo}pt">${lineas}</div>
+    <div class="cv-titulo" style="top:${topTitulo}pt${esActivaCompleta ? ';font-size:60pt' : ''}">${lineas}</div>
     <div class="cv-meta">
       <div class="campo"><span class="etiqueta">Cliente</span><span class="valor">${esc(POLIZA.cliente.nombre)}${POLIZA.cliente.sitio ? `<br>${esc(POLIZA.cliente.sitio)}` : ''}</span></div>
       <div class="campo"><span class="etiqueta">Fecha</span><span class="valor">${esc(POLIZA.fechas.cotizacion)}</span></div>
-      <div class="campo"><span class="etiqueta">Proyecto</span><span class="valor">${esc(CONCEPTO_DOCUMENTO)}</span></div>
+      ${POLIZA.estatus === 'activa' ? '' : `<div class="campo"><span class="etiqueta">Proyecto</span><span class="valor">${esc(CONCEPTO_DOCUMENTO)}</span></div>`}
     </div>
     <div class="cv-tagline">Sostenemos a los que sostienen todo.</div>
   </section>`;

@@ -73,7 +73,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   });
 
   async function abrirYRevisar(nombre, prepararEnPagina, opciones){
-    const { conCierre = true, conPortada = false } = opciones || {};
+    const { conCierre = true, conPortada = false, camposMeta = 3 } = opciones || {};
     const [docPage] = await Promise.all([
       context.waitForEvent('page'),
       page.evaluate(prepararEnPagina)
@@ -89,7 +89,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
       const primera = docPage.locator('.page').first();
       chkF(nombre + ': la PRIMERA hoja es la portada azul (fondo navy + marca de agua)',
         await primera.evaluate(el => el.classList.contains('cover')) && await primera.locator('.cv-marca').count() === 1);
-      chkF(nombre + ': la portada trae el logo y los datos de Cliente/Fecha/Proyecto', await primera.locator('.cv-iso, .cv-logo').count() === 2 && await primera.locator('.cv-meta .campo').count() === 3);
+      chkF(nombre + ': la portada trae el logo y los datos de Cliente/Fecha' + (camposMeta === 3 ? '/Proyecto' : ''), await primera.locator('.cv-iso, .cv-logo').count() === 2 && await primera.locator('.cv-meta .campo').count() === camposMeta);
     }else{
       chkF(nombre + ': NO se le agregó una portada (no la pidió Victor para este documento)', await docPage.locator('.cover').count() === 0);
     }
@@ -130,7 +130,10 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await abrirYRevisar('Póliza', () => {
     sessionStorage.setItem('forguard.documento.poliza', JSON.stringify(armarPayloadPoliza(polizaPorId('p1'))));
     window.open('docs/plantilla_poliza_forguard.html', '_blank');
-  }, { conPortada: true });
+    /* p1 está 'activa': su portada ya NO trae el campo "Proyecto" (el título
+       completo "Póliza de Mantenimiento Preventivo" lo vuelve redundante —
+       ver el comentario de pageCover() en la plantilla). */
+  }, { conPortada: true, camposMeta: 2 });
 
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 
