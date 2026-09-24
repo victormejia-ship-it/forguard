@@ -392,6 +392,13 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .tp-final{display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px 20px; margin-top:6px; border-top:2px solid var(--navy); background:#fff; border-radius:0 0 15px 15px;}
 .tp-final .tp-label{font-size:14.5px; font-weight:700; color:var(--navy);}
 .tp-final .tp-monto{font-size:24px; font-weight:800; font-variant-numeric:tabular-nums;}
+/* Tabla mensual del Framework de Proforma (24-sep-2026, rediseño desde
+   cero de Resultados) — un pilar por tabla, Concepto + 12 meses + Total. */
+.tabla-proforma{min-width:1180px;}
+.tabla-proforma td.num, .tabla-proforma th.num{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap;}
+.tabla-proforma tr.fila-seccion td{font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--gray); text-transform:uppercase; background:#F7F8FB; border-bottom:1px solid var(--line);}
+.tabla-proforma tr.fila-total td{font-weight:700; color:var(--navy); border-top:1.5px solid var(--line);}
+.tabla-proforma tr.fila-utilidad td{background:#F7F8FB;}
 
 /* Gráficas de Resultados: leyenda en HTML (texto nítido, seleccionable) y el
    dibujo mismo en SVG inline — sin librerías, para no meter una dependencia
@@ -1632,6 +1639,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
   <div class="modulos-zona" id="zonaModulos">
     <nav class="modulos" id="selectorModulo" role="tablist" aria-label="Módulo">
       <button type="button" class="mod" data-modulo="mi-agenda" role="tab" aria-selected="false">Mi agenda</button>
+      <button type="button" class="mod" data-modulo="resultados" role="tab" aria-selected="false">Resultados</button>
       <button type="button" class="mod" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
       <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="false">Forpass</button>
       <button type="button" class="mod" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
@@ -10511,9 +10519,8 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
 
 /* Antes se recordaba el último módulo para abrir donde te quedaste. A pedido
    explícito de Victor (10-sep-2026) se quitó: cada entrada a la app abre
-   SIEMPRE en el primero de MODULOS (el tablero principal — Resultados se
-   eliminó por completo el 24-sep-2026, así que hoy es 'clientes'), nunca en
-   el módulo donde se haya quedado la sesión anterior. guardarModulo() y
+   SIEMPRE en el primero de MODULOS (el tablero principal — 'resultados'),
+   nunca en el módulo donde se haya quedado la sesión anterior. guardarModulo() y
    LLAVE_MODULO se dejan tal cual (no estorban, y revertir este cambio es
    con solo volver a leer el valor guardado aquí) por si hiciera falta
    reactivarlo más adelante. Si el rol de la cuenta no puede ver ese primer
@@ -10534,7 +10541,7 @@ const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
    Desde la ficha de un cliente en Clientes se puede seguir saltando
    directo a su Forpass con "Ver en Forpass" (ver irAlClienteEnForpass())
    — un atajo, no la única puerta. */
-const MODULOS = ['clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
 function cargarModulo(){
   estado.modulo = MODULOS[0];
   estado.vista = inicioDelModulo();
@@ -10589,7 +10596,8 @@ function modulosPermitidos(){
 /* La pantalla de arranque de cada módulo. Una sola función para que el logo, el
    selector y el arranque no se desincronicen. */
 function inicioDelModulo(){
-  return estado.modulo === 'mi-agenda' ? 'mi-agenda'
+  return estado.modulo === 'resultados' ? 'resultados'
+       : estado.modulo === 'mi-agenda' ? 'mi-agenda'
        : estado.modulo === 'polizas' ? 'polizas'
        : estado.modulo === 'cotizaciones' ? 'cotizaciones'
        : estado.modulo === 'reportes' ? 'reportes'
@@ -11828,10 +11836,11 @@ function vistaResumenCliente(){
   return h;
 }
 
-/* El estado de resultados ejecutivo (Resultados) se eliminó por completo el
-   24-sep-2026 a pedido de Victor, para rediseñarlo desde cero — junto con
-   Nómina, Servicios Operativos y Gastos generales, los tres módulos de
-   captura que solo existían para alimentarlo. rangoPeriodoResultados()
+/* El estado de resultados ejecutivo (Resultados) anterior —"Por pilares"/
+   Framework de Proforma, y Nómina/Servicios Operativos/Gastos generales,
+   los tres módulos de captura que solo existían para alimentarlo— se
+   eliminó por completo el 24-sep-2026 a pedido de Victor: "seguimos
+   confundiendo las cosas", para rediseñarlo desde cero. rangoPeriodoResultados()
    sigue viva porque Cocinas también la usa para su propio selector de
    periodo (ver estado.periodoCocinas). */
 function rangoPeriodoResultados(modo, desde, hasta){
@@ -11849,6 +11858,140 @@ function rangoPeriodoResultados(modo, desde, hasta){
   const anioMes = hoy.slice(0,7);
   const ultimoDia = new Date(Number(hoy.slice(0,4)), Number(hoy.slice(5,7)), 0).getDate();
   return { inicio: anioMes + '-01', fin: anioMes + '-' + String(ultimoDia).padStart(2,'0') };
+}
+
+/* ==================== Resultados: Framework de Proforma (24-sep-2026, rediseño desde cero) ====================
+   Segundo intento, esta vez calcado renglón por renglón del Excel real que
+   Victor comparte con su equipo ("Framework Proforma Forguard V2.xlsx"),
+   en vez de haberlo ido armando a ciegas en fases sueltas como la primera
+   vez (que es justo lo que causó la confusión que pidió tirar). Son
+   EXACTAMENTE 4 secciones —una por pilar de negocio: Servicios Técnicos,
+   Servicios Operativos, Proyectos e Infraestructura, Tecnología y
+   Control— cada una con sus propios renglones de Ingresos y Costos
+   directos, mes a mes, tal cual las filas de su hoja.
+
+   A propósito esto es SOLO el armazón: cada concepto trae un
+   `montosPorMes` que hoy siempre regresa puros ceros (sinDatosTodavia())
+   porque todavía no se decide de dónde saca su número cada renglón —eso
+   se define después, paso a paso y renglón por renglón, con Victor. El
+   resumen "Resumen Forguard" / "Gastos de Estructura Forguard" del Excel
+   (sus filas 71-84) se dejó FUERA a propósito: Victor pidió "el total
+   deben ser 4 secciones", y esas dos no son un pilar de negocio sino un
+   acumulado de los 4 — se agregan después si hace falta.
+
+   Diseño para que enchufar un renglón real sea un cambio de una sola
+   línea: cuando se decida de dónde sale, por ejemplo, "Pólizas de
+   mantenimiento", su `montosPorMes` deja de ser sinDatosTodavia() y pasa a
+   ser una función que sí consulta `datos.polizas` — armarPilarProforma()
+   ya suma/pinta lo que sea que regrese, sin tocar nada más. */
+const MESES_PROFORMA = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+/* Placeholder explícito, no implícito: un concepto sin fuente decidida
+   todavía DEBE regresar ceros a la vista, nunca inventarle un número. */
+function sinDatosTodavia(){ return () => Array(12).fill(0); }
+const PILARES_PROFORMA = [
+  { id:'tecnicos', nombre:'Servicios Técnicos',
+    ingresos: [
+      { id:'polizas-cliente', label:'Pólizas de mantenimiento', montosPorMes: sinDatosTodavia() },
+      { id:'polizas-interno', label:'Pólizas de mantenimiento incluidas en precio', montosPorMes: sinDatosTodavia() },
+      { id:'correctivo-preventivo', label:'Trabajos correctivos / preventivo', montosPorMes: sinDatosTodavia() }
+    ],
+    costos: [
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: sinDatosTodavia() },
+      { id:'refacciones-materiales', label:'Refacciones y materiales', montosPorMes: sinDatosTodavia() },
+      { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: sinDatosTodavia() },
+      { id:'otros-costos', label:'Otros costos directos', montosPorMes: sinDatosTodavia() }
+    ] },
+  { id:'operativos', nombre:'Servicios Operativos',
+    ingresos: [
+      { id:'limpieza', label:'Limpieza', montosPorMes: sinDatosTodavia() },
+      { id:'fumigacion', label:'Fumigación', montosPorMes: sinDatosTodavia() },
+      { id:'transporte', label:'Transporte de personal', montosPorMes: sinDatosTodavia() },
+      { id:'otros-servicios', label:'Otros servicios operativos', montosPorMes: sinDatosTodavia() }
+    ],
+    costos: [
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: sinDatosTodavia() },
+      { id:'materiales-insumos', label:'Materiales e insumos', montosPorMes: sinDatosTodavia() },
+      { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: sinDatosTodavia() },
+      { id:'otros-costos', label:'Otros costos directos', montosPorMes: sinDatosTodavia() }
+    ] },
+  { id:'proyectos', nombre:'Proyectos e Infraestructura',
+    ingresos: [
+      { id:'aperturas', label:'Aperturas', montosPorMes: sinDatosTodavia() },
+      { id:'remodelaciones', label:'Remodelaciones', montosPorMes: sinDatosTodavia() },
+      { id:'venta-renta-equipos', label:'Venta / renta de equipos', montosPorMes: sinDatosTodavia() },
+      { id:'otros-proyectos', label:'Otros proyectos', montosPorMes: sinDatosTodavia() }
+    ],
+    costos: [
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: sinDatosTodavia() },
+      { id:'materiales', label:'Materiales', montosPorMes: sinDatosTodavia() },
+      { id:'contratistas-proveedores', label:'Contratistas / proveedores', montosPorMes: sinDatosTodavia() },
+      { id:'costo-equipos', label:'Costo de equipos', montosPorMes: sinDatosTodavia() },
+      { id:'otros-costos', label:'Otros costos directos', montosPorMes: sinDatosTodavia() }
+    ] },
+  { id:'tecnologia', nombre:'Tecnología y Control',
+    ingresos: [
+      { id:'forpass-renta', label:'FORPASS – renta / licenciamiento', montosPorMes: sinDatosTodavia() },
+      { id:'forpass-venta-equipos', label:'FORPASS – venta de equipos', montosPorMes: sinDatosTodavia() },
+      { id:'otros-tecnologia', label:'Otros ingresos de tecnología', montosPorMes: sinDatosTodavia() }
+    ],
+    costos: [
+      { id:'hardware-forpass', label:'Hardware / equipos FORPASS', montosPorMes: sinDatosTodavia() },
+      { id:'licencias-software', label:'Licencias y software directo', montosPorMes: sinDatosTodavia() },
+      { id:'instalacion-soporte', label:'Instalación / soporte directo', montosPorMes: sinDatosTodavia() },
+      { id:'otros-costos', label:'Otros costos directos', montosPorMes: sinDatosTodavia() }
+    ] }
+];
+function totalesPorMesDe(conceptos, anio){
+  return MESES_PROFORMA.map((_,i) => conceptos.reduce((t,c)=> t + c.montosPorMes(anio)[i], 0));
+}
+function filaConceptoProforma(c, anio){
+  const montos = c.montosPorMes(anio);
+  return '<tr><td>' + esc(c.label) + '</td>'
+    + montos.map(m => '<td class="num">' + dinero(m) + '</td>').join('')
+    + '<td class="num">' + dinero(montos.reduce((a,b)=>a+b,0)) + '</td></tr>';
+}
+function filaTotalProforma(label, totalesPorMes, clase){
+  return '<tr class="fila-total' + (clase ? ' ' + clase : '') + '"><td>' + esc(label) + '</td>'
+    + totalesPorMes.map(m => '<td class="num">' + dinero(m) + '</td>').join('')
+    + '<td class="num">' + dinero(totalesPorMes.reduce((a,b)=>a+b,0)) + '</td></tr>';
+}
+function bloquePilarProforma(pilar, anio){
+  const totalIngresosPorMes = totalesPorMesDe(pilar.ingresos, anio);
+  const totalCostosPorMes = totalesPorMesDe(pilar.costos, anio);
+  const utilidadPorMes = totalIngresosPorMes.map((ing,i) => ing - totalCostosPorMes[i]);
+  const margenPorMes = utilidadPorMes.map((u,i) => totalIngresosPorMes[i] ? Math.round(u / totalIngresosPorMes[i] * 100) : 0);
+  const totalIngresos = totalIngresosPorMes.reduce((a,b)=>a+b,0);
+  const utilidadTotal = utilidadPorMes.reduce((a,b)=>a+b,0);
+  const margenTotal = totalIngresos ? Math.round(utilidadTotal / totalIngresos * 100) : 0;
+
+  return '<div class="bloque"><h3 style="margin:0 0 12px">' + esc(pilar.nombre) + '</h3>'
+    + '<div class="rodillo"><table class="tabla tabla-proforma"><thead><tr>'
+    +   '<th>Concepto</th>' + MESES_PROFORMA.map(m => '<th class="num">' + m + '</th>').join('') + '<th class="num">Total ' + anio + '</th>'
+    + '</tr></thead><tbody>'
+    +   '<tr class="fila-seccion"><td colspan="14">Ingresos</td></tr>'
+    +   pilar.ingresos.map(c => filaConceptoProforma(c, anio)).join('')
+    +   filaTotalProforma('Total ingresos ' + pilar.nombre, totalIngresosPorMes)
+    +   '<tr class="fila-seccion"><td colspan="14">Costos directos</td></tr>'
+    +   pilar.costos.map(c => filaConceptoProforma(c, anio)).join('')
+    +   filaTotalProforma('Total costos directos', totalCostosPorMes)
+    +   filaTotalProforma('Utilidad bruta ' + pilar.nombre, utilidadPorMes, 'fila-utilidad')
+    +   '<tr class="fila-utilidad"><td>Margen bruto</td>' + margenPorMes.map(m => '<td class="num">' + m + '%</td>').join('') + '<td class="num">' + margenTotal + '%</td></tr>'
+    + '</tbody></table></div></div>';
+}
+function vistaResultados(){
+  const anio = hoyISO().slice(0,4);
+  let h = '<div class="titulo-zona"><div>'
+     +   '<h2>Resultados</h2>'
+     +   '<p>Framework de Proforma ' + anio + ' — 4 pilares de negocio, mes a mes</p>'
+     + '</div></div>';
+
+  h += '<div class="bloque" style="border-left:4px solid var(--accent)">'
+     +   '<p class="pista" style="margin:0">Este es el <b>armazón</b> del estado de resultados, calcado del Excel "Framework Proforma Forguard V2": los 4 pilares con sus renglones de ingreso y costo directo, mes a mes. Todavía no jala ningún dato real — cada renglón está en $0 a propósito, hasta que decidamos juntos, uno por uno, de dónde sale su número.</p>'
+     + '</div>';
+
+  h += PILARES_PROFORMA.map(pilar => bloquePilarProforma(pilar, anio)).join('');
+
+  return h;
 }
 
 /* ==================== Cocinas: funcionalidad de equipos ====================
@@ -12077,6 +12220,18 @@ const TEMAS_AYUDA = [
         + guiaTip('Estado actual de la verificación en dos pasos (MFA)', [
             'Por ahora es OPCIONAL para todos, incluido Owner/Admin — no se exige ni aparece ningún aviso obligándola. Se puede volver a hacer obligatoria para Owner/Admin, con periodo de gracia, cuando se decida.'
           ])) },
+
+  { id:'resultados', titulo:'Resultados',
+    resumen:'El armazón del nuevo estado de resultados —calcado del Framework de Proforma de Victor—, todavía sin datos reales. En construcción.',
+    contenido:
+      guiaSeccion('En qué va esto', guiaPasos([
+        'Es el segundo intento de este módulo (24-sep-2026): el primero se armó en fases sueltas y terminó confundiendo más de lo que ayudaba, así que se tiró por completo y se está rehaciendo desde cero, esta vez calcado renglón por renglón del Excel real que Victor comparte con su equipo ("Framework Proforma Forguard V2").',
+        'Son <b>exactamente 4 secciones</b>, una por pilar de negocio: Servicios Técnicos, Servicios Operativos, Proyectos e Infraestructura, y Tecnología y Control — cada una con sus propios renglones de Ingresos y Costos directos, mes a mes, tal cual las filas de esa hoja.',
+        'Todo está en <b>$0 a propósito</b>: es solo el armazón. Cada renglón se va a conectar a su fuente real —algún módulo existente, o uno nuevo si hace falta capturarlo— uno por uno, según se vaya decidiendo con Victor.'
+      ]))
+      + guiaTip('Por qué no incluye "Resumen Forguard" ni "Gastos de Estructura" todavía', [
+          'El Excel de referencia trae, debajo de los 4 pilares, un acumulado de los 4 ("Resumen Forguard") y un bloque aparte de gastos que no se reparten entre pilares ("Gastos de Estructura Forguard"). Se dejaron fuera a propósito por ahora: Victor pidió específicamente "el total deben ser 4 secciones" — se agregan después si hace falta.'
+        ]) },
 
   { id:'clientes', titulo:'Clientes',
     resumen:'El expediente único de cada cliente: todo lo que tiene en Forpass, Pólizas, Cotizaciones, Reportes y Activos, en un solo lugar.',
@@ -20713,6 +20868,7 @@ function render(){
     : estado.modulo === 'organigrama'  ? vistaOrganigrama()
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
+    : estado.modulo === 'resultados'   ? vistaResultados()
     : estado.modulo === 'ayuda'        ? (estado.vista === 'ayuda-tema' ? vistaAyudaTema() : vistaAyuda())
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
 
@@ -21317,7 +21473,8 @@ function pintarCabecera(){
     inicio.setAttribute('aria-label', enInicioPortal ? 'Forguard' : 'Volver al inicio');
     return;
   }
-  const destino = estado.modulo === 'mi-agenda' ? 'Mi agenda'
+  const destino = estado.modulo === 'resultados' ? 'Resultados'
+                 : estado.modulo === 'mi-agenda' ? 'Mi agenda'
                  : estado.modulo === 'polizas' ? 'Pólizas' : estado.modulo === 'cotizaciones' ? 'Cotizaciones'
                  : estado.modulo === 'reportes' ? 'Reportes' : estado.modulo === 'cocinas' ? 'Cocinas'
                  : estado.modulo === 'levantamientos' ? 'Levantamientos'
