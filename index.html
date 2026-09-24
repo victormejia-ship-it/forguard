@@ -13739,46 +13739,61 @@ function vistaResultados(){
 
   if(enTabla){
     h += tablasComparativasResultados(r);
+  } else {
+    /* Gráficas para dirección: la tendencia no depende del selector de
+       arriba (siempre son los últimos 12 meses cerrados), la composición sí
+       —es la de ESTE periodo, para leerse junto con la tabla de abajo—. Se
+       calculan aquí adentro, no arriba: en modo "tabla" nunca se usaban (el
+       bloque completo se saltaba), así que calcularlas ahí eran 12 llamadas
+       a calcularResultados() completamente tiradas a la basura. */
+    const tendencia12m = tendenciaMensualResultados(12, estado.resultadosSitioId);
+    const hayTendencia = tendencia12m.some(m => m.r.ingresoTotal || m.r.costoTotal);
+
+    if(hayTendencia){
+      h += '<div class="bloque">'
+         +   '<div class="bloque-cabeza"><div>'
+         +     '<h3>Ingresos y utilidad — últimos 12 meses</h3>'
+         +     '<p>Cada barra es el ingreso del mes por fuente; la línea es la utilidad bruta de ese mes.</p>'
+         +   '</div></div>'
+         +   leyendaFuentesIngreso(true)
+         +   graficaTendenciaResultados(tendencia12m)
+         + '</div>';
+
+      h += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; margin-bottom:18px">'
+         +   '<div class="bloque" style="margin-bottom:0">'
+         +     '<div class="bloque-cabeza"><div>'
+         +       '<h3>De dónde viene el ingreso de este periodo</h3>'
+         +       '<p>' + dinero(r.ingresoTotal) + ' en total</p>'
+         +     '</div></div>'
+         +     leyendaFuentesIngreso(false)
+         +     graficaComposicionIngreso(r)
+         +   '</div>'
+         +   '<div class="bloque" style="margin-bottom:0">'
+         +     '<div class="bloque-cabeza"><div>'
+         +       '<h3>Margen bruto — últimos 12 meses</h3>'
+         +       '<p>Utilidad bruta como % del ingreso, mes con mes</p>'
+         +     '</div></div>'
+         +     graficaMargenTendencia(tendencia12m)
+         +   '</div>'
+         + '</div>';
+    }
   }
 
-  /* Gráficas para dirección: la tendencia no depende del selector de arriba
-     (siempre son los últimos 12 meses cerrados), la composición sí — es la
-     de ESTE periodo, para leerse junto con las tarjetas y la tabla de abajo.
-     Se saltan por completo en la vista "tabla": ahí el punto es leer cifras
-     exactas y comparativas, no una tendencia visual. */
-  const tendencia12m = tendenciaMensualResultados(12, estado.resultadosSitioId);
-  const hayTendencia = !enTabla && tendencia12m.some(m => m.r.ingresoTotal || m.r.costoTotal);
+  h += vistaResultadosClasico(r);
+  return h;
+}
 
-  if(hayTendencia){
-    h += '<div class="bloque">'
-       +   '<div class="bloque-cabeza"><div>'
-       +     '<h3>Ingresos y utilidad — últimos 12 meses</h3>'
-       +     '<p>Cada barra es el ingreso del mes por fuente; la línea es la utilidad bruta de ese mes.</p>'
-       +   '</div></div>'
-       +   leyendaFuentesIngreso(true)
-       +   graficaTendenciaResultados(tendencia12m)
-       + '</div>';
-
-    h += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px; margin-bottom:18px">'
-       +   '<div class="bloque" style="margin-bottom:0">'
-       +     '<div class="bloque-cabeza"><div>'
-       +       '<h3>De dónde viene el ingreso de este periodo</h3>'
-       +       '<p>' + dinero(r.ingresoTotal) + ' en total</p>'
-       +     '</div></div>'
-       +     leyendaFuentesIngreso(false)
-       +     graficaComposicionIngreso(r)
-       +   '</div>'
-       +   '<div class="bloque" style="margin-bottom:0">'
-       +     '<div class="bloque-cabeza"><div>'
-       +       '<h3>Margen bruto — últimos 12 meses</h3>'
-       +       '<p>Utilidad bruta como % del ingreso, mes con mes</p>'
-       +     '</div></div>'
-       +     graficaMargenTendencia(tendencia12m)
-       +   '</div>'
-       + '</div>';
-  }
-
-  h += '<div class="tabla-pyl">'
+/* El desglose "de toda la vida" (ingreso/costo por FUENTE, el rubro
+   informativo de Imagen/Aperturas y la nota de cómo se cuenta cada quien):
+   se ve igual en "Gráficas" y en "Tabla" — la única diferencia entre esas
+   dos vistas es qué va ARRIBA (la tendencia de 12 meses, o las comparativas
+   de tablasComparativasResultados). Separado en su propia función por la
+   misma razón que ya tienen vistaResultadosPorPilares()/
+   tarjetasComparativasResultados()/tablasComparativasResultados(): que
+   vistaResultados() se quede como un despachador corto entre las 4 formas
+   de ver lo mismo, no una sola función con las cuatro encimadas. */
+function vistaResultadosClasico(r){
+  let h = '<div class="tabla-pyl">'
      +   '<div class="tp-seccion">Ingresos</div>'
      +   '<div class="tp-fila"><span>Forpass · mensualidades cobradas (' + numero(r.numPagosForpass) + ')</span>'
      +     '<span class="tp-monto">' + dinero(r.ingresoForpass) + '</span></div>'
