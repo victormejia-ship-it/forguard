@@ -4,13 +4,14 @@
    Excel real que comparte con su equipo ("Framework Proforma Forguard
    V2.xlsx"), en vez de construirlo a ciegas en fases sueltas.
 
-   Por ahora es SOLO el armazón: los 4 pilares de negocio (ni uno más ni
-   uno menos — "el total deben ser 4 secciones", pidió Victor), cada uno
-   con sus renglones de Ingresos/Costos directos mes a mes, todos en $0 a
-   propósito porque todavía no se decide de dónde saca su número cada
-   renglón (eso viene después, paso a paso). Esta prueba cubre solo que el
-   armazón pinte bien — la integración real con cada módulo se prueba
-   aparte, conforme se vaya wireando cada renglón. */
+   Los 4 pilares de negocio (ni uno más ni uno menos — "el total deben ser
+   4 secciones", pidió Victor) se van conectando renglón por renglón,
+   confirmando con él el criterio exacto antes de tocar código —esta
+   prueba cubre el armazón en general (que sigue sin inventar números en
+   los renglones aún no conectados) y el primer renglón ya wireado:
+   Pólizas de mantenimiento / …incluidas en precio / Refacciones y
+   materiales (ver montosPorMesPolizas() en index.html para el criterio
+   exacto, confirmado con Victor vía AskUserQuestion). */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -78,15 +79,59 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   ];
   renglonesEsperados.forEach(r => chkF('Trae el renglón "' + r + '"', textoVista.includes(r)));
 
-  // --------- 5) Todavía sin datos: cada renglón en $0, nunca un número inventado ---------
-  const primeraFilaMonto = await page.evaluate(() => {
-    const fila = Array.from(document.querySelectorAll('#vista table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes('Pólizas de mantenimiento') && !tr.textContent.includes('incluidas'));
+  // --------- 5) Un renglón sin fuente decidida todavía sigue en $0, nunca inventa un número ---------
+  const filaSinConectar = await page.evaluate(() => {
+    const fila = Array.from(document.querySelectorAll('#vista table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes('Trabajos correctivos / preventivo'));
     return fila.querySelector('td.num').textContent;
   });
-  chkF('El primer renglón (Pólizas de mantenimiento) está en $0 — todavía no se decidió su fuente', primeraFilaMonto.trim() === '$0');
+  chkF('"Trabajos correctivos / preventivo" (todavía sin conectar) sigue en $0', filaSinConectar.trim() === '$0');
 
-  // --------- 6) Avisa que es un armazón sin datos, no lo esconde ---------
-  chkF('Explica que es el armazón, todavía sin datos reales', textoVista.includes('armazón') && textoVista.includes('$0 a propósito'));
+  // --------- 6) Avisa que el armazón se conecta en vivo, no esconde lo que falta ---------
+  chkF('Explica que se conecta renglón por renglón y nunca inventa un número', textoVista.includes('armazón') && textoVista.includes('nunca inventa un número'));
+
+  // --------- 7) Pólizas de mantenimiento / …incluidas en precio / Refacciones y materiales (primer renglón conectado) ---------
+  const anioActual = await page.evaluate(() => hoyISO().slice(0,4));
+  await page.evaluate((anio) => {
+    datos.clientes = [normalizarCliente({ id:'c1', nombre:'NGK' })];
+    datos.sitios = [normalizarSitio({ id:'s1', clienteId:'c1', nombre:'NGK' })];
+    datos.polizas = [
+      // Cargo a cliente, activa: SÍ cuenta en "Pólizas de mantenimiento".
+      normalizarPoliza({ id:'p1', clienteId:'c1', sitioId:'s1', folio:'POL-1', sitioNombre:'NGK',
+        estatus:'activa', facturacion:'mensual', cargoA:'cliente', fechaInicio: anio+'-01-01', fechaCotizacion: anio+'-01-01',
+        partidas: [{ id:'x1', concepto:'Equipo', cantidad:1, precioUnitario:12000, costoUnitario:6000, frecuencia:1, mesesServicio:[0], alcance:'forguard' }],
+        cobros: Array(12).fill(false) }),
+      // Cargo interno (absorbida, facturada aparte, p.ej. a Plato Express), activa: cuenta en "...incluidas en precio".
+      normalizarPoliza({ id:'p2', clienteId:'c1', sitioId:'s1', folio:'POL-2', sitioNombre:'NGK',
+        estatus:'activa', facturacion:'mensual', cargoA:'interno', cargoAInterno:'Plato Express', descuento:-10, fechaInicio: anio+'-01-01', fechaCotizacion: anio+'-01-01',
+        partidas: [{ id:'x1', concepto:'Equipo', cantidad:1, precioUnitario:9999, costoUnitario:4800, frecuencia:1, mesesServicio:[0], alcance:'forguard' }],
+        cobros: Array(12).fill(false) }),
+      // Todavía en cotización (no activa): NO debe contar en nada.
+      normalizarPoliza({ id:'p3', clienteId:'c1', sitioId:'s1', folio:'POL-3', sitioNombre:'NGK',
+        estatus:'cotizacion', facturacion:'mensual', cargoA:'cliente', fechaInicio: anio+'-01-01', fechaCotizacion: anio+'-01-01',
+        partidas: [{ id:'x1', concepto:'Equipo', cantidad:1, precioUnitario:999999, costoUnitario:999999, frecuencia:1, mesesServicio:[0], alcance:'forguard' }],
+        cobros: Array(12).fill(false) })
+    ];
+    render();
+  }, anioActual);
+  await page.waitForTimeout(150);
+
+  const pilarTecnicos = await page.evaluate(() => {
+    const pilar = PILARES_PROFORMA.find(p => p.id === 'tecnicos');
+    const anio = hoyISO().slice(0,4);
+    return {
+      cliente: pilar.ingresos.find(c => c.id === 'polizas-cliente').montosPorMes(anio),
+      interno: pilar.ingresos.find(c => c.id === 'polizas-interno').montosPorMes(anio),
+      refacciones: pilar.costos.find(c => c.id === 'refacciones-materiales').montosPorMes(anio)
+    };
+  });
+  chkF('"Pólizas de mantenimiento" (cargo cliente): $1,000/mes (12,000 ÷ 12), la de cotización NO se cuela', pilarTecnicos.cliente.every(m => m === 1000));
+  chkF('"…incluidas en precio" (cargo interno): $440/mes (4,800 de costo + 10% de aumento = 5,280 ÷ 12)', pilarTecnicos.interno.every(m => m === 440));
+  chkF('"Refacciones y materiales": suma el costo de AMBAS pólizas ($500 + $400 = $900/mes)', pilarTecnicos.refacciones.every(m => m === 900));
+
+  const vistaConDatos = await page.evaluate(() => document.getElementById('vista').textContent);
+  chkF('El ingreso ya wireado se refleja en la tabla ($1,000)', vistaConDatos.includes('$1,000'));
+  chkF('El ingreso "incluidas en precio" ya wireado se refleja en la tabla ($440)', vistaConDatos.includes('$440'));
+  chkF('El costo de Refacciones y materiales ya wireado se refleja en la tabla ($900)', vistaConDatos.includes('$900'));
 
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 
