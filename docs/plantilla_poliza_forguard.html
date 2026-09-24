@@ -440,7 +440,6 @@
     display:flex;flex-direction:column;justify-content:center;
     padding:0 .9in;}
   .cc-lockup{position:absolute;left:.75in;top:.65in;display:flex;align-items:center;gap:14pt;color:#fff;}
-  .cc-eyebrow{font-size:11pt;letter-spacing:.16em;text-transform:uppercase;color:#7FA8D9;margin-bottom:8pt;}
   .cc-titulo{font-family:var(--font-body);font-weight:300;font-size:40pt;line-height:1.12;
     color:#F3F6FC;max-width:8in;}
   .cc-meta{display:flex;gap:46pt;margin-top:26pt;}
@@ -624,7 +623,6 @@ function pageCoverCalendario(){
     <div class="cc-marca">${isotipo(280)}</div>
     <div class="cc-lockup">${isotipo(30)}${logotipo(78)}</div>
     <div>
-      <div class="cc-eyebrow">Calendario de mantenimientos</div>
       <div class="cc-titulo">Calendario de<br>Mantenimiento Preventivo</div>
       <div class="cc-meta">
         <div class="campo"><span class="etiqueta">Cliente</span><span class="valor">${esc(POLIZA.cliente.nombre)}${POLIZA.cliente.sitio ? `<br>${esc(POLIZA.cliente.sitio)}` : ''}</span></div>
