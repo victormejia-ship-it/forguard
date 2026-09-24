@@ -1655,6 +1655,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
       <button type="button" class="mas-item" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
       <button type="button" class="mas-item" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
       <button type="button" class="mas-item" data-modulo="nomina" role="tab" aria-selected="false">Nómina</button>
+      <button type="button" class="mas-item" data-modulo="gastos-generales" role="tab" aria-selected="false">Gastos generales</button>
       <button type="button" class="mas-item" data-modulo="ayuda" role="tab" aria-selected="false">Ayuda</button>
     </div>
   </div>
@@ -2466,7 +2467,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[], serviciosOperativos:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[], serviciosOperativos:[], gastosGenerales:[] };
 
 function cargar(){
   try{
@@ -2512,7 +2513,9 @@ function cargar(){
            mismo patrón defensivo que visitas arriba — un respaldo de antes
            de que existiera este módulo abre con la lista vacía. */
         nomina: (Array.isArray(d.nomina) ? d.nomina : []).map(normalizarRegistroNomina),
-        serviciosOperativos: (Array.isArray(d.serviciosOperativos) ? d.serviciosOperativos : []).map(normalizarServicioOperativo) };
+        serviciosOperativos: (Array.isArray(d.serviciosOperativos) ? d.serviciosOperativos : []).map(normalizarServicioOperativo),
+        /* Gastos generales (agregada 24-sep-2026): mismo patrón defensivo. */
+        gastosGenerales: (Array.isArray(d.gastosGenerales) ? d.gastosGenerales : []).map(normalizarGastoGeneral) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -2617,7 +2620,8 @@ async function restaurarSnapshotIndexedDB(){
          truena en cuanto se recorre. */
       visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
       nomina: (Array.isArray(d.nomina) ? d.nomina : []).map(normalizarRegistroNomina),
-      serviciosOperativos: (Array.isArray(d.serviciosOperativos) ? d.serviciosOperativos : []).map(normalizarServicioOperativo) };
+      serviciosOperativos: (Array.isArray(d.serviciosOperativos) ? d.serviciosOperativos : []).map(normalizarServicioOperativo),
+      gastosGenerales: (Array.isArray(d.gastosGenerales) ? d.gastosGenerales : []).map(normalizarGastoGeneral) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -3431,8 +3435,8 @@ async function renovarToken(){
   guardarSesion();
 }
 /* Sin _renovandoToken, cada una de las peticiones que arrancan en paralelo
-   (bajarDeLaNube() lanza hasta 17 a la vez) detecta por su cuenta que el
-   token está por vencer y dispara SU PROPIO renovarToken() — hasta 17
+   (bajarDeLaNube() lanza hasta 18 a la vez) detecta por su cuenta que el
+   token está por vencer y dispara SU PROPIO renovarToken() — hasta 18
    solicitudes idénticas y simultáneas al mismo endpoint, justo en el
    momento más común para que esto pase: reabrir la pestaña en el celular
    después de un rato en segundo plano (el token ya lleva casi una hora),
@@ -3698,7 +3702,7 @@ function limpiarSesionYDatos(){
      undefined hasta que bajarDeLaNube() alcanzara a repoblarlas, y un
      render() de por medio —con cola pendiente o sin internet— tronaba con
      cualquier vista que las tocara.) */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[], serviciosOperativos:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[], serviciosOperativos:[], gastosGenerales:[] };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -4384,7 +4388,7 @@ async function bajarDeLaNube(soloColecciones){
   /* Si no se pidió una colección en este refresco, ni se intenta leerla —
      null de una vez, en vez de disparar la red y tirar la respuesta. */
   const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf, oc, vi, no, so] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf, oc, vi, no, so, gg] = await Promise.all([
     p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
     p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
     p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
@@ -4402,7 +4406,10 @@ async function bajarDeLaNube(soloColecciones){
        Owner/Admin (ver firestore.rules) — con listarNube a secas, cualquier
        otro rol recibiría un 403 aquí y se le tumbaría el login entero. */
     p('nomina', () => listarNubeSuave('nomina', 100)),
-    p('serviciosOperativos', () => listarNube('serviciosOperativos', 100))
+    p('serviciosOperativos', () => listarNube('serviciosOperativos', 100)),
+    /* Mismo candado que /nomina (ver firestore.rules): Owner/Admin exclusivo,
+       así que también en modo suave. */
+    p('gastosGenerales', () => listarNubeSuave('gastosGenerales', 100))
   ]);
   if(!soloColecciones && !cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -4422,7 +4429,8 @@ async function bajarDeLaNube(soloColecciones){
   [['clientes',cl],['sitios',si],['polizas',po],['cotizaciones',co],['reportes',rp],
    ['levantamientos',lv],['proyectosImagen',im],['activos',ac],['personal',pe],
    ['proveedores',pv],['gastosProveedor',gp],['refacciones',rf],['ordenesCompra',oc],
-   ['visitas',vi],['nomina',no],['serviciosOperativos',so]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
+   ['visitas',vi],['nomina',no],['serviciosOperativos',so],
+   ['gastosGenerales',gg]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
   datos = { v:1,
             clientes: cl === null ? datos.clientes : cl.map(normalizarCliente),
             sitios: si === null ? datos.sitios : si.map(normalizarSitio),
@@ -4442,7 +4450,8 @@ async function bajarDeLaNube(soloColecciones){
             ordenesCompra: (oc === null ? datos.ordenesCompra : oc.map(normalizarOrdenCompra)),
             visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)),
             nomina: (no === null ? datos.nomina : no.map(normalizarRegistroNomina)),
-            serviciosOperativos: (so === null ? datos.serviciosOperativos : so.map(normalizarServicioOperativo)) };
+            serviciosOperativos: (so === null ? datos.serviciosOperativos : so.map(normalizarServicioOperativo)),
+            gastosGenerales: (gg === null ? datos.gastosGenerales : gg.map(normalizarGastoGeneral)) };
   /* Veredicto de auditoría (21-sep-2026): un registro con un rechazo
      definitivo pendiente (ver colaRechazada arriba) nunca llegó a existir
      del lado del servidor, así que el reemplazo de arriba lo deja fuera sin
@@ -5467,6 +5476,50 @@ function guardarRegistroNomina(n, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'nomina', id:n.id, obj:n });
   anotar(accion || 'editó', 'nómina', (n.concepto || 'Nómina') + ' — ' + fmtFecha(n.fecha), detalle);
+}
+
+/* ==================== Gastos generales (agregada 24-sep-2026) ====================
+   Segunda fase del rediseño de Resultados, después de Nómina (ver arriba): el
+   "Cierre de mes" real de Victor tiene varios rubros más que la app todavía no
+   capturaba —Gasolinas, Trampas de grasa, Extracciones, Renders, gastos
+   administrativos/corporativos— y hasta ahora los tres renglones de "Gastos de
+   Estructura Forguard" (ver calcularResultadosPorPilar) que no eran nómina
+   transversal se quedaban fijos en $0. Mismo molde exacto que Nómina: un
+   registro simple de mes + monto + concepto, sin recibo ni detalle por
+   proveedor; misma sensibilidad (Owner/Admin exclusivo, ver
+   modulosPermitidos() y firestore.rules — /gastosGenerales tampoco se puede
+   LEER desde otro rol).
+
+   `categoria` cumple el mismo papel que `pilar` en Nómina, pero clasificando
+   contra los TRES renglones de Gastos de Estructura que siguen sin dato real
+   (la nómina transversal ya tiene el suyo aparte, no se duplica aquí):
+   'administrativo' (gastos de oficina/operación del día a día — la mayoría de
+   lo que Victor mencionó: gasolinas, trampas de grasa, extracciones, renders),
+   'corporativo' (gastos corporativos asignados a Forguard desde fuera) y
+   'otro'. Por default 'otro': nunca se adivina una categoría más específica
+   que la que alguien realmente eligió. */
+const CATEGORIAS_GASTO_GENERAL = {
+  administrativo: { nombre:'Gastos administrativos' },
+  corporativo:    { nombre:'Gastos corporativos asignados' },
+  otro:           { nombre:'Otros gastos de estructura' }
+};
+function normalizarGastoGeneral(g){
+  return {
+    id: (g && g.id) || nuevoId(),
+    /* Primer día del mes al que corresponde, igual que Nómina — aunque el
+       gasto sea puntual (una extracción), se ata a un mes. */
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(g && g.fecha) ? g.fecha : hoyISO(),
+    concepto: (g && g.concepto ? String(g.concepto) : '').trim() || 'Gasto general',
+    monto: Math.max(0, Math.round(Number(g && g.monto) || 0)),
+    categoria: CATEGORIAS_GASTO_GENERAL[g && g.categoria] ? g.categoria : 'otro',
+    notas: (g && g.notas ? String(g.notas) : '').trim()
+  };
+}
+function gastoGeneralPorId(id){ return datos.gastosGenerales.find(g => g.id === id); }
+function guardarGastoGeneral(g, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'gastosGenerales', id:g.id, obj:g });
+  anotar(accion || 'editó', 'gasto general', (g.concepto || 'Gasto general') + ' — ' + fmtFecha(g.fecha), detalle);
 }
 
 /* Mismo molde de siempre: local + IndexedDB (vía guardarLocal), cola hacia
@@ -10742,7 +10795,7 @@ const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
    Desde la ficha de un cliente en Clientes se puede seguir saltando
    directo a su Forpass con "Ver en Forpass" (ver irAlClienteEnForpass())
    — un atajo, no la única puerta. */
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'servicios-operativos', 'activos', 'proveedores', 'organigrama', 'imagen', 'nomina', 'ayuda'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'servicios-operativos', 'activos', 'proveedores', 'organigrama', 'imagen', 'nomina', 'gastos-generales', 'ayuda'];
 function cargarModulo(){
   estado.modulo = 'resultados';
   estado.vista = inicioDelModulo();
@@ -10792,9 +10845,10 @@ function modulosPermitidos(){
      —el gasto de nómina completo, no el sueldo de nadie en particular,
      pero igual de delicado—: exclusivo de Owner/Admin, ni Analyst ni
      Viewer lo ven, y /nomina en firestore.rules bloquea hasta la LECTURA
-     a cualquier otro rol (no es solo una pestaña escondida). */
+     a cualquier otro rol (no es solo una pestaña escondida). Gastos
+     generales (agregado 24-sep-2026) es el mismo caso, mismo candado. */
   if(HAY_NUBE && haySesion() && rolEfectivo() !== 'owner'){
-    return MODULOS.filter(m => m !== 'organigrama' && m !== 'activos' && (m !== 'nomina' || esAdmin()));
+    return MODULOS.filter(m => m !== 'organigrama' && m !== 'activos' && ((m !== 'nomina' && m !== 'gastos-generales') || esAdmin()));
   }
   return MODULOS;
 }
@@ -10815,6 +10869,7 @@ function inicioDelModulo(){
        : estado.modulo === 'organigrama' ? 'organigrama'
        : estado.modulo === 'imagen' ? 'imagen'
        : estado.modulo === 'nomina' ? 'nomina'
+       : estado.modulo === 'gastos-generales' ? 'gastos-generales'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'resultados' ? 'resultados'
        : estado.modulo === 'ayuda' ? 'ayuda'
@@ -12663,6 +12718,17 @@ function nominaPorPilarEnPeriodo(inicio, fin){
   });
   return suma;
 }
+/* Mismo criterio de periodo y mismo molde que nominaPorPilarEnPeriodo() —ver
+   ese comentario— pero agrupando por `categoria` en vez de `pilar`: llena
+   los tres renglones de "Gastos de estructura Forguard" que, a diferencia
+   de la nómina transversal, seguían fijos en $0 (ver calcularResultadosPorPilar). */
+function gastosGeneralesPorCategoriaEnPeriodo(inicio, fin){
+  const suma = { administrativo:0, corporativo:0, otro:0 };
+  datos.gastosGenerales.forEach(g=>{
+    if(g.fecha >= inicio && g.fecha <= fin) suma[g.categoria] += g.monto;
+  });
+  return suma;
+}
 /* Mismo criterio que calcularResultados(): cada periodo de
    calcularServicioOperativo() (uno solo si es Limpieza, uno por cobro si es
    contrato) cuenta en el mes al que corresponde su fecha, no en el mes en
@@ -12709,6 +12775,7 @@ function calcularResultadosPorPilar(inicio, fin, sitioId){
   const nom = nominaPorPilarEnPeriodo(inicio, fin);
   const so = serviciosOperativosEnPeriodo(inicio, fin, sitioId);
   const pi = proyectosImagenIngresoPorTipo(inicio, fin, sitioId);
+  const gg = gastosGeneralesPorCategoriaEnPeriodo(inicio, fin);
 
   const pilares = {
     tecnicos: armarPilarResultados(PILARES_FORGUARD.tecnicos.nombre,
@@ -12765,13 +12832,15 @@ function calcularResultadosPorPilar(inicio, fin, sitioId){
 
   /* Gastos de Estructura: a propósito NO se reparte entre pilares (pedido
      explícito de Victor, nota del Framework: "evitar prorrateos
-     arbitrarios") — la nómina transversal es el único renglón con un
-     número real hoy; los otros tres esperan al módulo de gastos generales. */
+     arbitrarios"). Los 4 renglones ya tienen de dónde sacar un número real
+     (24-sep-2026, módulo Gastos generales — ver
+     gastosGeneralesPorCategoriaEnPeriodo): la nómina transversal sigue
+     aparte, sin duplicarse con esto. */
   const estructura = [
     { label:'Nómina administrativa / transversal', monto: nom.transversal },
-    { label:'Gastos administrativos', monto:0 },
-    { label:'Gastos corporativos asignados', monto:0 },
-    { label:'Otros gastos de estructura', monto:0 }
+    { label:'Gastos administrativos', monto: gg.administrativo },
+    { label:'Gastos corporativos asignados', monto: gg.corporativo },
+    { label:'Otros gastos de estructura', monto: gg.otro }
   ];
   const totalEstructura = estructura.reduce((t,x)=> t + x.monto, 0);
   const utilidadOperativa = utilidadBruta - totalEstructura;
@@ -13039,8 +13108,8 @@ const TEMAS_AYUDA = [
             'Un equipo del catálogo de Pólizas dejado en $0 de costo entiende que "no cuesta nada" y silenciosamente infla el margen — vale la pena revisar la Lista de precios si algo se ve raro.'
           ])
         + guiaTip('La vista "Por pilares" (Framework de Proforma, 23-sep-2026)', [
-            'Reorganiza los MISMOS números de arriba —más la nómina ya clasificada en el módulo Nómina— siguiendo el "Framework de Proforma" que Victor comparte con su equipo: 4 pilares de negocio (Servicios Técnicos, Servicios Operativos, Proyectos e Infraestructura, Tecnología y Control), cada uno con su ingreso, su costo directo (incluida la nómina de personal dedicado a ESE pilar) y su margen bruto propio, sumados en un "Resumen Forguard" del que se resta la "Nómina administrativa/transversal" para llegar a la utilidad y el margen operativo.',
-            'Todavía tiene renglones en $0 a propósito, nunca inventados: "Venta / renta de equipos" de Proyectos e Infraestructura y la venta de equipos/costo de FORPASS en Tecnología y Control no tienen módulo de captura; los gastos administrativos/corporativos de estructura tampoco están capturados. El resto ya jala datos reales: Servicios Técnicos, Servicios Operativos (módulo propio, ver ese tema), Proyectos e Infraestructura (Aperturas/Remodelaciones cuentan como ingreso desde que el proyecto queda Aprobado — ver Imagen/Aperturas) y FORPASS en Tecnología y Control — se va llenando lo que falta conforme avanza el rediseño (ver Nómina, en Más).'
+            'Reorganiza los MISMOS números de arriba —más la nómina ya clasificada en el módulo Nómina— siguiendo el "Framework de Proforma" que Victor comparte con su equipo: 4 pilares de negocio (Servicios Técnicos, Servicios Operativos, Proyectos e Infraestructura, Tecnología y Control), cada uno con su ingreso, su costo directo (incluida la nómina de personal dedicado a ESE pilar) y su margen bruto propio, sumados en un "Resumen Forguard" del que se resta "Gastos de estructura Forguard" (nómina transversal + gastos generales, ver ese módulo) para llegar a la utilidad y el margen operativo.',
+            'Todavía tiene renglones en $0 a propósito, nunca inventados: "Venta / renta de equipos" de Proyectos e Infraestructura y la venta de equipos/costo de FORPASS en Tecnología y Control no tienen módulo de captura. El resto ya jala datos reales: Servicios Técnicos, Servicios Operativos (módulo propio, ver ese tema), Proyectos e Infraestructura (Aperturas/Remodelaciones cuentan como ingreso desde que el proyecto queda Aprobado — ver Imagen/Aperturas), FORPASS en Tecnología y Control, y los 4 renglones de Gastos de estructura (ver Nómina y Gastos generales, en Más).'
           ])) },
 
   { id:'clientes', titulo:'Clientes',
@@ -13429,7 +13498,24 @@ const TEMAS_AYUDA = [
         ])
       + guiaTip('Por qué es su propio módulo, aparte', [
           'Es información sensible del negocio: ni la pestaña aparece ni el registro se puede leer para ningún rol que no sea Owner o Admin — Analyst, Viewer, Técnico, Reportero y Cliente no tienen forma de verlo, ni desde el propio servidor (no es solo un botón escondido).',
-          'Es la primera fase de un rediseño más grande de Resultados (23-sep-2026): el "Cierre de mes" real de Victor incluye varios rubros que la app todavía no captura (Gasolinas, Trampas de grasa, Extracciones, Renders, compras y consumibles) — Nómina se hizo primero por ser, de lejos, el gasto más grande (70-80% del costo total cada mes). Los demás llegan en fases siguientes, y hasta que estén todos capturados, Resultados TODAVÍA no incluye ninguno de estos gastos en su cálculo de utilidad.'
+          'Es la primera fase de un rediseño más grande de Resultados (23-sep-2026): el "Cierre de mes" real de Victor incluye varios rubros que la app todavía no capturaba (Gasolinas, Trampas de grasa, Extracciones, Renders, compras y consumibles) — Nómina se hizo primero por ser, de lejos, el gasto más grande (70-80% del costo total cada mes). El resto ya llegó (24-sep-2026) en el módulo <b>Gastos generales</b> — ver ese tema.'
+        ]) },
+
+  { id:'gastos-generales', titulo:'Gastos generales',
+    resumen:'Gasolinas, trampas de grasa, extracciones, renders y demás gastos administrativos o corporativos — la segunda fase del mismo rediseño que Nómina. Exclusivo de Owner/Admin.',
+    contenido:
+      guiaSeccion('Lo básico', guiaPasos([
+        'Usa <b>Registrar gasto</b>: Mes*, Monto*, Concepto (texto libre — "Gasolina", "Trampas de grasa", "Extracciones", "Renders", lo que aplique), <b>Categoría*</b> y Notas.',
+        'La lista se ve más reciente arriba, con el monto, el mes y la categoría de cada registro; usa el lápiz para editarlo o el bote de basura para eliminarlo.',
+        'Tres indicadores de cabecera: <b>Este mes</b>, <b>Este año</b> (suma de todos los registros del año en curso, cualquier concepto o categoría) y el <b>Promedio mensual</b> (el total del año entre los meses que ya tienen algo capturado).'
+      ]))
+      + guiaTip('Qué es la "Categoría"', [
+          'A diferencia de Nómina (que reparte por Pilar de negocio), Gastos de Estructura Forguard NO se reparte entre pilares —es a propósito, para evitar prorrateos arbitrarios—, así que aquí la Categoría clasifica contra los tres renglones de ese bloque en Resultados: <b>Gastos administrativos</b> (oficina/operación del día a día — la mayoría de lo que se captura aquí), <b>Gastos corporativos asignados</b> y <b>Otros gastos de estructura</b>.',
+          'Por default "Otros gastos de estructura": nunca se adivina una categoría más específica que la que alguien realmente eligió.'
+        ])
+      + guiaTip('Por qué es su propio módulo, aparte', [
+          'Misma sensibilidad que Nómina: ni la pestaña aparece ni el registro se puede leer para ningún rol que no sea Owner o Admin.',
+          'Con esto, los 4 renglones de "Gastos de estructura Forguard" en la vista "Por pilares" de Resultados ya tienen de dónde sacar un número real — ver ese tema.'
         ]) },
 
   { id:'servicios-operativos', titulo:'Servicios Operativos',
@@ -13667,7 +13753,7 @@ function vistaResultadosPorPilares(pr){
      + '</div>'
      + '<p class="pista" style="text-align:right; margin-top:-10px">Margen operativo: ' + pr.margenOperativo.toFixed(1) + '%</p>';
 
-  h += '<p class="pista" style="margin-top:14px">Formato basado en el Framework de Proforma que Victor comparte con su equipo (23-sep-2026). Varios renglones siguen en $0 porque todavía no tienen de dónde sacar el número: Servicios Operativos y Proyectos e Infraestructura ya tienen su módulo de captura (Limpieza/Fumigación/Transporte; Aperturas/Remodelaciones desde que el proyecto queda Aprobado), pero se ven en $0 mientras no se registre nada ahí; "Venta / renta de equipos" de Proyectos no tiene módulo propio; Tecnología y Control no tiene costo ni venta de equipos de FORPASS capturados; y los gastos administrativos/corporativos de estructura tampoco — se van llenando en las siguientes fases.</p>';
+  h += '<p class="pista" style="margin-top:14px">Formato basado en el Framework de Proforma que Victor comparte con su equipo (23-sep-2026). Varios renglones siguen en $0 porque todavía no tienen de dónde sacar el número: Servicios Operativos, Proyectos e Infraestructura y Gastos de estructura ya tienen su módulo de captura (Limpieza/Fumigación/Transporte; Aperturas/Remodelaciones desde que el proyecto queda Aprobado; Gastos generales), pero se ven en $0 mientras no se registre nada ahí; "Venta / renta de equipos" de Proyectos no tiene módulo propio; y Tecnología y Control no tiene costo ni venta de equipos de FORPASS capturados — se van llenando en las siguientes fases.</p>';
 
   return h;
 }
@@ -17111,6 +17197,57 @@ function vistaNomina(){
   return h;
 }
 
+/* Gastos generales (agregada 24-sep-2026): mismo molde exacto que Nómina —
+   ver el comentario junto a normalizarGastoGeneral() para el porqué. */
+function vistaGastosGenerales(){
+  const lista = datos.gastosGenerales.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha) || b.id.localeCompare(a.id));
+  const hoy = hoyISO();
+  const mesActual = hoy.slice(0,7), anioActual = hoy.slice(0,4);
+  const totalMes = datos.gastosGenerales.filter(g => g.fecha.slice(0,7) === mesActual).reduce((t,g)=> t + g.monto, 0);
+  const delAnio = datos.gastosGenerales.filter(g => g.fecha.slice(0,4) === anioActual);
+  const totalAnio = delAnio.reduce((t,g)=> t + g.monto, 0);
+  const mesesConDato = new Set(delAnio.map(g => g.fecha.slice(0,7))).size;
+  const promedioMensual = mesesConDato ? totalAnio / mesesConDato : 0;
+
+  let h = '<div class="titulo-zona"><div>'
+     +   '<h2>Gastos generales</h2>'
+     +   '<p>' + numero(datos.gastosGenerales.length) + ' ' + plural(datos.gastosGenerales.length,'registro capturado','registros capturados') + ' · información sensible, solo Owner/Admin</p>'
+     + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-primario" data-accion="nuevo-gasto-general">' + ICONO.mas + 'Registrar gasto</button>'
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Este mes', dinero(totalMes), fmtFecha(mesActual + '-01'))
+     + tarjetaKpi('Este año', dinero(totalAnio), anioActual)
+     + tarjetaKpi('Promedio mensual', dinero(promedioMensual), mesesConDato + ' ' + plural(mesesConDato,'mes capturado','meses capturados') + ' en ' + anioActual)
+     + '</div>';
+
+  if(!lista.length){
+    h += vistaVacia('dinero', 'Todavía no hay gastos generales capturados',
+          'Registra gasolinas, trampas de grasa, extracciones, renders y demás gastos administrativos o corporativos — para que Resultados los pueda incluir en "Gastos de Estructura Forguard".',
+          'nuevo-gasto-general', 'Registrar gasto');
+    return h;
+  }
+
+  h += '<div class="rodillo"><table class="tabla"><thead><tr>'
+     +   '<th>Mes</th><th>Concepto</th><th>Categoría</th><th>Monto</th><th>Notas</th><th></th>'
+     + '</tr></thead><tbody>'
+     + lista.map(g => '<tr>'
+         +   '<td>' + esc(fmtFecha(g.fecha)) + '</td>'
+         +   '<td>' + esc(g.concepto) + '</td>'
+         +   '<td>' + esc(CATEGORIAS_GASTO_GENERAL[g.categoria].nombre) + '</td>'
+         +   '<td>' + dinero(g.monto) + '</td>'
+         +   '<td>' + esc(g.notas || '—') + '</td>'
+         +   '<td style="white-space:nowrap; text-align:right">'
+         +     '<button type="button" class="icono-mini" data-accion="editar-gasto-general" data-gasto-general="' + esc(g.id) + '" data-tip="Editar">' + ICONO.lapiz + '</button>'
+         +     '<button type="button" class="icono-mini" data-accion="borrar-gasto-general" data-gasto-general="' + esc(g.id) + '" data-tip="Eliminar">' + ICONO.basura + '</button>'
+         +   '</td>'
+         + '</tr>').join('')
+     + '</tbody></table></div>';
+
+  return h;
+}
+
 /* Catálogo de proveedores. */
 function vistaProveedores(){
   let h = botonRegresarGastosProveedor();
@@ -18227,6 +18364,60 @@ function modalNomina(id){
     cerrarModal();
     render();
     aviso(n ? 'Registro actualizado.' : 'Nómina registrada.');
+  };
+}
+
+/* ---------------------------- Modal: gasto general ---------------------------- */
+function modalGastoGeneral(id){
+  const g = id ? gastoGeneralPorId(id) : null;
+
+  const cuerpo =
+      '<div class="fila2">'
+    +   '<div class="campo"><label>Mes *</label>'
+    +     '<input type="month" id="ggMes" value="' + esc(g ? g.fecha.slice(0,7) : hoyISO().slice(0,7)) + '"></div>'
+    +   '<div class="campo"><label>Monto *</label>'
+    +     '<input type="number" id="ggMonto" min="0" step="1" value="' + (g && g.monto ? g.monto : '') + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Concepto</label>'
+    +   '<input type="text" id="ggConcepto" placeholder="Ej. Gasolina, Trampas de grasa, Extracciones, Renders…" value="' + esc(g ? g.concepto : '') + '"></div>'
+    + '<div class="campo"><label>Categoría *</label><select id="ggCategoria">'
+    +   Object.keys(CATEGORIAS_GASTO_GENERAL).map(c => '<option value="' + c + '"' + ((g ? g.categoria : 'otro') === c ? ' selected' : '') + '>' + esc(CATEGORIAS_GASTO_GENERAL[c].nombre) + '</option>').join('')
+    + '</select><div class="pista">Así se clasifica en "Gastos de estructura Forguard", dentro de Resultados (no se reparte entre pilares).</div></div>'
+    + '<div class="campo"><label>Notas</label>'
+    +   '<textarea id="ggNotas" placeholder="Cualquier detalle útil…">' + esc(g ? g.notas : '') + '</textarea></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (g ? 'Guardar cambios' : 'Registrar') + '</button>';
+
+  abrirModal(g ? 'Editar gasto general' : 'Registrar gasto general', cuerpo, pie);
+
+  cerrarModalActual = ()=>{
+    const mes = $('ggMes').value;
+    if(!mes){ $('ggMes').setAttribute('aria-invalid','true'); aviso('Elige a qué mes corresponde.', true); return; }
+    const monto = Number($('ggMonto').value) || 0;
+    if(monto <= 0){ $('ggMonto').setAttribute('aria-invalid','true'); aviso('Captura un monto mayor a cero.', true); return; }
+
+    const datosComunes = {
+      fecha: mes + '-01',
+      concepto: $('ggConcepto').value.trim(),
+      monto,
+      categoria: $('ggCategoria').value,
+      notas: $('ggNotas').value.trim()
+    };
+
+    let reg;
+    if(g){
+      Object.assign(g, datosComunes);
+      reg = normalizarGastoGeneral(g);
+      Object.assign(g, reg);
+    }else{
+      reg = normalizarGastoGeneral(Object.assign({ id:nuevoId() }, datosComunes));
+      datos.gastosGenerales.push(reg);
+    }
+    guardarGastoGeneral(reg, g ? 'editó' : 'registró');
+    cerrarModal();
+    render();
+    aviso(g ? 'Registro actualizado.' : 'Gasto registrado.');
   };
 }
 
@@ -22684,6 +22875,7 @@ function render(){
     : estado.modulo === 'resultados'   ? vistaResultados()
     : estado.modulo === 'servicios-operativos' ? vistaServiciosOperativos()
     : estado.modulo === 'nomina'       ? vistaNomina()
+    : estado.modulo === 'gastos-generales' ? vistaGastosGenerales()
     : estado.modulo === 'ayuda'        ? (estado.vista === 'ayuda-tema' ? vistaAyudaTema() : vistaAyuda())
     : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
 
@@ -23281,11 +23473,11 @@ function pintarCabecera(){
     b.style.display = permitidos.includes(b.dataset.modulo) ? '' : 'none';
     b.setAttribute('aria-selected', b.dataset.modulo === estado.modulo ? 'true' : 'false');
   });
-  /* El botón "Más" agrupa Activos/Proveedores/Organigrama/Imagen/Nómina/Ayuda (ver
-     comentario en el HTML): se esconde si el rol no tiene ninguno de los
-     seis, y se enciende como si fuera la pestaña activa cuando el módulo
-     abierto vive adentro. */
-  const GRUPO_MAS = ['activos', 'proveedores', 'organigrama', 'imagen', 'nomina', 'ayuda'];
+  /* El botón "Más" agrupa Activos/Proveedores/Organigrama/Imagen/Nómina/Gastos
+     generales/Ayuda (ver comentario en el HTML): se esconde si el rol no
+     tiene ninguno de los siete, y se enciende como si fuera la pestaña
+     activa cuando el módulo abierto vive adentro. */
+  const GRUPO_MAS = ['activos', 'proveedores', 'organigrama', 'imagen', 'nomina', 'gastos-generales', 'ayuda'];
   const btnMas = $('btnMasModulos');
   btnMas.style.display = GRUPO_MAS.some(m => permitidos.includes(m)) ? '' : 'none';
   btnMas.setAttribute('aria-selected', GRUPO_MAS.includes(estado.modulo) ? 'true' : 'false');
@@ -23314,6 +23506,7 @@ function pintarCabecera(){
                  : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
                  : estado.modulo === 'servicios-operativos' ? 'Servicios Operativos'
                  : estado.modulo === 'nomina' ? 'Nómina'
+                 : estado.modulo === 'gastos-generales' ? 'Gastos generales'
                  : estado.modulo === 'ayuda' ? 'Ayuda'
                  : 'Clientes';
   const enInicio = modulosPermitidos()[0] === estado.modulo && estado.vista === inicioDelModulo();
@@ -29354,6 +29547,22 @@ $('vista').addEventListener('click', ev=>{
           aviso('Registro eliminado.');
         });
     }
+    else if(a === 'nuevo-gasto-general'){ if(exigirAdmin('registrar un gasto general')) modalGastoGeneral(null); }
+    else if(a === 'editar-gasto-general'){ if(exigirAdmin('editar un gasto general')) modalGastoGeneral(acc.dataset.gastoGeneral); }
+    else if(a === 'borrar-gasto-general'){
+      if(!exigirAdmin('eliminar un gasto general')) return;
+      const g = gastoGeneralPorId(acc.dataset.gastoGeneral);
+      if(!g) return;
+      confirmar('Eliminar gasto general',
+        'Se va a eliminar el registro de <b>' + esc(g.concepto || 'Gasto general') + '</b> de ' + esc(fmtFecha(g.fecha)) + ' (' + dinero(g.monto) + '). Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.gastosGenerales = datos.gastosGenerales.filter(x => x.id !== g.id);
+          borrarRegistro('gastosGenerales', g.id);
+          anotar('eliminó', 'gasto general', (g.concepto || 'Gasto general') + ' — ' + fmtFecha(g.fecha));
+          render();
+          aviso('Registro eliminado.');
+        });
+    }
     else if(a === 'nueva-servicio-operativo'){ if(exigirPermiso()) modalServicioOperativo(null, estado.servOpTab); }
     else if(a === 'editar-servicio-operativo'){ if(exigirPermiso()) modalServicioOperativo(acc.dataset.servicioOperativo); }
     else if(a === 'borrar-servicio-operativo'){
@@ -31196,7 +31405,7 @@ function salirSilencioso(tambienLosDatos){
     /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
        21-sep-2026): faltaban proveedores/gastosProveedor/refacciones/
        ordenesCompra. */
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[], serviciosOperativos:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], nomina:[], serviciosOperativos:[], gastosGenerales:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;

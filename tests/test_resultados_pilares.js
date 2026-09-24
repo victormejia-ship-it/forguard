@@ -84,6 +84,17 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
       normalizarProyectoImagen({ id:'pi6', tipo:'apertura', estatus:'aprobado', fecha:'2026-08-01',
         conceptos:[{ concepto:'Fuera de periodo', cantidad:1, costoUnitario:9999, precioVenta:9999 }] })
     ];
+
+    /* Gastos generales (24-sep-2026, segunda fase del mismo rediseño):
+       gastosGeneralesPorCategoriaEnPeriodo() agrupa por categoría, mismo
+       criterio de periodo que la nómina de arriba. */
+    datos.gastosGenerales = [
+      normalizarGastoGeneral({ id:'gg1', fecha:'2026-09-03', monto:10000, categoria:'administrativo' }),
+      normalizarGastoGeneral({ id:'gg2', fecha:'2026-09-12', monto:20000, categoria:'corporativo' }),
+      normalizarGastoGeneral({ id:'gg3', fecha:'2026-09-20', monto:5000, categoria:'otro' }),
+      /* Fuera del periodo de prueba (agosto) — NO debe contarse en nada. */
+      normalizarGastoGeneral({ id:'gg4', fecha:'2026-08-01', monto:999999, categoria:'administrativo' })
+    ];
   });
 
   // --------- 1) calcularResultadosPorPilar(): cada número en su pilar ---------
@@ -111,8 +122,11 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Resumen Forguard: costos = suma de los 4 pilares (407,000)', pr.resumen.totalCostos === 407000);
   chkF('Resumen Forguard: utilidad bruta correcta (-172,800)', pr.resumen.utilidadBruta === -172800);
 
-  chkF('Gastos de estructura: solo la nómina transversal cuenta hoy (400,000)', pr.totalEstructura === 400000);
-  chkF('Utilidad operativa = utilidad bruta - gastos de estructura (-572,800)', pr.utilidadOperativa === -572800);
+  chkF('Gastos administrativos: viene del módulo Gastos generales (10,000)', pr.estructura.find(x => x.label === 'Gastos administrativos').monto === 10000);
+  chkF('Gastos corporativos asignados: viene del módulo Gastos generales (20,000)', pr.estructura.find(x => x.label === 'Gastos corporativos asignados').monto === 20000);
+  chkF('Otros gastos de estructura: viene del módulo Gastos generales (5,000)', pr.estructura.find(x => x.label === 'Otros gastos de estructura').monto === 5000);
+  chkF('Gastos de estructura: nómina transversal + los 3 gastos generales del periodo (435,000 — el de agosto NO se cuenta)', pr.totalEstructura === 435000);
+  chkF('Utilidad operativa = utilidad bruta - gastos de estructura (-607,800)', pr.utilidadOperativa === -607800);
 
   // --------- 2) La vista "Por pilares" lo pinta correctamente ---------
   await page.evaluate(() => {

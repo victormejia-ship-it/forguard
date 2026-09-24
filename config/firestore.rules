@@ -542,6 +542,17 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Gastos generales (agregada 24-sep-2026, segunda fase del mismo
+       rediseño de Resultados que /nomina) --- Gasolinas, trampas de grasa,
+       extracciones, renders y demás gastos administrativos/corporativos:
+       mismo candado exacto que /nomina, mismo motivo (dinero real del
+       negocio, ni se puede LEER desde otro rol). */
+    match /gastosGenerales/{id} {
+      allow read:   if esAdmin();
+      allow create, update: if esAdmin();
+      allow delete: if esAdmin();
+    }
+
     /* --- Lista de precios de equipos ---
        Un solo documento, catalogo/lista, con el arreglo de equipos adentro. Va
        en un documento y no en uno por equipo para que sean 48 equipos por UNA
