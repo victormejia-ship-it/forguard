@@ -9999,7 +9999,14 @@ function diaAnterior(iso){
        + '-' + String(d.getUTCDate()).padStart(2,'0');
 }
 
-function armarPayloadPoliza(p){
+/* `soloCalendario` (opcional): pedido explícito de Victor (24-sep-2026),
+   "un segmento donde podamos imprimir solamente el calendario, sin
+   necesidad de tener que imprimir toda la póliza completa" — la plantilla
+   sigue siendo UNA sola (docs/plantilla_poliza_forguard.html), nada más lee
+   `vistaDocumento` del payload para decidir si compone Portada + Calendario
+   + Cierre, o el documento completo de siempre. Reusa pageCalendario() tal
+   cual: nunca se duplicó la lógica del Gantt para esto. */
+function armarPayloadPoliza(p, soloCalendario){
   const c   = calcularPoliza(p);
   const cli = clientePorId(p.clienteId);
 
@@ -10062,6 +10069,7 @@ function armarPayloadPoliza(p){
 
   return {
     meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
+    vistaDocumento: soloCalendario ? 'calendario' : 'completo',
 
     /* Resuelto aquí, no en la plantilla: solo una póliza VIVA se imprime como
        póliza; todo lo demás —incluidas perdida y cancelada— es una cotización.
@@ -10197,11 +10205,11 @@ const LLAVE_DOC_POLIZA = 'forguard.documento.poliza';
    necesita un parámetro `lado` para eso—; el documento de póliza solo
    imprime precio de venta, nunca costo, sin importar de qué copia de la
    póliza (completa o la redactada de portalCliente) se le pase. */
-function abrirDocumentoPolizaConDatos(p){
+function abrirDocumentoPolizaConDatos(p, soloCalendario){
   if(!p) return;
   let payload;
   try{
-    payload = armarPayloadPoliza(p);
+    payload = armarPayloadPoliza(p, soloCalendario);
     sessionStorage.setItem(LLAVE_DOC_POLIZA, JSON.stringify(payload));
   }catch(e){
     aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
@@ -10219,8 +10227,8 @@ function abrirDocumentoPolizaConDatos(p){
   if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
   return payload;
 }
-function abrirDocumentoPoliza(id){
-  return abrirDocumentoPolizaConDatos(polizaPorId(id));
+function abrirDocumentoPoliza(id, soloCalendario){
+  return abrirDocumentoPolizaConDatos(polizaPorId(id), soloCalendario);
 }
 /* La misma póliza, vista desde el portal: sale de portalCliente.polizas, no
    de datos.polizas —esa colección ni siquiera se baja para un cliente. */
@@ -13239,7 +13247,8 @@ const TEMAS_AYUDA = [
         'Estatus del contrato: Borrador → Enviada (en espera de confirmar) → Activa (precios ya congelados) — o Cancelada.',
         'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción.',
         'Haz clic en una casilla de cobro para <b>capturar el cobro</b>: quién captura, número de OC, si ya se facturó.',
-        'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa) — un equipo "Responsabilidad del cliente" sale marcado ahí mismo: su fila se sombrea, su número lleva un "†", su Total sale en blanco, y una nota al final explica el símbolo y lista de nuevo cuáles son.'
+        'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa) — un equipo "Responsabilidad del cliente" sale marcado ahí mismo: su fila se sombrea, su número lleva un "†", su Total sale en blanco, y una nota al final explica el símbolo y lista de nuevo cuáles son.',
+        '<b>Imprimir calendario</b> (junto a Imprimir): abre solo la portada y la hoja del calendario de mantenimientos, sin la tabla de equipos, descripción de trabajos ni consideraciones — para cuando el técnico solo necesita el calendario en papel, sin las demás hojas.'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
         'La <b>Agenda</b> agrupa TODOS los contratos por mes → sitio → equipo, con bloques de Atrasados / Toca ahora / Parciales / Programados — para no tener que revisar contrato por contrato.',
@@ -21717,6 +21726,13 @@ function vistaPoliza(){
         cambia el título de portada (eso ya lo resuelve el payload). */
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-poliza" '
      +     'title="Abre el documento en otra pestaña, listo para guardarse como PDF">' + ICONO.imprimir + 'Imprimir</button>'
+     /* Pedido explícito de Victor (24-sep-2026): "un segmento donde podamos
+        imprimir solamente el calendario, sin necesidad de tener que
+        imprimir toda la póliza completa" — mismo documento y misma hoja de
+        Calendario de siempre (pageCalendario en la plantilla), nada más
+        sin las hojas de tabla de equipos/descripción/consideraciones. */
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-calendario-poliza" '
+     +     'title="Abre solo la portada y el calendario, sin la tabla de equipos ni las demás hojas">' + ICONO.calendario + 'Imprimir calendario</button>'
      +   (puedeEditar() ? '<button type="button" class="btn btn-suave btn-mini" data-accion="duplicar-poliza" '
          + 'title="Arranca una cotización nueva con todo esto ya prellenado — útil para renovaciones">'
          + ICONO.duplicar + 'Duplicar</button>' : '')
@@ -29650,6 +29666,7 @@ $('vista').addEventListener('click', ev=>{
     /* SIN exigirPermiso, a propósito: imprimir es solo lectura y el Viewer ya
        ve todas estas cifras en pantalla — negarle el botón no protege nada. */
     else if(a === 'imprimir-poliza') abrirDocumentoPoliza(estado.polizaId);
+    else if(a === 'imprimir-calendario-poliza') abrirDocumentoPoliza(estado.polizaId, true);
     else if(a === 'imprimir-resultados') abrirDocumentoResultados();
     else if(a === 'excel-resultados') descargarExcelResultados();
     else if(a === 'excel') descargarExcel(null);

@@ -66,6 +66,7 @@ node test_veredicto_sync_incremental.js
 | `test_veredicto_conflicto_edicion.js` | Aviso cuando dos personas editan el mismo reporte |
 | `test_smoke_arranque.js` | Ningún módulo principal truena al abrirlo |
 | `test_poliza_*.js` | Duplicar póliza, importar Excel, vigencia en tarjetas |
+| `test_poliza_imprimir_calendario.js` | "Imprimir calendario" en Pólizas: el documento arma solo Portada + Calendario + Cierre (sin tabla de equipos, descripción ni consideraciones) cuando se pide, y la aserción de renglones impresos (verificarRenglonesImpresos) no prende la banda roja de "mal formado" por la ausencia a propósito de esas hojas |
 | `test_precios_historial.js` | Historial de cambios de precio |
 | `test_proyecto_imagen_*.js` | Imagen/Aperturas: costo vs. precio de venta, documento y PDF |
 | `test_proyecto_imagen_aumento_iva.js` | Imagen/Aperturas: aumento/descuento % a costo o precio de venta (solo Admin), e IVA en el total del documento |

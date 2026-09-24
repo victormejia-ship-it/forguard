@@ -887,7 +887,16 @@ function pageCierre(){
    Consideraciones va justo antes del cierre porque es el único bloque de
    prosa de largo variable: si fuera antes de la tabla, agregar o quitar
    una cláusula correría el arranque de la tabla y cambiaría cuántas filas
-   caben en la primera hoja. */
+   caben en la primera hoja.
+
+   `POLIZA.vistaDocumento === 'calendario'` (agregado 24-sep-2026, pedido
+   explícito de Victor: "un segmento donde podamos imprimir solamente el
+   calendario, sin necesidad de tener que imprimir toda la póliza
+   completa"): mismas Portada y Cierre de siempre —para que la hoja del
+   calendario no ande suelta sin decir de qué cliente/sitio/vigencia es—,
+   pero sin Tabla, Descripción ni Consideraciones. Reusa pageCalendario()
+   tal cual: la lógica del Gantt (partirEnHojas, columnas ya resueltas) no
+   se duplicó para esto. */
 /* Con try/catch A PROPÓSITO: leerPayload() valida renglones, calendario y
    totales, pero el render toca muchos más campos (cliente, contacto, vendedor,
    fechas, pie…) y un payload al que le falte cualquiera dejaba la página EN
@@ -897,7 +906,9 @@ function pageCierre(){
 let docRoto = null, docHTML = '';
 if(POLIZA){
   try{
-    docHTML = pageCover() + pagePoliza() + pageDescripcion() + pageCalendario() + pageConsideraciones() + pageCierre();
+    docHTML = POLIZA.vistaDocumento === 'calendario'
+      ? pageCover() + pageCalendario() + pageCierre()
+      : pageCover() + pagePoliza() + pageDescripcion() + pageCalendario() + pageConsideraciones() + pageCierre();
   }catch(e){
     docRoto = e;
     console.error('El documento no se pudo armar:', e);
@@ -909,7 +920,7 @@ document.getElementById("doc").innerHTML = (POLIZA && !docRoto)
       ? 'Los datos llegaron incompletos y el documento no se pudo armar. Cierra esta pestaña y vuelve a abrirlo desde el tablero.'
       : LEIDO.error);
 
-if(POLIZA && !docRoto) document.title = 'Póliza ' + (POLIZA.cliente.sitio || POLIZA.cliente.nombre || '') + ' · Forguard';
+if(POLIZA && !docRoto) document.title = (POLIZA.vistaDocumento === 'calendario' ? 'Calendario · Póliza ' : 'Póliza ') + (POLIZA.cliente.sitio || POLIZA.cliente.nombre || '') + ' · Forguard';
 /* Sin documento no hay nada que imprimir: el banner de ajustes sobraría y
    hasta confundiría — se quita del DOM, no solo de la vista. */
 if(!POLIZA || docRoto){ const av = document.getElementById('avisoImpresion'); if(av) av.remove(); }
@@ -1154,10 +1165,20 @@ function verificarRenglonesImpresos(){
      cada tabla vive fuera del <tbody>, como bloque, no como <tr>. */
   const cuenta = sel => [...document.querySelectorAll(sel)]
     .reduce((t, tb) => t + tb.querySelectorAll('tr').length, 0);
+  /* Con `vistaDocumento === 'calendario'` (ver el armado de docHTML, más
+     arriba) la Tabla y la Descripción NUNCA se imprimen A PROPÓSITO — no
+     es un documento incompleto, es el documento que se pidió. Comparar
+     esas dos contra POLIZA.renglones/descripciones ahí prendería la banda
+     roja de "MAL FORMADO" sobre un documento perfectamente válido, así que
+     esas dos pruebas se saltan en ese modo; el calendario en sí SIEMPRE se
+     verifica, sea cual sea la vista. */
+  const soloCalendario = POLIZA.vistaDocumento === 'calendario';
   const pruebas = [
-    { que:'renglones de la tabla',      impreso: cuenta('table.grid:not(.desc) tbody'), esperado: POLIZA.renglones.length },
     { que:'renglones del calendario',   impreso: cuenta('table.cal tbody'),             esperado: POLIZA.renglones.length },
-    { que:'filas de la descripción',    impreso: cuenta('table.grid.desc tbody'),       esperado: POLIZA.descripciones.length }
+    ...(soloCalendario ? [] : [
+      { que:'renglones de la tabla',    impreso: cuenta('table.grid:not(.desc) tbody'), esperado: POLIZA.renglones.length },
+      { que:'filas de la descripción',  impreso: cuenta('table.grid.desc tbody'),       esperado: POLIZA.descripciones.length }
+    ])
   ];
   const mal = pruebas.filter(p => p.impreso !== p.esperado);
 
