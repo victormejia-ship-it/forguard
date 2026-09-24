@@ -1,10 +1,13 @@
 /* "Imprimir calendario" en Pólizas (24-sep-2026, pedido explícito de
    Victor): "un segmento donde podamos imprimir solamente el calendario,
-   sin necesidad de tener que imprimir toda la póliza completa". Misma
-   plantilla de siempre (docs/plantilla_poliza_forguard.html), misma hoja
-   de Calendario (pageCalendario, reusada tal cual) — nada más un flag
-   nuevo en el payload (`vistaDocumento`) que decide si se compone
-   Portada + Calendario + Cierre, o el documento completo.
+   sin necesidad de tener que imprimir toda la póliza completa" — luego
+   ampliado con "en el título coloca que es solo el calendario" y "que las
+   hojas sean en horizontal para mejor visibilidad". Misma plantilla de
+   siempre (docs/plantilla_poliza_forguard.html), misma hoja de Calendario
+   (pageCalendario, reusada tal cual) — nada más un flag nuevo en el
+   payload (`vistaDocumento`) que decide si se compone Portada +
+   Calendario + Cierre en horizontal con una portada propia
+   (pageCoverCalendario), o el documento completo de siempre en portrait.
 
    Esta prueba navega de verdad a la plantilla (como test_documentos_hoja_
    cierre.js) porque el riesgo real no es "el botón llama a la función
@@ -60,7 +63,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await docCompleto.waitForLoadState();
   await docCompleto.waitForTimeout(500);
 
-  chkF('Completo: trae la portada azul', await docCompleto.locator('.page').first().evaluate(el => el.classList.contains('cover')));
+  chkF('Completo: trae la portada azul de siempre (.cover, no la simplificada)', await docCompleto.locator('.page').first().evaluate(el => el.classList.contains('cover') && !el.classList.contains('cover-calendario')));
   chkF('Completo: trae la hoja de la tabla de equipos ("Póliza de Mantenimiento")', (await docCompleto.locator('.page .h1').allTextContents()).some(t => t.includes('Póliza de Mantenimiento')));
   chkF('Completo: trae la hoja de "Descripción de Trabajos"', (await docCompleto.locator('.page .h1').allTextContents()).some(t => t.includes('Descripción de Trabajos')));
   chkF('Completo: trae la hoja del calendario', (await docCompleto.locator('.page .h1').allTextContents()).some(t => t.includes('Calendario')));
@@ -68,6 +71,10 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Completo: cierra con la hoja de solo-logo', await docCompleto.locator('.page').last().locator('.pagina-cierre').count() === 1);
   chkF('Completo: NO aparece la banda roja de "documento mal formado"', await docCompleto.locator(':text("MAL FORMADO")').count() === 0);
   chkF('Completo: el título de la pestaña es el de siempre (sin "Calendario ·")', !(await docCompleto.title()).startsWith('Calendario ·'));
+  chkF('Completo: el concepto sigue diciendo "Póliza de Mantenimiento Preventivo"', (await docCompleto.locator('.metabar .v').first().textContent()) === 'Póliza de Mantenimiento Preventivo');
+  const boxPortrait = await docCompleto.locator('.page').first().boundingBox();
+  chkF('Completo: las hojas siguen en vertical (portrait, alto > ancho)', boxPortrait.height > boxPortrait.width);
+  chkF('Completo: ninguna hoja lleva la clase .horizontal', await docCompleto.locator('.page.horizontal').count() === 0);
 
   await docCompleto.close();
 
@@ -84,17 +91,28 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await docCalendario.waitForTimeout(500);
 
   const titulosCalendario = await docCalendario.locator('.page .h1').allTextContents();
-  chkF('Solo calendario: trae la portada azul', await docCalendario.locator('.page').first().evaluate(el => el.classList.contains('cover')));
+  chkF('Solo calendario: trae SU PROPIA portada simplificada (.cover-calendario)', await docCalendario.locator('.page').first().evaluate(el => el.classList.contains('cover-calendario')));
+  const tituloPortadaCalendario = await docCalendario.locator('.cc-titulo').textContent();
+  chkF('Solo calendario: el título de la portada dice que es SOLO el calendario', tituloPortadaCalendario.includes('Calendario de') && tituloPortadaCalendario.includes('Mantenimiento Preventivo'));
   chkF('Solo calendario: NO trae la tabla de equipos', !titulosCalendario.some(t => t.includes('Póliza de Mantenimiento')));
   chkF('Solo calendario: NO trae "Descripción de Trabajos"', !titulosCalendario.some(t => t.includes('Descripción de Trabajos')));
   chkF('Solo calendario: SÍ trae la hoja del calendario', titulosCalendario.some(t => t.includes('Calendario')));
   chkF('Solo calendario: NO trae "Consideraciones Relevantes"', !titulosCalendario.some(t => t.includes('Consideraciones')));
+  chkF('Solo calendario: el concepto de la hoja del calendario ya no dice "Póliza..."', (await docCalendario.locator('.metabar .v').first().textContent()) === 'Calendario de Mantenimiento Preventivo');
   chkF('Solo calendario: cierra con la hoja de solo-logo', await docCalendario.locator('.page').last().locator('.pagina-cierre').count() === 1);
   chkF('Solo calendario: exactamente 3 hojas (Portada + Calendario + Cierre)', await docCalendario.locator('.page').count() === 3);
   chkF('Solo calendario: el título de la pestaña avisa que es solo el calendario', (await docCalendario.title()).startsWith('Calendario ·'));
   /* La razón de ser de esta prueba: sin el ajuste de verificarRenglonesImpresos(),
      la ausencia A PROPÓSITO de la tabla/descripción prendía esta banda por error. */
   chkF('Solo calendario: NO aparece la banda roja de "documento mal formado"', await docCalendario.locator(':text("MAL FORMADO")').count() === 0);
+
+  // Pedido explícito de Victor: "que las hojas sean en horizontal para mejor visibilidad".
+  const paginasCalendario = await docCalendario.locator('.page').all();
+  for(let i = 0; i < paginasCalendario.length; i++){
+    const box = await paginasCalendario[i].boundingBox();
+    chkF('Solo calendario: hoja ' + (i+1) + ' es horizontal (ancho > alto)', box.width > box.height);
+    chkF('Solo calendario: hoja ' + (i+1) + ' lleva la clase .horizontal', await paginasCalendario[i].evaluate(el => el.classList.contains('horizontal')));
+  }
 
   await docCalendario.close();
 

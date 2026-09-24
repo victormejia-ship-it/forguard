@@ -116,6 +116,17 @@
     background:#fff;
     box-shadow:0 4px 24px rgba(8,25,75,.15);
   }
+  /* Documento "solo calendario" (24-sep-2026, pedido explícito de Victor:
+     "mejor visibilidad" para las 12 columnas de mes) — SOLO cuando
+     POLIZA.vistaDocumento === 'calendario' (ver el armado de docHTML, más
+     abajo) las tres hojas de ese documento más corto (Portada, Calendario,
+     Cierre) llevan esta clase y miden al revés: 11×8.5in en vez de
+     8.5×11in. El @page de impresión se ajusta aparte por JS (buscar
+     "landscape" en el script) porque una sola hoja HTML sirve los dos
+     documentos y @page no se puede acotar por clase — nunca en la misma
+     tanda de impresión conviven hojas portrait y horizontal, así que basta
+     con UN @page dinámico para todo el documento activo. */
+  .page.horizontal{ width:11in; height:8.5in; }
 
   /* ============================ PORTADA ============================
      Réplica MEDIDA de la portada real (la exportada de MXNL02, extraída del
@@ -411,9 +422,37 @@
      el documento de Imagen/Aperturas (pedido de Victor, 21-sep-2026: "la
      ultima hoja se vea como la de la portada pero sola y exclusivamente
      con el logotipo"). Va SIN cabecera/pie: es a propósito distinta a las
-     demás, no una continuación más. */
+     demás, no una continuación más. Un flex centrado no necesita saber si
+     su .page mide 8.5×11 o 11×8.5: por eso esta misma hoja sirve para los
+     dos documentos sin ningún ajuste. */
   .pagina-cierre{height:100%;display:flex;flex-direction:column;align-items:center;
     justify-content:center;gap:18px;color:var(--brand-navy);}
+
+  /* ==================== PORTADA DEL "SOLO CALENDARIO" ====================
+     Distinta de .cover (que es una réplica MEDIDA pixel a pixel de un PDF
+     real en portrait, con su escudo gigante calibrado exactamente contra
+     un lienzo de 8.5×11in): forzar esa réplica a 11×8.5 distorsionaría el
+     escudo sin ninguna referencia real contra la cual recalibrarlo. Esta es
+     una portada nueva y más simple, pensada desde cero para el lienzo
+     horizontal — mismo navy de marca, mismo logo, mismo eslogan, sin
+     intentar imitar la portada de la póliza completa al pixel. */
+  .cover-calendario{background:#031649;color:#fff;position:relative;overflow:hidden;
+    display:flex;flex-direction:column;justify-content:center;
+    padding:0 .9in;}
+  .cc-lockup{position:absolute;left:.75in;top:.65in;display:flex;align-items:center;gap:14pt;color:#fff;}
+  .cc-eyebrow{font-size:11pt;letter-spacing:.16em;text-transform:uppercase;color:#7FA8D9;margin-bottom:8pt;}
+  .cc-titulo{font-family:var(--font-body);font-weight:300;font-size:40pt;line-height:1.12;
+    color:#F3F6FC;max-width:8in;}
+  .cc-meta{display:flex;gap:46pt;margin-top:26pt;}
+  .cc-meta .campo{position:relative;padding-top:10pt;min-width:140pt;}
+  .cc-meta .campo::before{content:"";position:absolute;top:0;left:0;width:18pt;height:2pt;}
+  .cc-meta .campo:nth-child(1)::before{background:#8BB4D8;}
+  .cc-meta .campo:nth-child(2)::before{background:#49BA79;}
+  .cc-meta .etiqueta{display:block;font-size:8pt;font-weight:700;letter-spacing:.12em;
+    text-transform:uppercase;color:#7FA8D9;margin-bottom:4pt;}
+  .cc-meta .valor{display:block;font-size:12pt;color:#F3F6FC;line-height:1.4;}
+  .cc-tagline{position:absolute;right:.75in;bottom:.55in;font-size:9pt;color:#fff;}
+  .cc-marca{position:absolute;right:-40pt;bottom:-60pt;color:#1B2B59;opacity:.6;}
 </style>
 </head>
 <body>
@@ -465,6 +504,11 @@ const POLIZA = LEIDO.doc || null;
 const esc = s => String(s == null ? '' : s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const MESES = POLIZA ? POLIZA.calendario.encabezados : [];
+/* En el "solo calendario" el nombre del documento en sí cambia —ya no es
+   "Póliza de Mantenimiento Preventivo" completa, es nada más su calendario—
+   para que quien lo reciba no piense que le falta el resto del contrato. */
+const SOLO_CALENDARIO = !!(POLIZA && POLIZA.vistaDocumento === 'calendario');
+const CONCEPTO_DOCUMENTO = SOLO_CALENDARIO ? 'Calendario de Mantenimiento Preventivo' : 'Póliza de Mantenimiento Preventivo';
 
 /* ---------- Identidad oficial de Forguard (SVG extraído de logo-forguard.svg) ----------
    Isotipo y logotipo van como vectores, no como texto: fidelidad exacta.
@@ -490,7 +534,7 @@ function sheetHead(titulo,dosLineas){
   <div class="eyebrow">${esc((POLIZA.textos && POLIZA.textos.eyebrow) || 'Cotización de Servicios Extras')}</div>
   <div class="h1${dosLineas?" two":""}">${titulo}</div>
   <table class="metabar"><tr>
-    <td><div class="k">${esc((POLIZA.textos && POLIZA.textos.conceptoEtiqueta) || 'Concepto Cotizado:')}</div><div class="v">Póliza de Mantenimiento Preventivo</div></td>
+    <td><div class="k">${esc((POLIZA.textos && POLIZA.textos.conceptoEtiqueta) || 'Concepto Cotizado:')}</div><div class="v">${esc(CONCEPTO_DOCUMENTO)}</div></td>
     <td><div class="k">Cliente</div><div class="v">${esc(POLIZA.cliente.nombre)}${POLIZA.cliente.sitio?` ${esc(POLIZA.cliente.sitio)}`:""}</div></td>
   </tr></table>`;
 }
@@ -562,9 +606,32 @@ function pageCover(){
     <div class="cv-meta">
       <div class="campo"><span class="etiqueta">Cliente</span><span class="valor">${esc(POLIZA.cliente.nombre)}${POLIZA.cliente.sitio ? `<br>${esc(POLIZA.cliente.sitio)}` : ''}</span></div>
       <div class="campo"><span class="etiqueta">Fecha</span><span class="valor">${esc(POLIZA.fechas.cotizacion)}</span></div>
-      <div class="campo"><span class="etiqueta">Proyecto</span><span class="valor">Póliza de Mantenimiento Preventivo</span></div>
+      <div class="campo"><span class="etiqueta">Proyecto</span><span class="valor">${esc(CONCEPTO_DOCUMENTO)}</span></div>
     </div>
     <div class="cv-tagline">Sostenemos a los que sostienen todo.</div>
+  </section>`;
+}
+
+/* Portada simplificada del "solo calendario" (ver el comentario de la
+   clase .cover-calendario, arriba, para por qué NO es pageCover() forzada
+   a 11×8.5): mismo navy/logo/eslogan de marca, un título que dice con
+   todas sus letras que esto es SOLO el calendario —pedido explícito de
+   Victor, "en el título coloca que es solo el calendario de mantenimiento
+   preventivo"—, y Cliente/Fecha como único par de datos (sin "Proyecto":
+   el título ya lo dice). */
+function pageCoverCalendario(){
+  return `<section class="page horizontal cover-calendario">
+    <div class="cc-marca">${isotipo(280)}</div>
+    <div class="cc-lockup">${isotipo(30)}${logotipo(78)}</div>
+    <div>
+      <div class="cc-eyebrow">Calendario de mantenimientos</div>
+      <div class="cc-titulo">Calendario de<br>Mantenimiento Preventivo</div>
+      <div class="cc-meta">
+        <div class="campo"><span class="etiqueta">Cliente</span><span class="valor">${esc(POLIZA.cliente.nombre)}${POLIZA.cliente.sitio ? `<br>${esc(POLIZA.cliente.sitio)}` : ''}</span></div>
+        <div class="campo"><span class="etiqueta">Fecha</span><span class="valor">${esc(POLIZA.fechas.cotizacion)}</span></div>
+      </div>
+    </div>
+    <div class="cc-tagline">Sostenemos a los que sostienen todo.</div>
   </section>`;
 }
 
@@ -760,7 +827,7 @@ function pageCalendario(){
       const celdas=MESES.map((_,mi)=>`<td class="${r.columnas.includes(mi)?"on":""}"></td>`).join("");
       return `<tr><td class="ix">${r.n}</td><td class="lbl">${esc(r.concepto)}</td>${celdas}</tr>`;
     }).join("");
-    return `<section class="page">
+    return `<section class="page${SOLO_CALENDARIO ? ' horizontal' : ''}">
     <div class="sheet">
       ${sheetHead("Calendario de<br>Mantenimientos",true)}
       <div class="body" style="top:2.85in">
@@ -875,7 +942,7 @@ function pageSinDatos(motivo){
    al documento de Imagen/Aperturas): "que la ultima hoja se vea como la
    de la portada pero sola y exclusivamente con el logotipo". */
 function pageCierre(){
-  return `<section class="page">
+  return `<section class="page${SOLO_CALENDARIO ? ' horizontal' : ''}">
     <div class="sheet">
       <div class="pagina-cierre">${isotipo(64)}${logotipo(160)}</div>
     </div>
@@ -892,11 +959,16 @@ function pageCierre(){
    `POLIZA.vistaDocumento === 'calendario'` (agregado 24-sep-2026, pedido
    explícito de Victor: "un segmento donde podamos imprimir solamente el
    calendario, sin necesidad de tener que imprimir toda la póliza
-   completa"): mismas Portada y Cierre de siempre —para que la hoja del
-   calendario no ande suelta sin decir de qué cliente/sitio/vigencia es—,
-   pero sin Tabla, Descripción ni Consideraciones. Reusa pageCalendario()
-   tal cual: la lógica del Gantt (partirEnHojas, columnas ya resueltas) no
-   se duplicó para esto. */
+   completa", y luego "en el título coloca que es solo el calendario" +
+   "que las hojas sean en horizontal para mejor visibilidad"): una portada
+   propia, más simple (pageCoverCalendario, no la réplica medida de
+   pageCover — ver el comentario de .cover-calendario), y todo el
+   documento en horizontal (SOLO_CALENDARIO agrega la clase .horizontal a
+   cada hoja; el @page de impresión se resuelve aparte, más abajo) — sin
+   Tabla, Descripción ni Consideraciones. Reusa pageCalendario() tal cual:
+   la lógica del Gantt (partirEnHojas, columnas ya resueltas) no se
+   duplicó para esto, nada más se benefician solas del ancho extra que da
+   el horizontal (la columna de Concepto es flexible, ver su comentario). */
 /* Con try/catch A PROPÓSITO: leerPayload() valida renglones, calendario y
    totales, pero el render toca muchos más campos (cliente, contacto, vendedor,
    fechas, pie…) y un payload al que le falte cualquiera dejaba la página EN
@@ -906,8 +978,8 @@ function pageCierre(){
 let docRoto = null, docHTML = '';
 if(POLIZA){
   try{
-    docHTML = POLIZA.vistaDocumento === 'calendario'
-      ? pageCover() + pageCalendario() + pageCierre()
+    docHTML = SOLO_CALENDARIO
+      ? pageCoverCalendario() + pageCalendario() + pageCierre()
       : pageCover() + pagePoliza() + pageDescripcion() + pageCalendario() + pageConsideraciones() + pageCierre();
   }catch(e){
     docRoto = e;
@@ -920,7 +992,21 @@ document.getElementById("doc").innerHTML = (POLIZA && !docRoto)
       ? 'Los datos llegaron incompletos y el documento no se pudo armar. Cierra esta pestaña y vuelve a abrirlo desde el tablero.'
       : LEIDO.error);
 
-if(POLIZA && !docRoto) document.title = (POLIZA.vistaDocumento === 'calendario' ? 'Calendario · Póliza ' : 'Póliza ') + (POLIZA.cliente.sitio || POLIZA.cliente.nombre || '') + ' · Forguard';
+if(POLIZA && !docRoto) document.title = (SOLO_CALENDARIO ? 'Calendario · Póliza ' : 'Póliza ') + (POLIZA.cliente.sitio || POLIZA.cliente.nombre || '') + ' · Forguard';
+
+/* El papel de este documento se define en @page (más arriba, dentro de
+   @media print) — pero UNA sola hoja HTML sirve el documento completo
+   (portrait) y el "solo calendario" (horizontal), y @page no se puede
+   acotar con un selector de clase. Como los dos nunca conviven en la
+   misma pestaña (cada apertura es UN documento, con SU payload), basta
+   con inyectar aquí, en el momento en que ya se sabe cuál es, la regla
+   que corresponde — la que se agrega DESPUÉS en el DOM gana el empate de
+   especificidad contra la del <style> original. */
+if(SOLO_CALENDARIO){
+  const estiloHorizontal = document.createElement('style');
+  estiloHorizontal.textContent = '@media print{ @page{ size:letter landscape; margin:0; } }';
+  document.head.appendChild(estiloHorizontal);
+}
 /* Sin documento no hay nada que imprimir: el banner de ajustes sobraría y
    hasta confundiría — se quita del DOM, no solo de la vista. */
 if(!POLIZA || docRoto){ const av = document.getElementById('avisoImpresion'); if(av) av.remove(); }
