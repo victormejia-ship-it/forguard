@@ -1,6 +1,5 @@
-/* Regresión: confirma que editar un proyecto ya existente, el listado
-   (tarjetas/tabla) y el estado de resultados (gasto informativo aparte)
-   siguen funcionando tras el cambio de modelo costo/precio. */
+/* Regresión: confirma que editar un proyecto ya existente y el listado
+   (tarjetas/tabla) siguen funcionando tras el cambio de modelo costo/precio. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -57,10 +56,6 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Al editar, los precios de venta existentes se prellenan (25,000 y 6,000)', precios.includes('25,000') && precios.includes('6,000'));
   await page.click('[data-modal="cancelar"]');
   await page.waitForTimeout(150);
-
-  // --------- El estado de resultados sigue contando el proyecto como gasto informativo aparte ---------
-  const r = await page.evaluate(() => calcularResultados(hoyISO().slice(0,7)+'-01', hoyISO()));
-  chkF('El estado de resultados sigue sumando el costo de materiales/mano de obra por separado', r.imagenTotal === 25000);
 
   console.log('Errores:', JSON.stringify(errores));
   await browser.close();

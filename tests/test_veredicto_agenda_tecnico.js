@@ -49,9 +49,10 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     sesion.expira=Date.now()+3600000; sesion.rol='tecnico'; sesion.nombre='Juan Técnico';
     ocultarAcceso();
     /* Mismo flujo real de arranque (ver el bloque ARRANQUE): cargar() lee la
-       copia local, cargarModulo() arranca en 'resultados' a propósito
-       (pedido de Victor, 10-sep-2026) y el candado de permisos de render()
-       redirige solo a modulosPermitidos()[0] — 'mi-agenda' para un técnico. */
+       copia local, cargarModulo() arranca en el primero de MODULOS a
+       propósito (pedido de Victor, 10-sep-2026) y el candado de permisos de
+       render() redirige solo a modulosPermitidos()[0] — 'mi-agenda' para un
+       técnico. */
     cargar();
     cargarModulo();
     render();

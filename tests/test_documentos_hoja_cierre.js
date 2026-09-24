@@ -19,12 +19,14 @@
      Imagen/Aperturas se prueba aparte, en test_proyecto_imagen_hoja_cierre.js
      (ya la tenía la de cierre; aquí solo se le sumó la portada).
 
-   Quedaron FUERA a propósito plantilla_resultados.html y
-   plantilla_ruta_visitas.html: son documentos operativos internos, sin la
-   identidad de marca de los otros cinco (sin isotipo/logotipo, sin
-   Poppins embebida, paginación automática del navegador en vez de medir/
-   cortar) — sus propios comentarios lo dicen explícito ("no es uno que se
-   le entrega al cliente"). */
+   Quedó FUERA a propósito plantilla_ruta_visitas.html: es un documento
+   operativo interno, sin la identidad de marca de los otros cinco (sin
+   isotipo/logotipo, sin Poppins embebida, paginación automática del
+   navegador en vez de medir/cortar) — su propio comentario lo dice
+   explícito ("no es uno que se le entrega al cliente"). (plantilla_
+   resultados.html, el otro documento que estaba en esta misma categoría,
+   se eliminó por completo el 24-sep-2026 junto con todo el módulo
+   Resultados.) */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };

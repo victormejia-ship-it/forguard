@@ -179,19 +179,6 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
-    /* --- Servicios Operativos (agregado 23-sep-2026) ---
-       Segundo pilar del Framework de Proforma: Limpieza (trabajo suelto),
-       Fumigación y Transporte de personal (contratos recurrentes, un solo
-       renglón cada uno). Ni sensible como /nomina ni con una copia aparte
-       para el portal de clientes (no se pidió eso todavía) — mismo candado
-       exacto que /cotizaciones: cualquiera con acceso interno lo lee. */
-    match /serviciosOperativos/{id} {
-      allow read:   if conAcceso() && !esCliente();
-      allow create: if puedeEditar();
-      allow update: if puedeEditar();
-      allow delete: if esAdmin();
-    }
-
     /* --- Reportes (tickets) ---
        Cuarto módulo: el reporte de una falla, que puede levantar CUALQUIERA
        con acceso al tablero — a propósito MÁS permisivo que `puedeEditar()`.
@@ -526,30 +513,6 @@ service cloud.firestore {
       allow read:   if conAcceso() && !esCliente();
       allow create: if puedeEditar();
       allow update: if puedeEditar();
-      allow delete: if esAdmin();
-    }
-
-    /* --- Nómina (agregada 23-sep-2026, fase 1 del rediseño de Resultados) ---
-       El gasto de nómina real, mes a mes — a diferencia de /personal (un
-       directorio que cualquier cuenta interna puede consultar), esto es
-       dinero, y de los rubros más sensibles del negocio: ni siquiera se
-       puede LEER desde otro rol que no sea Owner/Admin, mismo candado que
-       /bitacora. No es solo esconder la pestaña en index.html — el bloqueo
-       real vive aquí. */
-    match /nomina/{id} {
-      allow read:   if esAdmin();
-      allow create, update: if esAdmin();
-      allow delete: if esAdmin();
-    }
-
-    /* --- Gastos generales (agregada 24-sep-2026, segunda fase del mismo
-       rediseño de Resultados que /nomina) --- Gasolinas, trampas de grasa,
-       extracciones, renders y demás gastos administrativos/corporativos:
-       mismo candado exacto que /nomina, mismo motivo (dinero real del
-       negocio, ni se puede LEER desde otro rol). */
-    match /gastosGenerales/{id} {
-      allow read:   if esAdmin();
-      allow create, update: if esAdmin();
       allow delete: if esAdmin();
     }
 
