@@ -4,21 +4,31 @@
    Cumplimiento de pólizas + Detalle por pilar, AMBOS formatos disponibles
    para todo.
 
-   Excel: un libro de 6 hojas (Resumen general, Cumplimiento de pólizas y
-   una por cada uno de los 4 pilares), armado a mano con el mismo motor XLSX
-   que ya usa descargarExcel() (armarZip/filaXml/cT-cN-cX/XLSX_ESTILOS) —
-   sin ninguna librería externa. Se prueba llamando directamente a las
-   funciones de cada hoja (hojaResumenGeneralXlsx/hojaCumplimientoPolizasXlsx/
-   hojaPilarXlsx) e inspeccionando el XML crudo: no hace falta descomprimir
-   el .zip para confirmar que cada hoja trae los datos correctos, y así
-   también se prueba exactamente lo mismo que arma el botón real.
+   Excel (rehecho el mismo día, pedido de Victor tras ver la primera
+   versión: "necesito que el excel siga el formato del framework proforma
+   que te comparti, los mismos colores y cálculos"): UNA sola hoja
+   "Framework Proforma" calcada de su archivo real
+   (Framework_Proforma_Forguard_V2.xlsx) — los 4 pilares apilados uno debajo
+   del otro (no una hoja por pilar), más RESUMEN FORGUARD y GASTOS DE
+   ESTRUCTURA FORGUARD al final, mismos colores (navy/slate/azul claro) y
+   las mismas fórmulas vivas (=SUM(B6:B8), =B9-B15, =IFERROR(B16/B9,0)…) en
+   vez de números ya calculados — armado a mano con el mismo motor XLSX que
+   ya usa descargarExcel() (armarZip/filaXml/cT-cN-cX), sin ninguna
+   librería externa. Cumplimiento de pólizas —que no existe en el Excel de
+   Victor, es aporte de esta app— se queda como una segunda hoja aparte.
+   Se prueba llamando directo a construirHojaFrameworkProforma()/
+   hojaCumplimientoPolizasXlsx() e inspeccionando el XML crudo.
 
-   PDF: nueva plantilla docs/plantilla_resultados_forguard.html, SIEMPRE
-   horizontal (las tablas de 14 columnas no caben en vertical), copiada de
-   plantilla_orden_compra.html (misma identidad Forguard). Se navega de
-   verdad a la plantilla (mismo criterio que test_poliza_imprimir_
-   calendario.js) porque el riesgo real es que la plantilla se rompa con
-   datos reales, no que el botón llame a la función correcta.
+   PDF: docs/plantilla_resultados_forguard.html, SIEMPRE horizontal (las
+   tablas de 14 columnas no caben en vertical), copiada de
+   plantilla_orden_compra.html (misma identidad Forguard). Cumplimiento de
+   pólizas se repartía por un CONTEO FIJO de filas por hoja —un primer
+   intento que con datos reales (más de 20 pólizas activas) se salía del
+   área imprimible y el pie (posición absoluta) quedaba ENCIMADO con las
+   últimas filas visibles, veredicto de Victor: "se empalman las tablas"—
+   y ahora se MIDE de verdad (mismo principio que plantilla_orden_compra.html):
+   se prueba con una sola póliza (cabe en 1 hoja) Y con muchas (para forzar
+   varias hojas) confirmando que el pie NUNCA se traslapa con la tabla.
 
    Los dos formatos reusan las MISMAS funciones que ya usa la pantalla
    (PILARES_PROFORMA, resumenGeneralProforma, polizasActivasParaCumplimiento),
@@ -68,37 +78,41 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('El botón "Descargar Excel" está en el titulo-zona de Resultados', await page.locator('[data-accion="excel-resultados"]').count() === 1);
   chkF('El botón "Generar PDF" está en el titulo-zona de Resultados', await page.locator('[data-accion="pdf-resultados"]').count() === 1);
 
-  // --------- 2) Excel: cada hoja trae los datos correctos (owner) ---------
+  // --------- 2) Excel: una sola hoja "Framework Proforma", calcada de la de Victor ---------
   const excelOwner = await page.evaluate(() => {
     const anio = hoyISO().slice(0,4);
-    const pilarTecnicos = PILARES_PROFORMA.find(p => p.id === 'tecnicos');
-    const c = calcularPoliza(polizaPorId('p1'));
     return {
-      resumen: hojaResumenGeneralXlsx(anio),
+      framework: construirHojaFrameworkProforma(anio),
       cumplimiento: hojaCumplimientoPolizasXlsx(),
-      tecnicos: hojaPilarXlsx(pilarTecnicos, anio),
-      precioAnualPoliza: dinero(c.precioAnual),
       folio: polizaPorId('p1').folio
     };
   });
-  chkF('Hoja "Resumen general": trae el título esperado', excelOwner.resumen.includes('Resumen general Forguard'));
-  chkF('Hoja "Resumen general": trae "Servicios Técnicos" en el ranking por pilar', excelOwner.resumen.includes('Servicios Técnicos'));
+  const fw = excelOwner.framework;
+  chkF('Framework Proforma: trae el título calcado de su Excel', fw.includes('FORGUARD | FRAMEWORK DE PROFORMA'));
+  chkF('Framework Proforma: el título va en una sola celda fusionada (A1:N1)', /mergeCell ref="A1:N1"/.test(fw));
+  chkF('Framework Proforma: el pilar va en MAYÚSCULAS, calcado de su Excel', fw.includes('>SERVICIOS TÉCNICOS<') || fw.includes('SERVICIOS TÉCNICOS'));
+  chkF('Framework Proforma: trae "TOTAL INGRESOS SERVICIOS TÉCNICOS"', fw.includes('TOTAL INGRESOS SERVICIOS TÉCNICOS'));
+  chkF('Framework Proforma: la fórmula de "Total ingresos" suma el rango de renglones de Ingresos (=SUM(B6:B8))', fw.includes('SUM(B6:B8)'));
+  chkF('Framework Proforma: "Utilidad bruta" resta Total costos de Total ingresos por columna (=B9-B16)', fw.includes('B9-B16'));
+  chkF('Framework Proforma: "Margen bruto" usa IFERROR igual que su Excel', fw.includes('IFERROR(B17/B9,0)'));
+  chkF('Framework Proforma: trae "Nómina directa del pilar" con el sueldo real (owner)', fw.includes('30000'));
+  chkF('Framework Proforma: trae "RESUMEN FORGUARD"', fw.includes('RESUMEN FORGUARD'));
+  chkF('Framework Proforma: "TOTAL INGRESOS FORGUARD" suma los 4 "TOTAL INGRESOS" de los pilares', /TOTAL INGRESOS FORGUARD[\s\S]*?B9\+B26\+B43\+B60/.test(fw));
+  chkF('Framework Proforma: trae "GASTOS DE ESTRUCTURA FORGUARD" (en $0, sin fuente conectada todavía)', fw.includes('GASTOS DE ESTRUCTURA FORGUARD'));
+  chkF('Framework Proforma: trae "UTILIDAD OPERATIVA FORGUARD" y "MARGEN OPERATIVO"', fw.includes('UTILIDAD OPERATIVA FORGUARD') && fw.includes('MARGEN OPERATIVO'));
+  chkF('Framework Proforma: trae la nota de criterio de nómina, fusionada', /Criterio de nómina[\s\S]*?mergeCell/.test(fw) || (fw.includes('Criterio de nómina') && fw.includes('mergeCell')));
   chkF('Hoja "Cumplimiento de pólizas": trae el folio de la póliza activa', excelOwner.cumplimiento.includes(excelOwner.folio));
-  chkF('Hoja del pilar "Servicios Técnicos": trae su propio nombre como título', excelOwner.tecnicos.includes('Servicios Técnicos'));
-  chkF('Hoja del pilar "Servicios Técnicos": trae el renglón "Pólizas de mantenimiento"', excelOwner.tecnicos.includes('Pólizas de mantenimiento'));
-  chkF('Hoja del pilar "Servicios Técnicos": trae "Nómina directa del pilar" con el sueldo real (owner)', excelOwner.tecnicos.includes('360000') || excelOwner.tecnicos.includes('30000'));
-  chkF('Hoja del pilar "Servicios Técnicos": trae el renglón "Proveedores / servicios subcontratados"', excelOwner.tecnicos.includes('Proveedores'));
+  chkF('Hoja "Cumplimiento de pólizas": "NGK" no se repite dos veces (sitio = nombre del cliente, se deduplica)', !excelOwner.cumplimiento.includes('NGK — NGK'));
 
   // --------- 3) Excel: como Analyst, "Nómina directa del pilar" no se filtra pero SÍ sale en $0 ---------
   const excelAnalyst = await page.evaluate(() => {
     sesion.rol = 'analyst';
-    const anio = hoyISO().slice(0,4);
-    const xml = hojaPilarXlsx(PILARES_PROFORMA.find(p => p.id === 'tecnicos'), anio);
+    const xml = construirHojaFrameworkProforma(hoyISO().slice(0,4));
     sesion.rol = 'owner';
     return xml;
   });
-  chkF('Analyst: la hoja del pilar SIGUE trayendo el renglón "Nómina directa del pilar"', excelAnalyst.includes('Nómina directa del pilar'));
-  chkF('Analyst: "Nómina directa del pilar" ya NO trae 30000 (se ve en $0, mismo candado que la pantalla)', !excelAnalyst.includes('30000') && !excelAnalyst.includes('360000'));
+  chkF('Analyst: el Excel SIGUE trayendo el renglón "Nómina directa del pilar"', excelAnalyst.includes('Nómina directa del pilar'));
+  chkF('Analyst: "Nómina directa del pilar" ya NO trae 30000 (se ve en $0, mismo candado que la pantalla)', !excelAnalyst.includes('30000'));
 
   // --------- 4) El botón real arma el mismo Excel (blob .xlsx, sin errores) ---------
   const excelBoton = await page.evaluate(() => {
@@ -127,8 +141,9 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('El payload del PDF trae los 4 pilares', Array.isArray(payloadPdf.pilares) && payloadPdf.pilares.length === 4);
   chkF('El payload del PDF trae la póliza activa en "cumplimiento"', payloadPdf.cumplimiento.some(it => it.folio === 'POL-900'));
   chkF('El payload del PDF trae el resumen general', !!payloadPdf.resumen && !!payloadPdf.resumen.kpis);
+  chkF('El payload del PDF deduplica "Cliente / Sitio" (no "NGK — NGK")', !payloadPdf.cumplimiento.some(it => it.clienteSitio === 'NGK — NGK'));
 
-  // --------- 6) La plantilla PDF de verdad: se navega a ella y se revisa el documento ---------
+  // --------- 6) La plantilla PDF de verdad, con UNA sola póliza: cabe en 1 hoja de Cumplimiento ---------
   const [docPdf] = await Promise.all([
     context.waitForEvent('page'),
     page.evaluate(() => {
@@ -157,6 +172,63 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('PDF: el título de la pestaña identifica el documento', (await docPdf.title()).includes('Resultados'));
   chkF('No hubo errores de página al abrir el PDF de Resultados', erroresPdf.length === 0);
   await docPdf.close();
+
+  // --------- 7) La plantilla PDF con MUCHAS pólizas activas: Cumplimiento se
+  // reparte en varias hojas, MEDIDAS, y el pie nunca se traslapa con la tabla
+  // (veredicto de Victor, 25-sep-2026, con datos reales: "se empalman las
+  // tablas" — un conteo fijo de filas por hoja se quedaba corto). ---------
+  await page.evaluate(() => {
+    const muchas = [];
+    for(let i = 0; i < 45; i++){
+      muchas.push(normalizarPoliza({
+        id: 'pm' + i, clienteId: 'c1', sitioId: 's1', folio: 'POL-' + (100 + i), sitioNombre: 'Sitio ' + i,
+        estatus: 'activa', facturacion: 'mensual', cargoA: 'cliente',
+        fechaInicio: '2026-01-01', fechaCotizacion: '2026-01-01',
+        partidas: [{ id: 'x', concepto: 'Equipo', cantidad: 1, precioUnitario: 500, frecuencia: 1, mesesServicio: [0], descripcion: 'Revisión' }],
+        cobros: [false]
+      }));
+    }
+    datos.polizas = datos.polizas.concat(muchas);
+  });
+
+  const [docMuchas] = await Promise.all([
+    context.waitForEvent('page'),
+    page.evaluate(() => {
+      sessionStorage.setItem('forguard.documento.resultados', JSON.stringify(armarPayloadResultados()));
+      window.open('docs/plantilla_resultados_forguard.html', '_blank');
+    })
+  ]);
+  const erroresMuchas = [];
+  docMuchas.on('pageerror', e => erroresMuchas.push('PAGEERROR (pdf muchas polizas): ' + e.message));
+  await docMuchas.waitForLoadState();
+  await docMuchas.waitForTimeout(500);
+
+  const totalPaginasMuchas = await docMuchas.locator('.page').count();
+  chkF('PDF con 46 pólizas activas: Cumplimiento ya no cabe en 1 sola hoja (más de 6 páginas en total)', totalPaginasMuchas > 6);
+
+  const filasCumplTotales = await docMuchas.locator('.page .cuerpo table.cumpl tbody tr').count();
+  chkF('PDF con 46 pólizas activas: TODAS las filas de Cumplimiento se imprimen (ninguna se pierde al paginar)', filasCumplTotales === 46);
+
+  // El pie (.footwrap) es posición absoluta al fondo de la hoja: si el
+  // reparto midió mal, la última fila de la tabla se dibuja MÁS ABAJO que
+  // el techo del pie y ambos se ven encimados en el PDF real.
+  const paginasConCumpl = await docMuchas.locator('.page').all();
+  let hojasConTablaCumpl = 0;
+  for(const pg of paginasConCumpl){
+    const filas = pg.locator('table.cumpl tbody tr');
+    const nFilas = await filas.count();
+    if(!nFilas) continue;
+    hojasConTablaCumpl++;
+    const ultimaFila = filas.last();
+    const pie = pg.locator('.footwrap');
+    const boxFila = await ultimaFila.boundingBox();
+    const boxPie = await pie.boundingBox();
+    chkF('PDF con muchas pólizas: la última fila de cada hoja de Cumplimiento termina ANTES de donde empieza el pie (sin traslape)', boxFila.y + boxFila.height <= boxPie.y + 1);
+  }
+  chkF('PDF con muchas pólizas: Cumplimiento sí se repartió en más de una hoja', hojasConTablaCumpl > 1);
+
+  chkF('No hubo errores de página con muchas pólizas activas', erroresMuchas.length === 0);
+  await docMuchas.close();
 
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 

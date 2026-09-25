@@ -12492,6 +12492,21 @@ function bloqueResumenGeneralProforma(anio){
 function polizasActivasParaCumplimiento(){
   return datos.polizas.filter(p => p.estatus === 'activa').map(p => Object.assign({ p }, calcularPoliza(p)));
 }
+/* Mismo criterio de deduplicación que ya usa armarPayloadPoliza() (buscar
+   "también es prefijo" ahí): cuando el SITIO ya trae el nombre del cliente
+   adentro —igual o como prefijo, ignorando mayúsculas/acentos—, repetirlo
+   ("NGK — NGK", visto en el Excel/PDF de Cumplimiento) es ruido. Se
+   reutiliza aquí, en vez de reescribirlo, para que ambos documentos lean
+   igual de limpio. */
+function nombreClienteSitioPoliza(p){
+  const llano = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .toLowerCase().replace(/\s+/g,' ').trim();
+  const cli = clientePorId(p.clienteId);
+  const nombre = cli ? cli.nombre : '';
+  const sitio = p.sitioNombre || '';
+  if(sitio && llano(sitio).startsWith(llano(nombre))) return sitio || '—';
+  return [nombre, sitio].filter(Boolean).join(' — ') || '—';
+}
 function leyendaCumplimientoPolizas(){
   return '<div class="grafica-leyenda">'
     + '<span><i style="background:' + COLOR_TONO.ok + '"></i>Al día</span>'
@@ -12718,10 +12733,9 @@ function armarPayloadResultados(){
   };
 
   const cumplimiento = polizasActivasParaCumplimiento().map(it=>{
-    const cli = clientePorId(it.p.clienteId);
     return {
       folio: it.p.folio || 'Sin folio',
-      clienteSitio: [cli ? cli.nombre : '', it.p.sitioNombre].filter(Boolean).join(' — ') || '—',
+      clienteSitio: nombreClienteSitioPoliza(it.p),
       cumplimientoPct: it.cumplimientoPct + '%',
       hechosDebidos: String(it.hechosDebidos),
       serviciosDebidos: String(it.serviciosDebidos),
@@ -13029,10 +13043,10 @@ const TEMAS_AYUDA = [
           'Las tablas mensuales arrancan <b>compactas</b> (el mes actual y los 3 anteriores) para no verse amontonadas — el Total del año siempre suma los 12 meses completos, se vean o no. "Ver los 12 meses" (arriba de los 4 pilares) los revela con un clic en las 4 tablas a la vez; nunca se pierde un mes, solo se oculta.',
           '<b>El dashboard es interactivo</b> (25-sep-2026): en cualquier renglón ya conectado (se ve con el cursor de "mano" al pasar el mouse), clic en el <b>nombre</b> abre el detalle del año completo, clic en <b>cualquier mes</b> (o en el Total) abre el detalle de solo ese mes — la lista exacta de pólizas, cotizaciones, personas o gastos que suman ese número, cada una con un enlace para abrirla directo en su propio módulo. Un renglón todavía en $0 (sin conectar) no tiene nada que mostrar, así que no es clicable.'
         ])
-      + guiaTip('Exportar (25-sep-2026)', [
-          'Arriba a la derecha: <b>Descargar Excel</b> y <b>Generar PDF</b>, los dos con los mismos 3 aspectos siempre: Resumen general, Cumplimiento de pólizas y el Detalle de cada uno de los 4 pilares.',
-          '<b>Descargar Excel</b> baja un libro de <b>6 hojas</b> (Resumen general, Cumplimiento de pólizas y una por pilar) — sin ninguna app externa, con los 12 meses completos en cada hoja (no la vista compacta de pantalla).',
-          '<b>Generar PDF</b> abre el documento con la misma identidad Forguard que Pólizas/Cotizaciones/Órdenes de Compra, siempre en <b>horizontal</b> (las tablas de 12 meses no caben en vertical): da clic en "Guardar como PDF" adentro de esa pestaña nueva.',
+      + guiaTip('Exportar (25-sep-2026, formato calcado del Excel de Victor)', [
+          'Arriba a la derecha: <b>Descargar Excel</b> y <b>Generar PDF</b>.',
+          '<b>Descargar Excel</b> baja un libro con la hoja <b>"Framework Proforma"</b> calcada del archivo real de Victor ("Framework Proforma Forguard V2"): los 4 pilares apilados uno debajo del otro —mismos colores, mismas fórmulas vivas (SUM, restas y márgenes con IFERROR, no números ya calculados)—, más el bloque <b>RESUMEN FORGUARD</b> y <b>GASTOS DE ESTRUCTURA FORGUARD</b> al final (este último en $0 a propósito: todavía no hay de dónde conectarlo). <b>Cumplimiento de pólizas</b> —que no existe en el Excel original, es un aporte de esta app— va en una segunda hoja aparte. Siempre los 12 meses completos, sin ninguna app externa.',
+          '<b>Generar PDF</b> abre el documento con la misma identidad Forguard que Pólizas/Cotizaciones/Órdenes de Compra, siempre en <b>horizontal</b> (las tablas de 12 meses no caben en vertical): da clic en "Guardar como PDF" adentro de esa pestaña nueva. Cumplimiento de pólizas reparte sus filas MIDIENDO de verdad cuánto cabe en cada hoja (igual que Cotizaciones/Órdenes de Compra), así que el pie nunca queda encimado con la tabla aunque haya muchas pólizas activas.',
           'Los dos formatos respetan exactamente el mismo candado que la pantalla: "Nómina directa del pilar" sale en $0 para quien no sea Owner/Admin, sin excepción por ser un archivo descargado.'
         ])
       + guiaTip('Por qué no incluye "Gastos de Estructura Forguard" todavía', [
@@ -29467,9 +29481,18 @@ function descargarExcel(clienteId){
 
 /* ===================== Excel de Resultados (Framework de Proforma) =====================
    Pedido de Victor (25-sep-2026): "necesito que podamos exportar en 3
-   aspectos excel o pdf en los formatos de forguard" — confirmado con él:
-   Resumen general + Cumplimiento de pólizas + Detalle por pilar, ambos
-   formatos disponibles para todo. Un libro de 6 hojas.
+   aspectos excel o pdf en los formatos de forguard" — y luego, tras ver la
+   primera versión (6 hojas, una por pilar, colores propios): "necesito que
+   el excel siga el formato del framework proforma que te comparti, los
+   mismos colores y cálculos". Rehecho para calcar EXACTO su archivo real
+   (Framework_Proforma_Forguard_V2.xlsx) — misma hoja única "Framework
+   Proforma" con los 4 pilares apilados uno debajo del otro, el bloque
+   RESUMEN FORGUARD y GASTOS DE ESTRUCTURA FORGUARD al final, mismos colores
+   (#174A7E navy / #263746 slate / #E7EEF5 azul claro), mismos formatos de
+   número ("$"#,##0 / 0.0%) y las mismas fórmulas vivas (=SUM(B6:B8),
+   =B9-B16, =IFERROR(B17/B9,0)…) en vez de valores ya calculados. Cumplimiento
+   de pólizas —que no existe en su Excel original, es aporte de esta app—
+   se queda como una segunda hoja aparte, con la misma paleta.
 
    Los renglones de PILARES_PROFORMA guardan una FUNCIÓN (montosPorMes/
    detalle), no un número ya calculado — llamarla aquí, igual que hace la
@@ -29477,64 +29500,229 @@ function descargarExcel(clienteId){
    "Nómina directa del pilar" sale en $0 para quien no sea Owner/Admin
    exactamente igual que en el tablero, sin un candado aparte para el Excel.
 
+   "Gastos de Estructura Forguard" se deja en $0 a propósito, con la misma
+   estructura de su Excel (4 renglones + total): la app todavía no tiene de
+   dónde conectar ese dato (ver el tema de Ayuda de Resultados, "Por qué no
+   incluye Gastos de Estructura todavía") — nunca se inventa un número.
+
    Siempre los 12 meses completos: un archivo exportado es un documento
    cerrado, no la vista compacta de la pantalla (ver mesesVisiblesProforma). */
-const ENC_PROFORMA_XLSX = anio => ['Concepto'].concat(MESES_PROFORMA, ['Total ' + anio]);
-const ANCHOS_PROFORMA_XLSX = [32].concat(Array(12).fill(10), [14]);
+const MESES_LARGOS_XLSX = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
-/* Los 12 meses van tal cual (dato de origen); el Total de la derecha es una
-   fórmula viva (SUM de la propia fila) — si alguien corrige un mes en el
-   Excel, el Total de esa fila se actualiza solo. */
-function filaProformaXlsx(nFila, label, montos, estiloLabel, estiloValor){
-  const celdas = [cT(label, estiloLabel)];
-  montos.forEach(v => celdas.push(cN(v, estiloValor)));
-  const total = montos.reduce((a,b)=>a+b,0);
-  celdas.push(cX('SUM(B' + nFila + ':M' + nFila + ')', total, estiloValor));
-  return filaXml(nFila, celdas);
+/* Estilos propios de este libro (independientes de XLSX_ESTILOS, que usan
+   otros exports) para poder calcar el navy/slate/azul-claro exactos del
+   Excel de Victor sin arriesgar los estilos de los demás. Índices:
+   0 normal · 1 título barra (blanco 16 / fondo navy) · 2 encabezado de
+   meses (blanco / fondo slate) · 3 barra de pilar y RESUMEN FORGUARD
+   (blanco / fondo navy) · 4 barra de sección INGRESOS/COSTOS/GASTOS
+   (navy / fondo azul claro) · 5 dinero normal · 6 texto negrita ·
+   7 dinero negrita · 8 porcentaje normal · 9 nota gris. */
+const XLSX_ESTILOS_PROFORMA = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
++ '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
++ '<numFmts count="2"><numFmt numFmtId="164" formatCode="\\$#,##0;[Red]\\-\\$#,##0"/><numFmt numFmtId="165" formatCode="0.0%"/></numFmts>'
++ '<fonts count="6">'
++ '<font><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
++ '<font><b/><sz val="16"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>'
++ '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>'
++ '<font><b/><sz val="11"/><color rgb="FF174A7E"/><name val="Calibri"/><family val="2"/></font>'
++ '<font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
++ '<font><sz val="11"/><color rgb="FF5E6C7B"/><name val="Calibri"/><family val="2"/></font>'
++ '</fonts>'
++ '<fills count="5">'
++ '<fill><patternFill patternType="none"/></fill>'
++ '<fill><patternFill patternType="gray125"/></fill>'
++ '<fill><patternFill patternType="solid"><fgColor rgb="FF174A7E"/><bgColor indexed="64"/></patternFill></fill>'
++ '<fill><patternFill patternType="solid"><fgColor rgb="FF263746"/><bgColor indexed="64"/></patternFill></fill>'
++ '<fill><patternFill patternType="solid"><fgColor rgb="FFE7EEF5"/><bgColor indexed="64"/></patternFill></fill>'
++ '</fills>'
++ '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
++ '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
++ '<cellXfs count="10">'
++ '<xf numFmtId="0"   fontId="0" fillId="0" borderId="0" xfId="0"/>'
++ '<xf numFmtId="0"   fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'
++ '<xf numFmtId="0"   fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'
++ '<xf numFmtId="0"   fontId="2" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'
++ '<xf numFmtId="0"   fontId="3" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'
++ '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
++ '<xf numFmtId="0"   fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
++ '<xf numFmtId="164" fontId="4" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
++ '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
++ '<xf numFmtId="0"   fontId="5" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
++ '</cellXfs>'
++ '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
++ '</styleSheet>';
+
+function filaConAltura(nFila, celdas, ht){
+  return filaXml(nFila, celdas).replace('<row r="' + nFila + '">', '<row r="' + nFila + '" ht="' + ht + '" customHeight="1">');
 }
-function filaSeccionProformaXlsx(nFila, label){
-  return filaXml(nFila, [cT(label, 9)]);
+/* Barra de color que corre por las `nCols` columnas —solo la primera trae
+   texto, el resto son celdas vacías con el mismo estilo— para las cabeceras
+   de pilar/sección/resumen, calcado de cómo se ve en el Excel de Victor. */
+function filaBarraFw(nFila, etiqueta, estilo, ht, nCols){
+  const celdas = [cT(etiqueta, estilo)];
+  for(let i = 1; i < nCols; i++) celdas.push(cT('', estilo));
+  return filaConAltura(nFila, celdas, ht);
+}
+function filaConceptoFw(nFila, label, montos){
+  const celdas = [cT(label, 0)];
+  montos.forEach(v => celdas.push(cN(v, 5)));
+  celdas.push(cX('SUM(B' + nFila + ':M' + nFila + ')', montos.reduce((a,b)=>a+b,0), 5));
+  return filaConAltura(nFila, celdas, 20);
+}
+/* "TOTAL INGRESOS…"/"TOTAL COSTOS…": suma VERTICAL de un rango de filas ya
+   escritas arriba, fórmula viva por columna — calcado de `=SUM(B6:B8)` en
+   el Excel de Victor, nunca un total aparte que se pudiera descuadrar del
+   detalle. */
+function filaSumaVerticalFw(nFila, label, primeraFila, ultimaFila, montosCache){
+  const celdas = [cT(label, 6)];
+  for(let i = 0; i < 12; i++){
+    const col = letraCol(i + 2);
+    celdas.push(cX('SUM(' + col + primeraFila + ':' + col + ultimaFila + ')', montosCache[i], 7));
+  }
+  celdas.push(cX('SUM(B' + nFila + ':M' + nFila + ')', montosCache.reduce((a,b)=>a+b,0), 7));
+  return filaConAltura(nFila, celdas, 20);
+}
+/* "TOTAL INGRESOS/COSTOS FORGUARD" del Resumen: la misma idea pero sumando
+   HORIZONTALMENTE una lista de filas no consecutivas (una por pilar) —
+   `=B9+B26+B43+B60`. */
+function filaSumaFilasFw(nFila, label, filas, montosCache){
+  const celdas = [cT(label, 6)];
+  for(let i = 0; i < 12; i++){
+    const col = letraCol(i + 2);
+    celdas.push(cX(filas.map(f => col + f).join('+'), montosCache[i], 7));
+  }
+  celdas.push(cX('SUM(B' + nFila + ':M' + nFila + ')', montosCache.reduce((a,b)=>a+b,0), 7));
+  return filaConAltura(nFila, celdas, 20);
+}
+function filaRestaFw(nFila, label, filaA, filaB, montosCache){
+  const celdas = [cT(label, 6)];
+  for(let i = 0; i < 12; i++){
+    const col = letraCol(i + 2);
+    celdas.push(cX(col + filaA + '-' + col + filaB, montosCache[i], 7));
+  }
+  celdas.push(cX('SUM(B' + nFila + ':M' + nFila + ')', montosCache.reduce((a,b)=>a+b,0), 7));
+  return filaConAltura(nFila, celdas, 20);
+}
+/* MARGEN: IFERROR(utilidad/base,0) por columna; el Total NO es un SUM de
+   porcentajes (sumar 12 márgenes no significa nada) sino el mismo cociente
+   sobre las columnas N ya calculadas — calcado de `=IFERROR(N17/N9,0)`. */
+function filaMargenFw(nFila, label, filaUtilidad, filaBase, pctPorMes, pctTotal){
+  const celdas = [cT(label, 6)];
+  for(let i = 0; i < 12; i++){
+    const col = letraCol(i + 2);
+    celdas.push(cX('IFERROR(' + col + filaUtilidad + '/' + col + filaBase + ',0)', pctPorMes[i] / 100, 8));
+  }
+  celdas.push(cX('IFERROR(N' + filaUtilidad + '/N' + filaBase + ',0)', pctTotal / 100, 8));
+  return filaConAltura(nFila, celdas, 20);
 }
 
-function hojaResumenGeneralXlsx(anio){
-  const r = resumenGeneralProforma(anio);
-  let n = 0, xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+function construirHojaFrameworkProforma(anio){
+  const anchos = [43].concat(Array(12).fill(13), [15]);
+  let n = 0;
+  let xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-    + '<sheetViews><sheetView showGridLines="0" workbookViewId="0"/></sheetViews>'
+    + '<sheetViews><sheetView showGridLines="0" tabSelected="1" workbookViewId="0">'
+    + '<pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
     + '<sheetFormatPr defaultRowHeight="15"/>'
-    + '<cols>' + ANCHOS_PROFORMA_XLSX.map((w,k)=>'<col min="' + (k+1) + '" max="' + (k+1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols>'
+    + '<cols>' + anchos.map((w,k)=>'<col min="' + (k+1) + '" max="' + (k+1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols>'
     + '<sheetData>';
 
-  xml += filaXml(++n, [cT('Resumen general Forguard', 1)]);
-  xml += filaXml(++n, [cT('La suma de los 4 pilares — el número general de la empresa, ' + anio + '.', 2)]);
+  xml += filaBarraFw(++n, 'FORGUARD | FRAMEWORK DE PROFORMA', 1, 28, 14);
+  const filaTitulo = n;
   n++;
-  xml += filaXml(++n, [cT('Ingresos totales', 9), cN(r.totalIngresos, 7)]);
-  xml += filaXml(++n, [cT('Costos directos totales', 9), cN(r.totalCostos, 7)]);
-  xml += filaXml(++n, [cT('Utilidad bruta', 9), cN(r.totalUtilidad, 7)]);
-  xml += filaXml(++n, [cT('Margen bruto', 9), cT(r.margenTotal + '%', 5)]);
-  n++;
+  xml += filaXml(++n, ['Concepto'].concat(MESES_LARGOS_XLSX, ['Total ' + anio]).map(h => cT(h, 2)));
 
-  xml += filaXml(++n, ENC_PROFORMA_XLSX(anio).map(h => cT(h, 3)));
-  xml += filaProformaXlsx(++n, 'Ingresos', r.ingresosPorMes, 4, 7);
-  xml += filaProformaXlsx(++n, 'Costos directos', r.costosPorMes, 4, 7);
-  xml += filaProformaXlsx(++n, 'Utilidad bruta', r.utilidadPorMes, 9, 7);
-  n++;
+  const totalIngresosFilas = [], totalCostosFilas = [];
 
-  xml += filaSeccionProformaXlsx(++n, 'Ingresos por pilar');
-  xml += filaXml(++n, [cT('Pilar', 3), cT('Ingresos ' + anio + ' ($)', 3), cT('% del total', 3)]);
-  r.porPilar.forEach(p=>{
-    const pct = r.totalIngresos ? Math.round(p.totalIngresos / r.totalIngresos * 1000) / 10 : 0;
-    xml += filaXml(++n, [cT(p.nombre, 4), cN(p.totalIngresos, 7), cT(pct + '%', 5)]);
+  PILARES_PROFORMA.forEach(pilar=>{
+    const NOMBRE = pilar.nombre.toUpperCase();
+    xml += filaBarraFw(++n, NOMBRE, 3, 23, 14);
+
+    xml += filaBarraFw(++n, 'INGRESOS', 4, 20, 14);
+    const primeraIngreso = n + 1;
+    pilar.ingresos.forEach(c => { xml += filaConceptoFw(++n, c.label, c.montosPorMes(anio)); });
+    const ultimaIngreso = n;
+    const totalIngresosPorMes = totalesPorMesDe(pilar.ingresos, anio);
+    const filaTotalIngresos = ++n;
+    xml += filaSumaVerticalFw(n, 'TOTAL INGRESOS ' + NOMBRE, primeraIngreso, ultimaIngreso, totalIngresosPorMes);
+    totalIngresosFilas.push(filaTotalIngresos);
+
+    n++; // fila en blanco entre el bloque de Ingresos y el de Costos, igual que el Excel de Victor
+    xml += filaBarraFw(++n, 'COSTOS DIRECTOS', 4, 20, 14);
+    const primeraCosto = n + 1;
+    pilar.costos.forEach(c => { xml += filaConceptoFw(++n, c.label, c.montosPorMes(anio)); });
+    const ultimaCosto = n;
+    const totalCostosPorMes = totalesPorMesDe(pilar.costos, anio);
+    const filaTotalCostos = ++n;
+    xml += filaSumaVerticalFw(n, 'TOTAL COSTOS DIRECTOS', primeraCosto, ultimaCosto, totalCostosPorMes);
+    totalCostosFilas.push(filaTotalCostos);
+
+    const utilidadPorMes = totalIngresosPorMes.map((v,i) => v - totalCostosPorMes[i]);
+    const filaUtilidad = ++n;
+    xml += filaRestaFw(n, 'UTILIDAD BRUTA ' + NOMBRE, filaTotalIngresos, filaTotalCostos, utilidadPorMes);
+
+    const margenPorMes = utilidadPorMes.map((u,i) => totalIngresosPorMes[i] ? Math.round(u / totalIngresosPorMes[i] * 1000) / 10 : 0);
+    const sumaIngPilar = totalIngresosPorMes.reduce((a,b)=>a+b,0);
+    const margenTotalPilar = sumaIngPilar ? Math.round(utilidadPorMes.reduce((a,b)=>a+b,0) / sumaIngPilar * 1000) / 10 : 0;
+    xml += filaMargenFw(++n, 'MARGEN BRUTO', filaUtilidad, filaTotalIngresos, margenPorMes, margenTotalPilar);
+
+    n++; // fila en blanco entre pilares, igual que el Excel de Victor
   });
 
+  xml += filaBarraFw(++n, 'RESUMEN FORGUARD', 3, 23, 14);
+
+  const ingresosForguardPorMes = MESES_PROFORMA.map((_,i) => PILARES_PROFORMA.reduce((t,p) => t + totalesPorMesDe(p.ingresos, anio)[i], 0));
+  const costosForguardPorMes = MESES_PROFORMA.map((_,i) => PILARES_PROFORMA.reduce((t,p) => t + totalesPorMesDe(p.costos, anio)[i], 0));
+  const filaIngresosForguard = ++n;
+  xml += filaSumaFilasFw(n, 'TOTAL INGRESOS FORGUARD', totalIngresosFilas, ingresosForguardPorMes);
+  const filaCostosForguard = ++n;
+  xml += filaSumaFilasFw(n, 'TOTAL COSTOS DIRECTOS', totalCostosFilas, costosForguardPorMes);
+
+  const utilidadForguardPorMes = ingresosForguardPorMes.map((v,i) => v - costosForguardPorMes[i]);
+  const filaUtilidadForguard = ++n;
+  xml += filaRestaFw(n, 'UTILIDAD BRUTA', filaIngresosForguard, filaCostosForguard, utilidadForguardPorMes);
+
+  const totalIngresosForguard = ingresosForguardPorMes.reduce((a,b)=>a+b,0);
+  const margenForguardPorMes = utilidadForguardPorMes.map((u,i) => ingresosForguardPorMes[i] ? Math.round(u / ingresosForguardPorMes[i] * 1000) / 10 : 0);
+  const margenForguardTotal = totalIngresosForguard ? Math.round(utilidadForguardPorMes.reduce((a,b)=>a+b,0) / totalIngresosForguard * 1000) / 10 : 0;
+  xml += filaMargenFw(++n, 'MARGEN BRUTO', filaUtilidadForguard, filaIngresosForguard, margenForguardPorMes, margenForguardTotal);
+
+  n++; // blanco
+
+  /* "Gastos de Estructura Forguard": misma estructura que su Excel (4
+     renglones + total) pero en $0 a propósito — la app todavía no tiene de
+     dónde conectar este dato (ver Ayuda de Resultados). */
+  xml += filaBarraFw(++n, 'GASTOS DE ESTRUCTURA FORGUARD', 4, 20, 14);
+  const CONCEPTOS_GASTOS_ESTRUCTURA = ['Nómina administrativa / transversal', 'Gastos administrativos', 'Gastos corporativos asignados', 'Otros gastos de estructura'];
+  const primeraGasto = n + 1;
+  CONCEPTOS_GASTOS_ESTRUCTURA.forEach(label => { xml += filaConceptoFw(++n, label, Array(12).fill(0)); });
+  const ultimaGasto = n;
+  const filaTotalGastos = ++n;
+  xml += filaSumaVerticalFw(n, 'TOTAL GASTOS DE ESTRUCTURA', primeraGasto, ultimaGasto, Array(12).fill(0));
+
+  const gastosEstructuraPorMes = Array(12).fill(0);
+  const utilidadOperativaPorMes = utilidadForguardPorMes.map((v,i) => v - gastosEstructuraPorMes[i]);
+  const filaUtilidadOperativa = ++n;
+  xml += filaRestaFw(n, 'UTILIDAD OPERATIVA FORGUARD', filaUtilidadForguard, filaTotalGastos, utilidadOperativaPorMes);
+
+  const margenOperativoPorMes = utilidadOperativaPorMes.map((u,i) => ingresosForguardPorMes[i] ? Math.round(u / ingresosForguardPorMes[i] * 1000) / 10 : 0);
+  const totalUtilidadOperativa = utilidadOperativaPorMes.reduce((a,b)=>a+b,0);
+  const margenOperativoTotal = totalIngresosForguard ? Math.round(totalUtilidadOperativa / totalIngresosForguard * 1000) / 10 : 0;
+  xml += filaMargenFw(++n, 'MARGEN OPERATIVO', filaUtilidadOperativa, filaIngresosForguard, margenOperativoPorMes, margenOperativoTotal);
+
+  n++; // blanco
+  const filaNota = ++n;
+  xml += filaXml(n, [cT('Criterio de nómina: personal dedicado va como costo directo del pilar; personal transversal va en Gastos de Estructura Forguard — se asigna desde el Organigrama, sin prorrateos manuales.', 9)]);
+
   xml += '</sheetData>'
+    + '<mergeCells count="2"><mergeCell ref="A' + filaTitulo + ':N' + filaTitulo + '"/><mergeCell ref="A' + filaNota + ':N' + filaNota + '"/></mergeCells>'
     + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
     + '</worksheet>';
   return xml;
 }
 
-const ENC_CUMPLIMIENTO_XLSX = ['Folio','Cliente / Sitio','Cumplimiento (%)','Servicios hechos','Servicios debidos','Ingreso anual ($)','Estado'];
-const ANCHOS_CUMPLIMIENTO_XLSX = [16,32,16,16,16,16,20];
+const ENC_CUMPLIMIENTO_XLSX = ['Folio','Cliente / Sitio','Cumplimiento','Servicios hechos','Servicios debidos','Ingreso anual','Estado'];
+const ANCHOS_CUMPLIMIENTO_XLSX = [16,32,14,16,16,16,20];
 function hojaCumplimientoPolizasXlsx(){
   const items = polizasActivasParaCumplimiento();
   let n = 0, xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -29545,82 +29733,38 @@ function hojaCumplimientoPolizasXlsx(){
     + '<cols>' + ANCHOS_CUMPLIMIENTO_XLSX.map((w,k)=>'<col min="' + (k+1) + '" max="' + (k+1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols>'
     + '<sheetData>';
 
-  xml += filaXml(++n, [cT('Cumplimiento de pólizas activas', 1)]);
-  xml += filaXml(++n, ENC_CUMPLIMIENTO_XLSX.map(h => cT(h, 3)));
+  xml += filaBarraFw(++n, 'Cumplimiento de pólizas activas', 1, 28, ENC_CUMPLIMIENTO_XLSX.length);
+  const filaTitulo = n;
+  xml += filaXml(++n, ENC_CUMPLIMIENTO_XLSX.map(h => cT(h, 2)));
 
-  if(!items.length) xml += filaXml(++n, [cT('Todavía no hay pólizas activas.', 4)]);
+  if(!items.length) xml += filaXml(++n, [cT('Todavía no hay pólizas activas.', 0)]);
   items.forEach(it=>{
-    const cli = clientePorId(it.p.clienteId);
-    const nombre = [cli ? cli.nombre : '', it.p.sitioNombre].filter(Boolean).join(' — ') || '—';
     xml += filaXml(++n, [
-      cT(it.p.folio || 'Sin folio', 4),
-      cT(nombre, 4),
-      cT(it.cumplimientoPct + '%', 5),
-      cN(it.hechosDebidos, 5),
-      cN(it.serviciosDebidos, 5),
-      cN(it.precioAnual, 7),
-      cT(it.estado, 5)
+      cT(it.p.folio || 'Sin folio', 0),
+      cT(nombreClienteSitioPoliza(it.p), 0),
+      cN(it.cumplimientoPct / 100, 8),
+      cN(it.hechosDebidos, 0),
+      cN(it.serviciosDebidos, 0),
+      cN(it.precioAnual, 5),
+      cT(it.estado, 0)
     ]);
   });
 
   const ultima = Math.max(3, n);
   xml += '</sheetData>'
+    + '<mergeCells count="1"><mergeCell ref="A' + filaTitulo + ':' + letraCol(ENC_CUMPLIMIENTO_XLSX.length) + filaTitulo + '"/></mergeCells>'
     + '<autoFilter ref="A2:' + letraCol(ENC_CUMPLIMIENTO_XLSX.length) + ultima + '"/>'
     + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
     + '</worksheet>';
   return xml;
 }
 
-function hojaPilarXlsx(pilar, anio){
-  const totalIngresosPorMes = totalesPorMesDe(pilar.ingresos, anio);
-  const totalCostosPorMes = totalesPorMesDe(pilar.costos, anio);
-  const utilidadPorMes = totalIngresosPorMes.map((ing,i) => ing - totalCostosPorMes[i]);
-  const margenPorMes = utilidadPorMes.map((u,i) => totalIngresosPorMes[i] ? Math.round(u / totalIngresosPorMes[i] * 100) : 0);
-  const totalIngresos = totalIngresosPorMes.reduce((a,b)=>a+b,0);
-  const utilidadTotal = utilidadPorMes.reduce((a,b)=>a+b,0);
-  const margenTotal = totalIngresos ? Math.round(utilidadTotal / totalIngresos * 100) : 0;
-
-  let n = 0, xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-    + '<sheetViews><sheetView showGridLines="0" workbookViewId="0">'
-    + '<pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
-    + '<sheetFormatPr defaultRowHeight="15"/>'
-    + '<cols>' + ANCHOS_PROFORMA_XLSX.map((w,k)=>'<col min="' + (k+1) + '" max="' + (k+1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols>'
-    + '<sheetData>';
-
-  xml += filaXml(++n, [cT(pilar.nombre, 1)]);
-  xml += filaXml(++n, [cT('Framework de Proforma ' + anio + ' — ingresos y costos directos, mes a mes.', 2)]);
-  xml += filaXml(++n, ENC_PROFORMA_XLSX(anio).map(h => cT(h, 3)));
-
-  xml += filaSeccionProformaXlsx(++n, 'Ingresos');
-  pilar.ingresos.forEach(c => { xml += filaProformaXlsx(++n, c.label, c.montosPorMes(anio), 4, 7); });
-  xml += filaProformaXlsx(++n, 'Total ingresos ' + pilar.nombre, totalIngresosPorMes, 9, 7);
-
-  xml += filaSeccionProformaXlsx(++n, 'Costos directos');
-  pilar.costos.forEach(c => { xml += filaProformaXlsx(++n, c.label, c.montosPorMes(anio), 4, 7); });
-  xml += filaProformaXlsx(++n, 'Total costos directos', totalCostosPorMes, 9, 7);
-
-  xml += filaProformaXlsx(++n, 'Utilidad bruta ' + pilar.nombre, utilidadPorMes, 9, 7);
-  xml += filaXml(++n, [cT('Margen bruto', 9)].concat(margenPorMes.map(p => cT(p + '%', 5)), [cT(margenTotal + '%', 5)]));
-
-  xml += '</sheetData>'
-    + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
-    + '</worksheet>';
-  return xml;
-}
-
-/* El armado del ZIP en sí (Content_Types/workbook/rels) SÍ se genera con un
-   .map en vez de escribirse 6 veces a mano, a diferencia de descargarExcel():
-   con 2 hojas copiar y pegar el bloque es seguro, con 6 es tentador
-   desalinear un rId al copiarlo por sexta vez — el .map hace imposible ese
-   desfase porque el mismo índice numera la hoja, su Override, su <sheet> y
-   su Relationship en un solo lugar. */
 function descargarExcelResultados(){
   const anio = hoyISO().slice(0,4);
   const hojas = [
-    { nombre:'Resumen general', xml: hojaResumenGeneralXlsx(anio) },
+    { nombre:'Framework Proforma', xml: construirHojaFrameworkProforma(anio) },
     { nombre:'Cumplimiento de pólizas', xml: hojaCumplimientoPolizasXlsx() }
-  ].concat(PILARES_PROFORMA.map(pilar => ({ nombre: pilar.nombre.slice(0,31), xml: hojaPilarXlsx(pilar, anio) })));
+  ];
 
   const overrides = hojas.map((h,i) => '<Override PartName="/xl/worksheets/sheet' + (i+1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('');
   const sheetsXml = hojas.map((h,i) => '<sheet name="' + escXml(h.nombre) + '" sheetId="' + (i+1) + '" r:id="rId' + (i+1) + '"/>').join('');
@@ -29650,11 +29794,11 @@ function descargarExcelResultados(){
       + relsHojas
       + '<Relationship Id="' + rIdEstilos + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
       + '</Relationships>') },
-    { nombre:'xl/styles.xml', datos: aBytes(XLSX_ESTILOS) }
+    { nombre:'xl/styles.xml', datos: aBytes(XLSX_ESTILOS_PROFORMA) }
   ].concat(hojas.map((h,i) => ({ nombre:'xl/worksheets/sheet' + (i+1) + '.xml', datos: aBytes(h.xml) })));
 
   descargar(armarZip(archivos), 'Resultados_Forguard_' + anio + '_' + selloFecha() + '.xlsx');
-  aviso('Excel de Resultados descargado (' + hojas.length + ' hojas).');
+  aviso('Excel de Resultados descargado.');
 }
 
 /* Encabezados en el MISMO orden que ALIAS_COLUMNA_ACTIVO_XLSX espera (usa

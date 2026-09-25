@@ -321,38 +321,65 @@ if(!RES){
   }
 
   /* ---- Página(s): Cumplimiento de pólizas ----
-     Se reparte por CONTEO de filas, no por altura medida: cada póliza ocupa
-     una sola línea de altura pareja (folio/estado, sin texto que envuelva),
-     así que un número fijo por hoja es tan seguro como medir y mucho más
-     simple — a diferencia de la descripción de una póliza (texto libre de
-     largo variable en la plantilla de Pólizas), que sí necesita medirse. */
-  const FILAS_CUMPLIMIENTO_POR_HOJA = 22;
+     Se MIDE, no se predice (mismo principio que plantilla_orden_compra.html
+     — buscar "Medir, no predecir" ahí). Un primer intento (25-sep-2026)
+     repartía por un CONTEO fijo de filas por hoja: con datos reales (más de
+     20 pólizas activas) esa cuenta se quedó corta, las filas de más se
+     salían del área imprimible y el pie —posición absoluta, siempre al
+     fondo de la hoja— terminaba ENCIMADO con las últimas filas visibles.
+     Ahora se renderiza TODA la tabla en una hoja de trabajo fuera de
+     pantalla, se mide la altura real de cada fila, y se corta donde el
+     renglón de verdad chocaría con el pie — igual de simple que un conteo
+     fijo (cada póliza es una sola línea, altura pareja) pero sin adivinar. */
   const ENC_CUMPL = ['Folio','Cliente / Sitio','Cumplimiento','Servicios hechos','Servicios debidos','Ingreso anual','Estado'];
-  function paginaCumplimiento(items){
-    let cuerpo = '<table class="cumpl"><thead><tr>'
+  function filaCumplHTML(it){
+    return '<tr><td>' + esc(it.folio) + '</td><td class="cpt">' + esc(it.clienteSitio) + '</td>'
+      + '<td>' + esc(it.cumplimientoPct) + '</td><td>' + esc(it.hechosDebidos) + '</td>'
+      + '<td>' + esc(it.serviciosDebidos) + '</td><td>' + esc(it.ingresoAnual) + '</td>'
+      + '<td>' + esc(it.estado) + '</td></tr>';
+  }
+  const filasCumpl = RES.cumplimiento.map(filaCumplHTML);
+  if(!filasCumpl.length) filasCumpl.push('<tr><td colspan="' + ENC_CUMPL.length + '">Todavía no hay pólizas activas.</td></tr>');
+
+  function paginaCumplimientoHTML(indices){
+    const cuerpo = '<table class="cumpl"><thead><tr>'
       + ENC_CUMPL.map((h,i)=> '<th' + (i === 1 ? ' class="cpt"' : '') + '>' + esc(h) + '</th>').join('')
-      + '</tr></thead><tbody>';
-    if(!items.length){
-      cuerpo += '<tr><td colspan="' + ENC_CUMPL.length + '">Todavía no hay pólizas activas.</td></tr>';
-    }else{
-      items.forEach(it=>{
-        cuerpo += '<tr><td>' + esc(it.folio) + '</td><td class="cpt">' + esc(it.clienteSitio) + '</td>'
-          + '<td>' + esc(it.cumplimientoPct) + '</td><td>' + esc(it.hechosDebidos) + '</td>'
-          + '<td>' + esc(it.serviciosDebidos) + '</td><td>' + esc(it.ingresoAnual) + '</td>'
-          + '<td>' + esc(it.estado) + '</td></tr>';
-      });
-    }
-    cuerpo += '</tbody></table>';
+      + '</tr></thead><tbody>' + indices.map(i => filasCumpl[i]).join('') + '</tbody></table>';
     return paginaHTML('Cumplimiento de pólizas activas', cuerpo);
   }
-  function paginasCumplimiento(){
-    const items = RES.cumplimiento;
-    if(!items.length) return paginaCumplimiento([]);
-    let html = '';
-    for(let i = 0; i < items.length; i += FILAS_CUMPLIMIENTO_POR_HOJA){
-      html += paginaCumplimiento(items.slice(i, i + FILAS_CUMPLIMIENTO_POR_HOJA));
-    }
-    return html;
+
+  /* Igual que paginar() en la plantilla de Órdenes de Compra: todas las
+     filas en una sola hoja de trabajo (para medir cada una), y por
+     separado, con la MISMA cabecera, el presupuesto de espacio que le
+     queda al cuerpo en una página cualquiera. */
+  function paginarCumplimiento(){
+    const medidor = document.createElement('div');
+    medidor.style.position = 'fixed';
+    medidor.style.left = '-9999px';
+    medidor.style.top = '0';
+    medidor.innerHTML = paginaCumplimientoHTML(filasCumpl.map((_,i)=>i));
+    document.body.appendChild(medidor);
+
+    const filasDom = Array.from(medidor.querySelectorAll('table.cumpl tbody tr'));
+    const alturas = filasDom.map(tr => tr.getBoundingClientRect().height);
+    const cuerpoTop = medidor.querySelector('.cuerpo').getBoundingClientRect().top;
+    const pieTop = medidor.querySelector('.footwrap').getBoundingClientRect().top;
+    const alturaDisponible = pieTop - cuerpoTop - 12;
+
+    document.body.removeChild(medidor);
+
+    const paginas = [];
+    let actual = [], usado = 0;
+    alturas.forEach((h, i)=>{
+      if(usado + h > alturaDisponible && actual.length){
+        paginas.push(actual);
+        actual = []; usado = 0;
+      }
+      actual.push(i);
+      usado += h;
+    });
+    if(actual.length) paginas.push(actual);
+    return paginas;
   }
 
   /* ---- Una página por pilar: siempre caben completos (un puñado fijo de
@@ -372,18 +399,33 @@ if(!RES){
     return paginaHTML(pilar.nombre, cuerpo);
   }
 
-  let docHTML = '', docRoto = null;
-  try{
-    docHTML = paginaResumen() + paginasCumplimiento() + RES.pilares.map(paginaPilar).join('');
-  }catch(e){
-    docRoto = e;
-    console.error('El documento no se pudo armar:', e);
+  /* Repinta TODO el documento desde cero — barato (unas cuantas hojas, no
+     miles de renglones) y necesario porque, si Poppins llega tarde, las
+     alturas medidas con la fuente de respaldo quedan viejas y el reparto de
+     Cumplimiento se desalinea con el pie: mismo hallazgo ya documentado en
+     plantilla_orden_compra.html ("evitarTraslapeConPie corre después de
+     document.fonts.ready y otra vez en beforeprint, que es el único momento
+     que de verdad importa"). Resumen/pilares no necesitan remedirse —caben
+     completos siempre— pero recalcularlos de nuevo aquí es gratis. */
+  function pintarTodo(){
+    let docHTML = '', docRoto = null;
+    try{
+      const paginasCumpl = paginarCumplimiento().map(paginaCumplimientoHTML).join('');
+      docHTML = paginaResumen() + paginasCumpl + RES.pilares.map(paginaPilar).join('');
+    }catch(e){
+      docRoto = e;
+      console.error('El documento no se pudo armar:', e);
+    }
+    if(docRoto){
+      pintarError('Los datos llegaron incompletos y el documento no se pudo armar. Cierra esta pestaña y vuelve a abrirla desde el tablero.');
+    }else{
+      document.getElementById('doc').innerHTML = docHTML;
+    }
   }
-  if(docRoto){
-    pintarError('Los datos llegaron incompletos y el documento no se pudo armar. Cierra esta pestaña y vuelve a abrirla desde el tablero.');
-  }else{
-    document.getElementById('doc').innerHTML = docHTML;
-  }
+
+  pintarTodo();
+  if(document.fonts && document.fonts.ready) document.fonts.ready.then(pintarTodo);
+  window.addEventListener('beforeprint', pintarTodo);
 }
 </script>
 </body>
