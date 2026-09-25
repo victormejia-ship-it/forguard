@@ -85,16 +85,48 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Existe el bloque "Resumen general Forguard"', resumen.existe === true);
   chkF('El Resumen general va ANTES que los 4 pilares', resumen.esPrimero === true);
 
-  // --------- 3d) Cada bloque (Resumen y cada pilar) trae gráfico a la izquierda y datos a la derecha ---------
+  // --------- 3d) Cada bloque (Resumen general y cada pilar) trae gráfico a la izquierda y datos a la derecha ---------
   const layout = await page.evaluate(() => {
     const grids = Array.from(document.querySelectorAll('#vista .proforma-grid'));
     return grids.map(g => ({
-      primerHijoEsGrafico: g.firstElementChild.classList.contains('proforma-grafico'),
+      // Casi todos traen el gráfico (.proforma-grafico) primero; el de
+      // Cumplimiento de pólizas trae el anillo (.kpi, ver tarjetaCumplimiento)
+      // primero y el gráfico de dispersión después — ambos cuentan como "lo
+      // visual va primero", solo cambia CUÁL widget visual es.
+      primerHijoEsVisual: g.firstElementChild.classList.contains('proforma-grafico') || g.firstElementChild.classList.contains('kpi'),
       traeGrafico: g.querySelector('.proforma-grafico svg, .proforma-grafico .svg-vacio') !== null
     }));
   });
-  chkF('Son 5 bloques con gráfico+datos (Resumen general + 4 pilares)', layout.length === 5);
-  chkF('En TODOS, el gráfico va primero (columna izquierda) y los datos después (columna derecha)', layout.every(l => l.primerHijoEsGrafico && l.traeGrafico));
+  chkF('Son 6 bloques con .proforma-grid (Resumen general + Cumplimiento de pólizas + 4 pilares)', layout.length === 6);
+  chkF('En TODOS, lo visual (gráfico o anillo) va primero y los datos después', layout.every(l => l.primerHijoEsVisual && l.traeGrafico));
+
+  // --------- 3e) Tablas compactas por default (pedido de Victor: "que no se vea tan amontonada... solo el mes actual y los 3 anteriores") ---------
+  const compacto = await page.evaluate(() => {
+    const anio = hoyISO().slice(0,4);
+    const mesActual = Number(hoyISO().slice(5,7)) - 1;
+    const esperadosMeses = [];
+    for(let i = Math.max(0, mesActual - 3); i <= mesActual; i++) esperadosMeses.push(MESES_PROFORMA[i]);
+    const primeraTabla = document.querySelector('#vista .bloque-pilar table.tabla-proforma');
+    const encabezados = Array.from(primeraTabla.querySelectorAll('thead th')).map(th => th.textContent);
+    const colspanSeccion = Number(primeraTabla.querySelector('tr.fila-seccion td').getAttribute('colspan'));
+    return { esperados: ['Concepto', ...esperadosMeses, 'Total ' + anio], encabezados, colspanSeccion, mesesVisibles: esperadosMeses.length };
+  });
+  chkF('Por default, cada tabla muestra SOLO el mes actual y los 3 anteriores (nunca los 12 de un jalón)',
+    JSON.stringify(compacto.encabezados) === JSON.stringify(compacto.esperados));
+  chkF('El colspan de "Ingresos"/"Costos directos" cuadra con las columnas realmente visibles (no se ve descuadrado)',
+    compacto.colspanSeccion === compacto.mesesVisibles + 2);
+
+  // "Ver los 12 meses" no omite nada, solo lo oculta — un clic revela las 4 tablas a la vez (mismo estado global)
+  await page.evaluate(() => { document.querySelector('[data-accion="vista-lista"][data-campo="resultadosMeses"][data-modo="todos"]').click(); });
+  await page.waitForTimeout(100);
+  const expandido = await page.evaluate(() => Array.from(document.querySelectorAll('#vista .bloque-pilar table.tabla-proforma')).map(t => t.querySelectorAll('thead th').length));
+  chkF('Un clic en "Ver los 12 meses" expande las 4 tablas a la vez (14 columnas: Concepto + 12 + Total)',
+    expandido.length === 4 && expandido.every(n => n === 14));
+
+  await page.evaluate(() => { document.querySelector('[data-accion="vista-lista"][data-campo="resultadosMeses"][data-modo="compacto"]').click(); });
+  await page.waitForTimeout(100);
+  const comprimidoDeNuevo = await page.evaluate(() => document.querySelector('#vista .bloque-pilar table.tabla-proforma thead').querySelectorAll('th').length);
+  chkF('Un clic en "Últimos meses" vuelve a comprimir la tabla', comprimidoDeNuevo === compacto.mesesVisibles + 2);
 
   // --------- 4) Cada sección trae sus renglones de Ingresos/Costos, calcados del Excel ---------
   const textoVista = await page.evaluate(() => document.getElementById('vista').textContent);
@@ -206,14 +238,21 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     cotizTecnicos.costo[0] === 200 && cotizTecnicos.costo[1] === 1000 && cotizTecnicos.costo[2] === 600);
   chkF('El resto de los meses de "Otros costos directos" siguen en $0', cotizTecnicos.costo.filter((_,i) => ![0,1,2].includes(i)).every(m => m === 0));
 
+  // Ene/Feb/Mar quedan fuera de la ventana compacta (mes actual + 3
+  // anteriores) casi todo el año — hay que pedir "Ver los 12 meses" para
+  // que esas columnas existan en el DOM antes de buscarlas en la tabla.
+  await page.evaluate(() => { estado.resultadosMeses = 'todos'; render(); });
+  await page.waitForTimeout(100);
   const filasCotizadas = await page.evaluate(() => {
     const filaDe = (texto) => Array.from(document.querySelectorAll('#vista table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes(texto)).textContent;
     return { ingreso: filaDe('Trabajos correctivos / preventivo'), costo: filaDe('Otros costos directos') };
   });
-  chkF('El renglón "Trabajos correctivos / preventivo" ya trae sus montos en la tabla ($230/$1,150/$690)',
+  chkF('Con "Ver los 12 meses": el renglón "Trabajos correctivos / preventivo" trae sus montos en la tabla ($230/$1,150/$690)',
     filasCotizadas.ingreso.includes('$230') && filasCotizadas.ingreso.includes('$1,150') && filasCotizadas.ingreso.includes('$690'));
-  chkF('El renglón "Otros costos directos" ya trae sus montos en la tabla ($200/$1,000/$600)',
+  chkF('Con "Ver los 12 meses": el renglón "Otros costos directos" trae sus montos en la tabla ($200/$1,000/$600)',
     filasCotizadas.costo.includes('$200') && filasCotizadas.costo.includes('$1,000') && filasCotizadas.costo.includes('$600'));
+  await page.evaluate(() => { estado.resultadosMeses = 'compacto'; render(); });
+  await page.waitForTimeout(100);
 
   // --------- 9) Con datos reales: el Resumen general los suma y el gráfico de Servicios Técnicos deja de ser el placeholder vacío ---------
   const resumenConDatos = await page.evaluate(() => {
@@ -253,6 +292,45 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.waitForTimeout(80);
   const ttOculto = await page.evaluate(() => document.getElementById('graficaTT').classList.contains('visible'));
   chkF('El tooltip se esconde al sacar el mouse', ttOculto === false);
+
+  // --------- 11) Cumplimiento de pólizas: mismo cálculo de calcularPoliza() (cumplimientoPct/hechosDebidos/serviciosDebidos), ahora agregado ---------
+  const cumplimiento = await page.evaluate(() => {
+    const items = polizasActivasParaCumplimiento();
+    return {
+      cantidad: items.length,
+      folios: items.map(it => it.p.folio).sort(),
+      hechosTotal: items.reduce((t,it)=> t + it.hechosDebidos, 0),
+      debidosTotal: items.reduce((t,it)=> t + it.serviciosDebidos, 0),
+      ingresos: items.map(it => it.precioAnual).sort((a,b)=>a-b)
+    };
+  });
+  chkF('Cumplimiento de pólizas: solo cuenta las ACTIVAS (POL-1 y POL-2 — la POL-3, en cotización, no entra)',
+    cumplimiento.cantidad === 2 && JSON.stringify(cumplimiento.folios) === JSON.stringify(['POL-1','POL-2']));
+  chkF('Ambas pólizas tienen su servicio de enero sin marcar como hecho: 0 de 2 servicios debidos cumplidos',
+    cumplimiento.hechosTotal === 0 && cumplimiento.debidosTotal === 2);
+  chkF('El ingreso anual de cada punto es el mismo que ya usan "Pólizas de mantenimiento" ($12,000 y $5,280)',
+    JSON.stringify(cumplimiento.ingresos) === JSON.stringify([5280, 12000]));
+
+  const bloqueCumplimiento = await page.evaluate(() => {
+    const h3 = Array.from(document.querySelectorAll('#vista h3')).find(h => h.textContent === 'Cumplimiento de pólizas');
+    const bloque = h3 && h3.closest('.bloque');
+    return {
+      existe: !!bloque,
+      avisaAtrasadas: bloque ? bloque.querySelector('.kpi').textContent.includes('atrasado') : false,
+      cantidadHits: bloque ? bloque.querySelectorAll('circle.grafica-hit[data-tt-tipo="poliza-cumplimiento"]').length : 0
+    };
+  });
+  chkF('Existe el bloque "Cumplimiento de pólizas"', bloqueCumplimiento.existe === true);
+  chkF('Avisa que hay pólizas con servicio atrasado (ninguna de las 2 tiene su enero marcado como hecho)', bloqueCumplimiento.avisaAtrasadas === true);
+  chkF('El gráfico de dispersión trae un punto interactivo por cada póliza activa (2)', bloqueCumplimiento.cantidadHits === 2);
+
+  await page.locator('circle.grafica-hit[data-tt-tipo="poliza-cumplimiento"][data-folio="POL-1"]').hover({ force: true });
+  await page.waitForTimeout(80);
+  const ttPoliza = await page.evaluate(() => document.getElementById('graficaTT').textContent);
+  chkF('El tooltip del punto de POL-1 muestra su folio, 0% de cumplimiento y su ingreso anual ($12,000)',
+    ttPoliza.includes('POL-1') && ttPoliza.includes('0%') && ttPoliza.includes('$12,000'));
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(80);
 
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 

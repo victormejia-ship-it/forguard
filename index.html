@@ -10452,6 +10452,12 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                     se guarda en localStorage a propósito — siempre arranca
                     apagada al recargar. */
                  vistaPrevia:null,
+                 /* Resultados: las tablas mensuales arrancan compactas (mes
+                    actual + 3 anteriores, ver mesesVisiblesProforma()) para
+                    no verse amontonadas — pedido de Victor (25-sep-2026).
+                    Mismo mecanismo genérico que el resto de la app (ver
+                    data-accion="vista-lista" / controlAlternaVista). */
+                 resultadosMeses:'compacto',
                  /* Qué pestaña del módulo Visitas está abierta: el calendario
                     semanal (el default), la bolsa de pendientes por programar,
                     o la lista completa de visitas ya programadas. */
@@ -12058,15 +12064,31 @@ const PILARES_PROFORMA = [
 function totalesPorMesDe(conceptos, anio){
   return MESES_PROFORMA.map((_,i) => conceptos.reduce((t,c)=> t + c.montosPorMes(anio)[i], 0));
 }
-function filaConceptoProforma(c, anio){
+/* Tablas compactas por default (pedido de Victor, 25-sep-2026: "que no se
+   vea tan amontonada la tabla... solo el mes actual y los 3 anteriores") —
+   NUNCA se pierde un mes: solo se ocultan las columnas, el Total sigue
+   sumando los 12 completos (ver filaConceptoProforma/filaTotalProforma,
+   que reciben los índices visibles pero calculan el total sobre el arreglo
+   entero). "Ver los 12 meses" (estado.resultadosMeses, el mismo mecanismo
+   genérico de data-accion="vista-lista" que ya usa el resto de la app)
+   revela el resto con un clic, sin volver a pedir nada al servidor. */
+function mesesVisiblesProforma(){
+  if(estado.resultadosMeses === 'todos') return MESES_PROFORMA.map((_,i) => i);
+  const mesActual = Number(hoyISO().slice(5,7)) - 1;
+  const desde = Math.max(0, mesActual - 3);
+  const indices = [];
+  for(let i = desde; i <= mesActual; i++) indices.push(i);
+  return indices;
+}
+function filaConceptoProforma(c, anio, idxVisibles){
   const montos = c.montosPorMes(anio);
   return '<tr><td>' + esc(c.label) + '</td>'
-    + montos.map(m => '<td class="num">' + dinero(m) + '</td>').join('')
+    + idxVisibles.map(i => '<td class="num">' + dinero(montos[i]) + '</td>').join('')
     + '<td class="num">' + dinero(montos.reduce((a,b)=>a+b,0)) + '</td></tr>';
 }
-function filaTotalProforma(label, totalesPorMes, clase){
+function filaTotalProforma(label, totalesPorMes, idxVisibles, clase){
   return '<tr class="fila-total' + (clase ? ' ' + clase : '') + '"><td>' + esc(label) + '</td>'
-    + totalesPorMes.map(m => '<td class="num">' + dinero(m) + '</td>').join('')
+    + idxVisibles.map(i => '<td class="num">' + dinero(totalesPorMes[i]) + '</td>').join('')
     + '<td class="num">' + dinero(totalesPorMes.reduce((a,b)=>a+b,0)) + '</td></tr>';
 }
 
@@ -12208,6 +12230,97 @@ function bloqueResumenGeneralProforma(anio){
     +   '<div class="proforma-grafico"><h4>Ingresos por pilar</h4>' + rankingIngresosPorPilar(r.porPilar, r.totalIngresos, anio) + '</div>'
     + '</div></div>';
 }
+
+/* ---- Cumplimiento de pólizas: gráfico de dispersión (25-sep-2026, pedido
+   de Victor: "añade diferentes gráficos... dispersión y/o cumplimiento de
+   pólizas... que el dashboard se pueda ver cumplimientos también") ----
+   Reutiliza calcularPoliza() (cumplimientoPct/hechosDebidos/serviciosDebidos/
+   tono) tal cual ya lo usa el calendario de UNA póliza — aquí se ven todas
+   las activas juntas, de un vistazo: cada punto es una póliza, su posición
+   es cuánto cumple (X) y cuánto factura al año (Y), y su color es el mismo
+   semáforo de siempre, nunca uno nuevo. */
+function polizasActivasParaCumplimiento(){
+  return datos.polizas.filter(p => p.estatus === 'activa').map(p => Object.assign({ p }, calcularPoliza(p)));
+}
+function leyendaCumplimientoPolizas(){
+  return '<div class="grafica-leyenda">'
+    + '<span><i style="background:' + COLOR_TONO.ok + '"></i>Al día</span>'
+    + '<span><i style="background:' + COLOR_TONO.alerta + '"></i>Alerta</span>'
+    + '<span><i style="background:' + COLOR_TONO.error + '"></i>Atrasada</span>'
+    + '<span><i style="background:' + COLOR_TONO.neutro + '"></i>Vigencia terminada</span>'
+    + '</div>';
+}
+/* Dispersión: X = % de cumplimiento (0-100, eje fijo), Y = ingreso anual
+   (escala según la póliza más grande). Un solo eje real —el de pesos—, X no
+   es una magnitud que se mezcle con Y, así que no hay problema de "doble
+   eje": son dos dimensiones distintas de un mismo punto, no dos escalas de
+   lo mismo. */
+function graficoDispersionCumplimientoPolizas(items){
+  if(!items.length) return '<p class="svg-vacio">Todavía no hay pólizas activas para mostrar.</p>';
+  const W = 460, H = 250, padI = 10, padD = 14, padArriba = 12, padAbajo = 26;
+  const anchoUtil = W - padI - padD, altoUtil = H - padArriba - padAbajo;
+  const yMax = Math.max(1, ...items.map(it => it.precioAnual));
+  const escalaX = pct => padI + (pct / 100) * anchoUtil;
+  const escalaY = v => padArriba + altoUtil - (v / yMax) * altoUtil;
+
+  let gridX = '', etiquetasX = '';
+  [0,25,50,75,100].forEach(pct=>{
+    const x = escalaX(pct);
+    gridX += '<line x1="' + x + '" y1="' + padArriba + '" x2="' + x + '" y2="' + (H - padAbajo) + '" stroke="var(--line)" stroke-width="1"></line>';
+    etiquetasX += '<text x="' + x + '" y="' + (H - 8) + '" text-anchor="middle" font-size="8.5" fill="var(--gray)">' + pct + '%</text>';
+  });
+
+  let puntos = '', hits = '';
+  items.forEach(it=>{
+    const cx = escalaX(it.cumplimientoPct), cy = escalaY(it.precioAnual);
+    const color = COLOR_TONO[it.tono] || COLOR_TONO.neutro;
+    puntos += '<circle cx="' + cx + '" cy="' + cy + '" r="5.5" fill="' + color + '" fill-opacity="0.85" stroke="#fff" stroke-width="1.4"></circle>';
+    hits += '<circle class="grafica-hit grafica-hit-transparente" data-tt-tipo="poliza-cumplimiento"'
+      + ' data-folio="' + esc(it.p.folio || 'Sin folio') + '" data-estado="' + esc(it.estado) + '"'
+      + ' data-cumplimiento="' + it.cumplimientoPct + '" data-hechos="' + it.hechosDebidos + '" data-debidos="' + it.serviciosDebidos + '"'
+      + ' data-ingreso="' + it.precioAnual + '" cx="' + cx + '" cy="' + cy + '" r="9"></circle>';
+  });
+
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Cumplimiento de pólizas activas: porcentaje cumplido contra ingreso anual">'
+    +   gridX
+    +   '<line x1="' + padI + '" y1="' + (H - padAbajo) + '" x2="' + (W - padD) + '" y2="' + (H - padAbajo) + '" stroke="var(--line)" stroke-width="1"></line>'
+    +   puntos + etiquetasX + hits
+    + '</svg>';
+}
+function bloqueCumplimientoPolizas(){
+  const items = polizasActivasParaCumplimiento();
+  const hechosTotal = items.reduce((t,it)=> t + it.hechosDebidos, 0);
+  const debidosTotal = items.reduce((t,it)=> t + it.serviciosDebidos, 0);
+  const pctTotal = debidosTotal > 0 ? Math.round(hechosTotal / debidosTotal * 100) : 100;
+  const atrasadasCount = items.filter(it => it.atrasados > 0).length;
+
+  const piePositivo = atrasadasCount
+    ? (atrasadasCount + ' ' + plural(atrasadasCount,'póliza','pólizas') + ' con servicio atrasado')
+    : 'Todas las pólizas al corriente';
+  return '<div class="bloque"><h3 style="margin:0 0 4px">Cumplimiento de pólizas</h3>'
+    + '<p class="pista" style="margin:0 0 14px">De lo que ya le tocaba a cada póliza <b>activa</b>, cuánto se hizo de verdad — mismo % que el calendario de cada póliza, aquí todas juntas.</p>'
+    + '<div class="proforma-grid">'
+    +   tarjetaCumplimiento('Cumplimiento general', pctTotal, hechosTotal, debidosTotal, piePositivo, 'Sin servicios programados todavía')
+    +   '<div class="proforma-grafico"><h4>Cada póliza activa: cumplimiento vs. ingreso anual</h4>' + leyendaCumplimientoPolizas() + graficoDispersionCumplimientoPolizas(items) + '</div>'
+    + '</div></div>';
+}
+/* Un solo control para las 4 tablas (estado.resultadosMeses es global, no
+   por pilar) — pedido de Victor: "no quiere decir que los omitas sino que
+   los ocultes... se pueda conocerlos con un clic". Mismo componente
+   .alterna-vista/.alterna-texto que ya usan Reportes/Cocinas. */
+function controlMesesProforma(){
+  const enTodos = estado.resultadosMeses === 'todos';
+  const mesActualTxt = MESES_PROFORMA[Number(hoyISO().slice(5,7)) - 1];
+  return '<div class="bloque" style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; padding:14px 20px;">'
+    + '<p class="pista" style="margin:0">' + (enTodos
+        ? 'Mostrando los 12 meses en cada tabla.'
+        : 'Cada tabla muestra <b>' + esc(mesActualTxt) + '</b> y los 3 meses anteriores, para no verse amontonada — el Total del año siempre suma los 12, aunque el mes no se vea.')
+    + '</p>'
+    + '<div class="alterna-vista alterna-texto" role="group" aria-label="Cuántos meses mostrar en las tablas">'
+    +   '<button type="button" data-accion="vista-lista" data-campo="resultadosMeses" data-modo="compacto" aria-pressed="' + !enTodos + '">Últimos meses</button>'
+    +   '<button type="button" data-accion="vista-lista" data-campo="resultadosMeses" data-modo="todos" aria-pressed="' + enTodos + '">Ver los 12 meses</button>'
+    + '</div></div>';
+}
 function bloquePilarProforma(pilar, anio){
   const totalIngresosPorMes = totalesPorMesDe(pilar.ingresos, anio);
   const totalCostosPorMes = totalesPorMesDe(pilar.costos, anio);
@@ -12216,18 +12329,20 @@ function bloquePilarProforma(pilar, anio){
   const totalIngresos = totalIngresosPorMes.reduce((a,b)=>a+b,0);
   const utilidadTotal = utilidadPorMes.reduce((a,b)=>a+b,0);
   const margenTotal = totalIngresos ? Math.round(utilidadTotal / totalIngresos * 100) : 0;
+  const idxVisibles = mesesVisiblesProforma();
+  const colspanSeccion = idxVisibles.length + 2;
 
   const tabla = '<div class="rodillo"><table class="tabla tabla-proforma"><thead><tr>'
-    +   '<th>Concepto</th>' + MESES_PROFORMA.map(m => '<th class="num">' + m + '</th>').join('') + '<th class="num">Total ' + anio + '</th>'
+    +   '<th>Concepto</th>' + idxVisibles.map(i => '<th class="num">' + MESES_PROFORMA[i] + '</th>').join('') + '<th class="num">Total ' + anio + '</th>'
     + '</tr></thead><tbody>'
-    +   '<tr class="fila-seccion"><td colspan="14">Ingresos</td></tr>'
-    +   pilar.ingresos.map(c => filaConceptoProforma(c, anio)).join('')
-    +   filaTotalProforma('Total ingresos ' + pilar.nombre, totalIngresosPorMes)
-    +   '<tr class="fila-seccion"><td colspan="14">Costos directos</td></tr>'
-    +   pilar.costos.map(c => filaConceptoProforma(c, anio)).join('')
-    +   filaTotalProforma('Total costos directos', totalCostosPorMes)
-    +   filaTotalProforma('Utilidad bruta ' + pilar.nombre, utilidadPorMes, 'fila-utilidad')
-    +   '<tr class="fila-utilidad"><td>Margen bruto</td>' + margenPorMes.map(m => '<td class="num">' + m + '%</td>').join('') + '<td class="num">' + margenTotal + '%</td></tr>'
+    +   '<tr class="fila-seccion"><td colspan="' + colspanSeccion + '">Ingresos</td></tr>'
+    +   pilar.ingresos.map(c => filaConceptoProforma(c, anio, idxVisibles)).join('')
+    +   filaTotalProforma('Total ingresos ' + pilar.nombre, totalIngresosPorMes, idxVisibles)
+    +   '<tr class="fila-seccion"><td colspan="' + colspanSeccion + '">Costos directos</td></tr>'
+    +   pilar.costos.map(c => filaConceptoProforma(c, anio, idxVisibles)).join('')
+    +   filaTotalProforma('Total costos directos', totalCostosPorMes, idxVisibles)
+    +   filaTotalProforma('Utilidad bruta ' + pilar.nombre, utilidadPorMes, idxVisibles, 'fila-utilidad')
+    +   '<tr class="fila-utilidad"><td>Margen bruto</td>' + idxVisibles.map(i => '<td class="num">' + margenPorMes[i] + '%</td>').join('') + '<td class="num">' + margenTotal + '%</td></tr>'
     + '</tbody></table></div>';
 
   return '<div class="bloque bloque-pilar"><h3 style="margin:0 0 12px">' + esc(pilar.nombre) + '</h3>'
@@ -12248,6 +12363,8 @@ function vistaResultados(){
      + '</div>';
 
   h += bloqueResumenGeneralProforma(anio);
+  h += bloqueCumplimientoPolizas();
+  h += controlMesesProforma();
   h += PILARES_PROFORMA.map(pilar => bloquePilarProforma(pilar, anio)).join('');
 
   return h;
@@ -12498,7 +12615,9 @@ const TEMAS_AYUDA = [
       + guiaTip('Cómo leer cada bloque (25-sep-2026)', [
           'Cada pilar —y el Resumen general de arriba— trae el <b>gráfico a la izquierda</b> y la <b>tabla a la derecha</b>: barras de Ingresos/Costos directos con la línea de Utilidad bruta encima, mes a mes. Pasa el mouse sobre cualquier mes para ver el detalle exacto.',
           'Un pilar sin ningún renglón conectado todavía muestra "Todavía sin renglones conectados aquí" en vez de una gráfica vacía o inventada.',
-          '<b>Resumen general Forguard</b> es la suma en vivo de los 4 pilares — Ingresos/Costos/Utilidad/Margen de TODA la empresa— más un ranking de qué tanto aporta cada pilar al ingreso del año. No es un renglón nuevo capturado a mano: se recalcula solo de lo que ya está conectado abajo.'
+          '<b>Resumen general Forguard</b> es la suma en vivo de los 4 pilares — Ingresos/Costos/Utilidad/Margen de TODA la empresa— más un ranking de qué tanto aporta cada pilar al ingreso del año. No es un renglón nuevo capturado a mano: se recalcula solo de lo que ya está conectado abajo.',
+          '<b>Cumplimiento de pólizas</b>: el mismo % que ya ves en el calendario de cada póliza (de lo que ya le tocaba, cuánto se hizo a tiempo), aquí todas las pólizas Activas juntas en un solo gráfico de dispersión — cada punto es una póliza, su posición horizontal es su % de cumplimiento y la vertical su ingreso anual, y su color es el mismo semáforo de siempre (verde/naranja/rojo/gris). Pasa el mouse sobre un punto para ver de cuál póliza se trata.',
+          'Las tablas mensuales arrancan <b>compactas</b> (el mes actual y los 3 anteriores) para no verse amontonadas — el Total del año siempre suma los 12 meses completos, se vean o no. "Ver los 12 meses" (arriba de los 4 pilares) los revela con un clic en las 4 tablas a la vez; nunca se pierde un mes, solo se oculta.'
         ])
       + guiaTip('Por qué no incluye "Gastos de Estructura Forguard" todavía', [
           'El Excel de referencia trae, debajo de los 4 pilares, un bloque aparte de gastos que no se reparten entre pilares ("Gastos de Estructura Forguard" — nómina administrativa, renta de oficina, etc.). Se dejó fuera a propósito por ahora: Victor pidió específicamente "el total deben ser 4 secciones" para los pilares de negocio — este bloque de gastos generales de la empresa se agrega después si hace falta, sin tocar los 4 pilares.'
@@ -28292,6 +28411,12 @@ function contenidoGraficaTT(el){
     return '<div class="tt-titulo">' + esc(el.dataset.etiqueta) + '</div>'
          + '<div class="tt-fila"><span>Ingresos ' + esc(el.dataset.anio) + '</span><span class="tt-monto">' + dinero(Number(el.dataset.valor)) + '</span></div>'
          + '<div class="tt-fila"><span>% del total</span><span class="tt-monto">' + Number(el.dataset.pct).toFixed(1) + '%</span></div>';
+  }
+  if(tipo === 'poliza-cumplimiento'){
+    return '<div class="tt-titulo">' + esc(el.dataset.folio) + '</div>'
+         + '<div class="tt-fila"><span>Estado</span><span class="tt-monto">' + esc(el.dataset.estado) + '</span></div>'
+         + '<div class="tt-fila"><span>Cumplimiento</span><span class="tt-monto">' + el.dataset.cumplimiento + '% (' + el.dataset.hechos + ' de ' + el.dataset.debidos + ')</span></div>'
+         + '<div class="tt-fila tt-total"><span>Ingreso anual</span><span class="tt-monto">' + dinero(Number(el.dataset.ingreso)) + '</span></div>';
   }
   return '';
 }
