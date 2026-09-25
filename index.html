@@ -12612,7 +12612,12 @@ function vistaResultados(){
   let h = '<div class="titulo-zona"><div>'
      +   '<h2>Resultados</h2>'
      +   '<p>Framework de Proforma ' + anio + ' — 4 pilares de negocio, mes a mes</p>'
-     + '</div></div>';
+     + '</div>'
+     +   '<div class="acciones">'
+     +     '<button type="button" class="btn btn-suave btn-mini" data-accion="excel-resultados">' + ICONO.excel + 'Descargar Excel</button>'
+     +     '<button type="button" class="btn btn-suave btn-mini" data-accion="pdf-resultados">' + ICONO.imprimir + 'Generar PDF</button>'
+     +   '</div>'
+     + '</div>';
 
   h += '<div class="bloque" style="border-left:4px solid var(--accent)">'
      +   '<p class="pista" style="margin:0">Este es el <b>armazón</b> del estado de resultados, calcado del Excel "Framework Proforma Forguard V2": los 4 pilares con sus renglones de ingreso y costo directo, mes a mes. Se va conectando renglón por renglón, en vivo, según se decide con Victor — un renglón sin fuente decidida todavía se queda en $0, nunca inventa un número.</p>'
@@ -12678,6 +12683,98 @@ function modalDetalleProforma(pilarId, conceptoId, mes){
     cerrarModal();
     ir(fila.dataset.id);
   });
+}
+
+/* --------------------- Documento imprimible de Resultados ---------------------
+   Pedido de Victor (25-sep-2026): "necesito que podamos exportar en 3
+   aspectos excel o pdf en los formatos de forguard" — confirmado: Resumen
+   general + Cumplimiento de pólizas + Detalle por pilar, en PDF con la
+   misma identidad Forguard que ya usan Pólizas/Cotizaciones/Órdenes de
+   Compra. Mismo principio que armarPayloadPoliza(): esta función CALCULA y
+   FORMATEA todo el dinero (dinero(), %) — la plantilla solo concatena.
+
+   Llama exactamente a las mismas funciones que ya usa la pantalla
+   (resumenGeneralProforma, polizasActivasParaCumplimiento, totalesPorMesDe
+   sobre PILARES_PROFORMA), así que respeta puedeVerNomina() igual que el
+   tablero, sin un candado aparte para el documento: para quien no sea
+   Owner/Admin, c.montosPorMes(anio) de "Nómina directa del pilar" ya
+   regresa puros $0 antes de llegar aquí. Siempre los 12 meses completos —
+   un documento exportado no tiene el toggle de "últimos meses" de la
+   pantalla. */
+function armarPayloadResultados(){
+  const anio = hoyISO().slice(0,4);
+  const r = resumenGeneralProforma(anio);
+
+  const resumen = {
+    kpis: { ingresos: dinero(r.totalIngresos), costos: dinero(r.totalCostos),
+            utilidad: dinero(r.totalUtilidad), margen: r.margenTotal + '%' },
+    ingresosPorMes: r.ingresosPorMes.map(dinero),
+    costosPorMes: r.costosPorMes.map(dinero),
+    utilidadPorMes: r.utilidadPorMes.map(dinero),
+    porPilar: r.porPilar.map(p => ({
+      nombre: p.nombre, total: dinero(p.totalIngresos),
+      pct: (r.totalIngresos ? Math.round(p.totalIngresos / r.totalIngresos * 1000) / 10 : 0) + '%'
+    }))
+  };
+
+  const cumplimiento = polizasActivasParaCumplimiento().map(it=>{
+    const cli = clientePorId(it.p.clienteId);
+    return {
+      folio: it.p.folio || 'Sin folio',
+      clienteSitio: [cli ? cli.nombre : '', it.p.sitioNombre].filter(Boolean).join(' — ') || '—',
+      cumplimientoPct: it.cumplimientoPct + '%',
+      hechosDebidos: String(it.hechosDebidos),
+      serviciosDebidos: String(it.serviciosDebidos),
+      ingresoAnual: dinero(it.precioAnual),
+      estado: it.estado
+    };
+  });
+
+  const filaConceptoPdf = c => {
+    const montos = c.montosPorMes(anio);
+    return { label: c.label, montos: montos.map(dinero), total: dinero(montos.reduce((a,b)=>a+b,0)) };
+  };
+  const pilares = PILARES_PROFORMA.map(pilar=>{
+    const totalIngresosPorMes = totalesPorMesDe(pilar.ingresos, anio);
+    const totalCostosPorMes = totalesPorMesDe(pilar.costos, anio);
+    const utilidadPorMes = totalIngresosPorMes.map((ing,i) => ing - totalCostosPorMes[i]);
+    const margenPorMes = utilidadPorMes.map((u,i) => totalIngresosPorMes[i] ? Math.round(u / totalIngresosPorMes[i] * 100) : 0);
+    const totalIngresos = totalIngresosPorMes.reduce((a,b)=>a+b,0);
+    const totalCostos = totalCostosPorMes.reduce((a,b)=>a+b,0);
+    const utilidadTotal = utilidadPorMes.reduce((a,b)=>a+b,0);
+    const margenTotal = totalIngresos ? Math.round(utilidadTotal / totalIngresos * 100) : 0;
+    return {
+      nombre: pilar.nombre,
+      ingresos: pilar.ingresos.map(filaConceptoPdf),
+      totalIngresos: { montos: totalIngresosPorMes.map(dinero), total: dinero(totalIngresos) },
+      costos: pilar.costos.map(filaConceptoPdf),
+      totalCostos: { montos: totalCostosPorMes.map(dinero), total: dinero(totalCostos) },
+      utilidad: { montos: utilidadPorMes.map(dinero), total: dinero(utilidadTotal) },
+      margen: { pcts: margenPorMes.map(p => p + '%'), total: margenTotal + '%' }
+    };
+  });
+
+  return {
+    meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
+    anio, meses: MESES_PROFORMA,
+    resumen, cumplimiento, pilares,
+    contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice() }
+  };
+}
+
+const LLAVE_DOC_RESULTADOS = 'forguard.documento.resultados';
+function abrirDocumentoResultados(){
+  let payload;
+  try{
+    payload = armarPayloadResultados();
+    sessionStorage.setItem(LLAVE_DOC_RESULTADOS, JSON.stringify(payload));
+  }catch(e){
+    aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
+    return;
+  }
+  const w = window.open('docs/plantilla_resultados_forguard.html?v=' + Date.now(), '_blank');
+  if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
+  return payload;
 }
 
 /* ==================== Cocinas: funcionalidad de equipos ====================
@@ -12931,6 +13028,12 @@ const TEMAS_AYUDA = [
           '<b>Cumplimiento de pólizas</b> (debajo del gráfico de Servicios Técnicos): el mismo % que ya ves en el calendario de cada póliza (de lo que ya le tocaba, cuánto se hizo a tiempo), aquí todas las pólizas Activas juntas en un solo gráfico de dispersión — cada punto es una póliza, su posición horizontal es su % de cumplimiento y la vertical su ingreso anual, y su color es el mismo semáforo de siempre (verde/naranja/rojo/gris). Pasa el mouse sobre un punto para ver de cuál póliza se trata.',
           'Las tablas mensuales arrancan <b>compactas</b> (el mes actual y los 3 anteriores) para no verse amontonadas — el Total del año siempre suma los 12 meses completos, se vean o no. "Ver los 12 meses" (arriba de los 4 pilares) los revela con un clic en las 4 tablas a la vez; nunca se pierde un mes, solo se oculta.',
           '<b>El dashboard es interactivo</b> (25-sep-2026): en cualquier renglón ya conectado (se ve con el cursor de "mano" al pasar el mouse), clic en el <b>nombre</b> abre el detalle del año completo, clic en <b>cualquier mes</b> (o en el Total) abre el detalle de solo ese mes — la lista exacta de pólizas, cotizaciones, personas o gastos que suman ese número, cada una con un enlace para abrirla directo en su propio módulo. Un renglón todavía en $0 (sin conectar) no tiene nada que mostrar, así que no es clicable.'
+        ])
+      + guiaTip('Exportar (25-sep-2026)', [
+          'Arriba a la derecha: <b>Descargar Excel</b> y <b>Generar PDF</b>, los dos con los mismos 3 aspectos siempre: Resumen general, Cumplimiento de pólizas y el Detalle de cada uno de los 4 pilares.',
+          '<b>Descargar Excel</b> baja un libro de <b>6 hojas</b> (Resumen general, Cumplimiento de pólizas y una por pilar) — sin ninguna app externa, con los 12 meses completos en cada hoja (no la vista compacta de pantalla).',
+          '<b>Generar PDF</b> abre el documento con la misma identidad Forguard que Pólizas/Cotizaciones/Órdenes de Compra, siempre en <b>horizontal</b> (las tablas de 12 meses no caben en vertical): da clic en "Guardar como PDF" adentro de esa pestaña nueva.',
+          'Los dos formatos respetan exactamente el mismo candado que la pantalla: "Nómina directa del pilar" sale en $0 para quien no sea Owner/Admin, sin excepción por ser un archivo descargado.'
         ])
       + guiaTip('Por qué no incluye "Gastos de Estructura Forguard" todavía', [
           'El Excel de referencia trae, debajo de los 4 pilares, un bloque aparte de gastos que no se reparten entre pilares ("Gastos de Estructura Forguard" — nómina administrativa, renta de oficina, etc.). Se dejó fuera a propósito por ahora: Victor pidió específicamente "el total deben ser 4 secciones" para los pilares de negocio — este bloque de gastos generales de la empresa se agrega después si hace falta, sin tocar los 4 pilares.'
@@ -28417,6 +28520,8 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'imprimir-calendario-poliza') abrirDocumentoPoliza(estado.polizaId, true);
     else if(a === 'excel') descargarExcel(null);
     else if(a === 'excel-cliente') descargarExcel(estado.clienteId);
+    else if(a === 'excel-resultados') descargarExcelResultados();
+    else if(a === 'pdf-resultados') abrirDocumentoResultados();
     else if(a === 'gestion-link-general-reportes') abrirGestionLinkGeneralReportes();
     else if(a === 'respaldo'){ if(exigirAdmin('descargar el respaldo completo')) descargarRespaldo(); }
     else if(a === 'restaurar'){ if(exigirAdmin('restaurar un respaldo')) $('archivoRestaurar').click(); }
@@ -29358,6 +29463,198 @@ function descargarExcel(clienteId){
   const sufijo = cli ? '_' + cli.nombre.replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'') : '';
   descargar(armarZip(archivos), 'Control_Forpass' + sufijo + '_' + selloFecha() + '.xlsx');
   aviso('Excel descargado con ' + filas.length + ' ' + plural(filas.length,'sitio','sitios') + '.');
+}
+
+/* ===================== Excel de Resultados (Framework de Proforma) =====================
+   Pedido de Victor (25-sep-2026): "necesito que podamos exportar en 3
+   aspectos excel o pdf en los formatos de forguard" — confirmado con él:
+   Resumen general + Cumplimiento de pólizas + Detalle por pilar, ambos
+   formatos disponibles para todo. Un libro de 6 hojas.
+
+   Los renglones de PILARES_PROFORMA guardan una FUNCIÓN (montosPorMes/
+   detalle), no un número ya calculado — llamarla aquí, igual que hace la
+   pantalla, vuelve a evaluar puedeVerNomina() con el rol de quien exporta:
+   "Nómina directa del pilar" sale en $0 para quien no sea Owner/Admin
+   exactamente igual que en el tablero, sin un candado aparte para el Excel.
+
+   Siempre los 12 meses completos: un archivo exportado es un documento
+   cerrado, no la vista compacta de la pantalla (ver mesesVisiblesProforma). */
+const ENC_PROFORMA_XLSX = anio => ['Concepto'].concat(MESES_PROFORMA, ['Total ' + anio]);
+const ANCHOS_PROFORMA_XLSX = [32].concat(Array(12).fill(10), [14]);
+
+/* Los 12 meses van tal cual (dato de origen); el Total de la derecha es una
+   fórmula viva (SUM de la propia fila) — si alguien corrige un mes en el
+   Excel, el Total de esa fila se actualiza solo. */
+function filaProformaXlsx(nFila, label, montos, estiloLabel, estiloValor){
+  const celdas = [cT(label, estiloLabel)];
+  montos.forEach(v => celdas.push(cN(v, estiloValor)));
+  const total = montos.reduce((a,b)=>a+b,0);
+  celdas.push(cX('SUM(B' + nFila + ':M' + nFila + ')', total, estiloValor));
+  return filaXml(nFila, celdas);
+}
+function filaSeccionProformaXlsx(nFila, label){
+  return filaXml(nFila, [cT(label, 9)]);
+}
+
+function hojaResumenGeneralXlsx(anio){
+  const r = resumenGeneralProforma(anio);
+  let n = 0, xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + '<sheetViews><sheetView showGridLines="0" workbookViewId="0"/></sheetViews>'
+    + '<sheetFormatPr defaultRowHeight="15"/>'
+    + '<cols>' + ANCHOS_PROFORMA_XLSX.map((w,k)=>'<col min="' + (k+1) + '" max="' + (k+1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols>'
+    + '<sheetData>';
+
+  xml += filaXml(++n, [cT('Resumen general Forguard', 1)]);
+  xml += filaXml(++n, [cT('La suma de los 4 pilares — el número general de la empresa, ' + anio + '.', 2)]);
+  n++;
+  xml += filaXml(++n, [cT('Ingresos totales', 9), cN(r.totalIngresos, 7)]);
+  xml += filaXml(++n, [cT('Costos directos totales', 9), cN(r.totalCostos, 7)]);
+  xml += filaXml(++n, [cT('Utilidad bruta', 9), cN(r.totalUtilidad, 7)]);
+  xml += filaXml(++n, [cT('Margen bruto', 9), cT(r.margenTotal + '%', 5)]);
+  n++;
+
+  xml += filaXml(++n, ENC_PROFORMA_XLSX(anio).map(h => cT(h, 3)));
+  xml += filaProformaXlsx(++n, 'Ingresos', r.ingresosPorMes, 4, 7);
+  xml += filaProformaXlsx(++n, 'Costos directos', r.costosPorMes, 4, 7);
+  xml += filaProformaXlsx(++n, 'Utilidad bruta', r.utilidadPorMes, 9, 7);
+  n++;
+
+  xml += filaSeccionProformaXlsx(++n, 'Ingresos por pilar');
+  xml += filaXml(++n, [cT('Pilar', 3), cT('Ingresos ' + anio + ' ($)', 3), cT('% del total', 3)]);
+  r.porPilar.forEach(p=>{
+    const pct = r.totalIngresos ? Math.round(p.totalIngresos / r.totalIngresos * 1000) / 10 : 0;
+    xml += filaXml(++n, [cT(p.nombre, 4), cN(p.totalIngresos, 7), cT(pct + '%', 5)]);
+  });
+
+  xml += '</sheetData>'
+    + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
+    + '</worksheet>';
+  return xml;
+}
+
+const ENC_CUMPLIMIENTO_XLSX = ['Folio','Cliente / Sitio','Cumplimiento (%)','Servicios hechos','Servicios debidos','Ingreso anual ($)','Estado'];
+const ANCHOS_CUMPLIMIENTO_XLSX = [16,32,16,16,16,16,20];
+function hojaCumplimientoPolizasXlsx(){
+  const items = polizasActivasParaCumplimiento();
+  let n = 0, xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + '<sheetViews><sheetView showGridLines="0" workbookViewId="0">'
+    + '<pane ySplit="2" topLeftCell="A3" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+    + '<sheetFormatPr defaultRowHeight="15"/>'
+    + '<cols>' + ANCHOS_CUMPLIMIENTO_XLSX.map((w,k)=>'<col min="' + (k+1) + '" max="' + (k+1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols>'
+    + '<sheetData>';
+
+  xml += filaXml(++n, [cT('Cumplimiento de pólizas activas', 1)]);
+  xml += filaXml(++n, ENC_CUMPLIMIENTO_XLSX.map(h => cT(h, 3)));
+
+  if(!items.length) xml += filaXml(++n, [cT('Todavía no hay pólizas activas.', 4)]);
+  items.forEach(it=>{
+    const cli = clientePorId(it.p.clienteId);
+    const nombre = [cli ? cli.nombre : '', it.p.sitioNombre].filter(Boolean).join(' — ') || '—';
+    xml += filaXml(++n, [
+      cT(it.p.folio || 'Sin folio', 4),
+      cT(nombre, 4),
+      cT(it.cumplimientoPct + '%', 5),
+      cN(it.hechosDebidos, 5),
+      cN(it.serviciosDebidos, 5),
+      cN(it.precioAnual, 7),
+      cT(it.estado, 5)
+    ]);
+  });
+
+  const ultima = Math.max(3, n);
+  xml += '</sheetData>'
+    + '<autoFilter ref="A2:' + letraCol(ENC_CUMPLIMIENTO_XLSX.length) + ultima + '"/>'
+    + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
+    + '</worksheet>';
+  return xml;
+}
+
+function hojaPilarXlsx(pilar, anio){
+  const totalIngresosPorMes = totalesPorMesDe(pilar.ingresos, anio);
+  const totalCostosPorMes = totalesPorMesDe(pilar.costos, anio);
+  const utilidadPorMes = totalIngresosPorMes.map((ing,i) => ing - totalCostosPorMes[i]);
+  const margenPorMes = utilidadPorMes.map((u,i) => totalIngresosPorMes[i] ? Math.round(u / totalIngresosPorMes[i] * 100) : 0);
+  const totalIngresos = totalIngresosPorMes.reduce((a,b)=>a+b,0);
+  const utilidadTotal = utilidadPorMes.reduce((a,b)=>a+b,0);
+  const margenTotal = totalIngresos ? Math.round(utilidadTotal / totalIngresos * 100) : 0;
+
+  let n = 0, xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    + '<sheetViews><sheetView showGridLines="0" workbookViewId="0">'
+    + '<pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+    + '<sheetFormatPr defaultRowHeight="15"/>'
+    + '<cols>' + ANCHOS_PROFORMA_XLSX.map((w,k)=>'<col min="' + (k+1) + '" max="' + (k+1) + '" width="' + w + '" customWidth="1"/>').join('') + '</cols>'
+    + '<sheetData>';
+
+  xml += filaXml(++n, [cT(pilar.nombre, 1)]);
+  xml += filaXml(++n, [cT('Framework de Proforma ' + anio + ' — ingresos y costos directos, mes a mes.', 2)]);
+  xml += filaXml(++n, ENC_PROFORMA_XLSX(anio).map(h => cT(h, 3)));
+
+  xml += filaSeccionProformaXlsx(++n, 'Ingresos');
+  pilar.ingresos.forEach(c => { xml += filaProformaXlsx(++n, c.label, c.montosPorMes(anio), 4, 7); });
+  xml += filaProformaXlsx(++n, 'Total ingresos ' + pilar.nombre, totalIngresosPorMes, 9, 7);
+
+  xml += filaSeccionProformaXlsx(++n, 'Costos directos');
+  pilar.costos.forEach(c => { xml += filaProformaXlsx(++n, c.label, c.montosPorMes(anio), 4, 7); });
+  xml += filaProformaXlsx(++n, 'Total costos directos', totalCostosPorMes, 9, 7);
+
+  xml += filaProformaXlsx(++n, 'Utilidad bruta ' + pilar.nombre, utilidadPorMes, 9, 7);
+  xml += filaXml(++n, [cT('Margen bruto', 9)].concat(margenPorMes.map(p => cT(p + '%', 5)), [cT(margenTotal + '%', 5)]));
+
+  xml += '</sheetData>'
+    + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
+    + '</worksheet>';
+  return xml;
+}
+
+/* El armado del ZIP en sí (Content_Types/workbook/rels) SÍ se genera con un
+   .map en vez de escribirse 6 veces a mano, a diferencia de descargarExcel():
+   con 2 hojas copiar y pegar el bloque es seguro, con 6 es tentador
+   desalinear un rId al copiarlo por sexta vez — el .map hace imposible ese
+   desfase porque el mismo índice numera la hoja, su Override, su <sheet> y
+   su Relationship en un solo lugar. */
+function descargarExcelResultados(){
+  const anio = hoyISO().slice(0,4);
+  const hojas = [
+    { nombre:'Resumen general', xml: hojaResumenGeneralXlsx(anio) },
+    { nombre:'Cumplimiento de pólizas', xml: hojaCumplimientoPolizasXlsx() }
+  ].concat(PILARES_PROFORMA.map(pilar => ({ nombre: pilar.nombre.slice(0,31), xml: hojaPilarXlsx(pilar, anio) })));
+
+  const overrides = hojas.map((h,i) => '<Override PartName="/xl/worksheets/sheet' + (i+1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('');
+  const sheetsXml = hojas.map((h,i) => '<sheet name="' + escXml(h.nombre) + '" sheetId="' + (i+1) + '" r:id="rId' + (i+1) + '"/>').join('');
+  const relsHojas = hojas.map((h,i) => '<Relationship Id="rId' + (i+1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i+1) + '.xml"/>').join('');
+  const rIdEstilos = 'rId' + (hojas.length + 1);
+
+  const archivos = [
+    { nombre:'[Content_Types].xml', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      + '<Default Extension="xml" ContentType="application/xml"/>'
+      + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+      + overrides
+      + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+      + '</Types>') },
+    { nombre:'_rels/.rels', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+      + '</Relationships>') },
+    { nombre:'xl/workbook.xml', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+      + 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + '<sheets>' + sheetsXml + '</sheets>'
+      + '<calcPr calcId="124519" fullCalcOnLoad="1"/></workbook>') },
+    { nombre:'xl/_rels/workbook.xml.rels', datos: aBytes('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + relsHojas
+      + '<Relationship Id="' + rIdEstilos + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+      + '</Relationships>') },
+    { nombre:'xl/styles.xml', datos: aBytes(XLSX_ESTILOS) }
+  ].concat(hojas.map((h,i) => ({ nombre:'xl/worksheets/sheet' + (i+1) + '.xml', datos: aBytes(h.xml) })));
+
+  descargar(armarZip(archivos), 'Resultados_Forguard_' + anio + '_' + selloFecha() + '.xlsx');
+  aviso('Excel de Resultados descargado (' + hojas.length + ' hojas).');
 }
 
 /* Encabezados en el MISMO orden que ALIAS_COLUMNA_ACTIVO_XLSX espera (usa
