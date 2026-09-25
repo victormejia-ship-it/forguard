@@ -5324,6 +5324,12 @@ function normalizarGastoProveedor(g){
     /* Liga opcional hacia LA cotización que le hacemos a un cliente: así se
        puede comparar lo que cuesta el proveedor contra lo que se cotizó. */
     cotizacionClienteId: (g && g.cotizacionClienteId ? String(g.cotizacionClienteId) : '').trim(),
+    /* A cuál de los 4 pilares de Resultados corresponde este gasto —de aquí
+       sale sola "Proveedores / servicios subcontratados" (ver
+       montosPorMesGastosProveedorPorPilar), mismo criterio que pilarId en
+       Personal para Nómina: no es sensible, cualquiera que capture el gasto
+       lo puede elegir. */
+    pilarId: PILARES_PROFORMA.some(pl => pl.id === (g && g.pilarId)) ? g.pilarId : '',
     abonos: (Array.isArray(g && g.abonos) ? g.abonos : []).map(normalizarAbonoProveedor),
     documentos: (Array.isArray(g && g.documentos) ? g.documentos : []).map(normalizarDocumentoProveedor),
     notas: (g && g.notas ? String(g.notas) : '').trim()
@@ -12087,6 +12093,51 @@ function montosPorMesNominaPorPilar(pilarId){
     return Array(12).fill(total);
   };
 }
+
+/* ---- Proveedores → "Proveedores / servicios subcontratados" ----
+   Definido con Victor (25-sep-2026), punto por punto:
+   - Cuenta un gasto de proveedor en cuanto es un compromiso real —estatus
+     'por-pagar' o 'pagado'— sin importar si ya se pagó o sigue pendiente.
+     Uno todavía en 'cotizacion' (ni siquiera aceptado) o 'cancelado' no
+     cuenta — mismo criterio que "Trabajos correctivos/preventivo" con
+     cotizaciones: un borrador nunca es costo real.
+   - El mes lo pone la fecha del gasto (gpFecha), no la fecha de
+     vencimiento ni la de pago — mismo criterio devengado que el resto de
+     Resultados (Pólizas, Cotizaciones): cuenta cuando pasó, no cuando se
+     liquidó.
+   - A cuál pilar pertenece lo dice el campo Pilar del propio gasto
+     (gpPilar en modalGastoProveedor) — un gasto sin pilar asignado no
+     cuenta en ninguno. Mismo mecanismo que pilarId en Personal, reusable
+     para el mismo renglón en los otros pilares que lo tienen (Servicios
+     Operativos, Proyectos e Infraestructura) el día que se conecten.
+
+   Órdenes de Compra (25-sep-2026, mismo día — hallazgo propio al revisar
+   el módulo): desde el 17-sep-2026 ya NO se captura un "gasto" suelto para
+   una compra nueva —toda compra pasa por Órdenes de Compra, y en cuanto
+   queda Confirmada/Enviada/Recibida ELLA MISMA ya es la cuenta por pagar
+   (gastosProveedor quedó como historial de antes de ese cambio). Sin
+   sumarlas aquí, este renglón se habría quedado ciego a casi todo el gasto
+   real de proveedor de hoy en adelante. Una Orden de Compra no tiene campo
+   Pilar propio —confirmado con Victor: en vez de agregárselo, TODAS las
+   confirmadas/enviadas/recibidas se suman completas a Servicios Técnicos
+   por ahora (es el único pilar con este renglón conectado); se reparte
+   distinto el día que hagan falta de otros pilares. Mismo criterio de
+   fecha (la de la orden, no la de entrega/vencimiento) y de monto (subtotal
+   sin IVA, igual que Cotizaciones). */
+function montosPorMesGastosProveedorPorPilar(pilarId){
+  return (anio) => {
+    const totales = Array(12).fill(0);
+    datos.gastosProveedor
+      .filter(g => (g.estatus === 'por-pagar' || g.estatus === 'pagado') && g.pilarId === pilarId && g.fecha.slice(0,4) === String(anio))
+      .forEach(g => { totales[Number(g.fecha.slice(5,7)) - 1] += g.monto; });
+    if(pilarId === 'tecnicos'){
+      datos.ordenesCompra
+        .filter(o => ['confirmada','enviada','recibida'].includes(o.estatus) && o.fecha.slice(0,4) === String(anio))
+        .forEach(o => { totales[Number(o.fecha.slice(5,7)) - 1] += calcularOrdenCompra(o).subtotal; });
+    }
+    return totales;
+  };
+}
 const PILARES_PROFORMA = [
   { id:'tecnicos', nombre:'Servicios Técnicos',
     ingresos: [
@@ -12097,7 +12148,7 @@ const PILARES_PROFORMA = [
     costos: [
       { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('tecnicos') },
       { id:'refacciones-materiales', label:'Refacciones y materiales', montosPorMes: montosPorMesPolizas(null, 'costo') },
-      { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: sinDatosTodavia() },
+      { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: montosPorMesGastosProveedorPorPilar('tecnicos') },
       { id:'otros-costos', label:'Otros costos directos', montosPorMes: montosPorMesCotizacionesRealizadas('costo') }
     ] },
   { id:'operativos', nombre:'Servicios Operativos',
@@ -12695,7 +12746,8 @@ const TEMAS_AYUDA = [
           '<b>Refacciones y materiales</b> (Servicios Técnicos, costo): el costo anual de CUALQUIER póliza activa (cliente o interno) repartido parejo entre sus 12 meses, sin esperar a que el técnico marque el servicio como hecho.',
           '<b>Trabajos correctivos / preventivo</b> (Servicios Técnicos): cotizaciones con estatus <b>Realizado</b> (sin importar cargo a cliente o comedor) — cuenta en el mes de la fecha de servicio realizado, por su monto al cliente sin IVA.',
           '<b>Otros costos directos</b> (Servicios Técnicos, costo): el costo de esas mismas cotizaciones "Realizado", sin IVA.',
-          '<b>Nómina directa del pilar</b> (Servicios Técnicos, Servicios Operativos y Proyectos e Infraestructura — Tecnología y Control no la trae, calcado del Excel): la suma del sueldo mensual de todo el personal <b>Activo</b> asignado a ESE pilar en el Organigrama, parejo en los 12 meses. Se asigna el pilar y el sueldo de cada persona desde su ficha en Organigrama —no se vuelve a capturar nada aquí—; el sueldo es dato sensible, así que <b>solo Owner/Admin</b> lo ven, para cualquier otro rol el renglón se queda en $0.'
+          '<b>Nómina directa del pilar</b> (Servicios Técnicos, Servicios Operativos y Proyectos e Infraestructura — Tecnología y Control no la trae, calcado del Excel): la suma del sueldo mensual de todo el personal <b>Activo</b> asignado a ESE pilar en el Organigrama, parejo en los 12 meses. Se asigna el pilar y el sueldo de cada persona desde su ficha en Organigrama —no se vuelve a capturar nada aquí—; el sueldo es dato sensible, así que <b>solo Owner/Admin</b> lo ven, para cualquier otro rol el renglón se queda en $0.',
+          '<b>Proveedores / servicios subcontratados</b> (Servicios Técnicos, costo): dos fuentes juntas — (1) gastos de Proveedores capturados a mano con estatus <b>Por pagar</b> o <b>Pagado</b> y el campo <b>Pilar</b> puesto en "Servicios Técnicos" (una simple "Cotización" sin aceptar, o uno "Cancelado", no cuentan); y (2) <b>Órdenes de Compra</b> Confirmadas/Enviadas/Recibidas (Borrador o Cancelada no) — como una Orden de Compra no tiene campo Pilar propio, TODAS se suman aquí por ahora. Ambas cuentan en el mes de su fecha, sin IVA, se hayan pagado o no todavía.'
         ])
       + guiaTip('Cómo leer cada bloque (25-sep-2026)', [
           'Cada pilar —y el Resumen general de arriba— trae el <b>gráfico a la izquierda</b> y la <b>tabla a la derecha</b>: barras de Ingresos/Costos directos con la línea de Utilidad bruta encima, mes a mes. Pasa el mouse sobre cualquier mes para ver el detalle exacto.',
@@ -13011,6 +13063,9 @@ const TEMAS_AYUDA = [
         'Un gasto capturado antes de este cambio (sin orden de compra detrás) se sigue viendo, editando y abonando igual que siempre desde su propia tarjeta.',
         'Sube documentos por tipo en un gasto viejo: Cotización del proveedor, Factura, Comprobante de pago — cada uno con su propia etiqueta.'
       ]))
+      + guiaTip('De aquí sale "Proveedores / servicios subcontratados" en Resultados (25-sep-2026)', [
+          'Un gasto de proveedor capturado a mano trae un campo <b>Pilar</b> — ponlo en "Servicios Técnicos" para que ese gasto (con estatus Por pagar o Pagado) cuente ahí. Una Orden de Compra Confirmada/Enviada/Recibida cuenta completa y directo, sin necesidad de elegir pilar.'
+        ])
       + guiaSeccion('Lo básico — Refacciones (catálogo de piezas por proveedor)', guiaPasos([
         'Desde cualquier pantalla de Proveedores, entra a <b>Refacciones</b>. KPIs: Piezas en existencia, Valor del inventario, Agotadas.',
         'Usa <b>Nueva refacción</b>: Proveedor*, Código, Unidad (PZA por default), Descripción*, Costo*, Existencia inicial, Departamento, Notas.',
@@ -16985,9 +17040,15 @@ function modalGastoProveedor(id, proveedorPresetId){
     +   '<div class="campo"><label>Fecha límite de pago</label>'
     +     '<input type="date" id="gpVencimiento" value="' + esc(g ? g.fechaVencimiento : '') + '"></div>'
     + '</div>'
-    + '<div class="campo"><label>Estatus</label><select id="gpEstatus">'
-    +   ESTATUS_GASTO_PROVEEDOR.map(e => '<option value="' + e + '"' + ((g ? g.estatus : 'cotizacion') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_GASTO_PROVEEDOR[e]) + '</option>').join('')
-    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Estatus</label><select id="gpEstatus">'
+    +     ESTATUS_GASTO_PROVEEDOR.map(e => '<option value="' + e + '"' + ((g ? g.estatus : 'cotizacion') === e ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_GASTO_PROVEEDOR[e]) + '</option>').join('')
+    +   '</select></div>'
+    +   '<div class="campo"><label>Pilar (para "Proveedores / servicios subcontratados" en Resultados)</label><select id="gpPilar">'
+    +     '<option value="">— Sin asignar —</option>'
+    +     PILARES_PROFORMA.map(pl => '<option value="' + esc(pl.id) + '"' + (g && g.pilarId === pl.id ? ' selected' : '') + '>' + esc(pl.nombre) + '</option>').join('')
+    +   '</select></div>'
+    + '</div>'
     + '<div class="campo"><label>Cotización de cliente ligada (opcional)</label><select id="gpCotizacionCliente">'
     +   '<option value="">— Ninguna —</option>'
     +   cotizacionesOrd.map(c => '<option value="' + esc(c.id) + '"' + (g && g.cotizacionClienteId === c.id ? ' selected' : '') + '>'
@@ -17014,7 +17075,7 @@ function modalGastoProveedor(id, proveedorPresetId){
       proveedorId, proveedorNombre: prov ? prov.nombre : '',
       concepto, folio: $('gpFolio').value.trim(), monto,
       fecha: $('gpFecha').value || hoyISO(), fechaVencimiento: $('gpVencimiento').value,
-      estatus: $('gpEstatus').value, cotizacionClienteId: $('gpCotizacionCliente').value,
+      estatus: $('gpEstatus').value, pilarId: $('gpPilar').value, cotizacionClienteId: $('gpCotizacionCliente').value,
       notas: $('gpNotas').value.trim()
     };
 

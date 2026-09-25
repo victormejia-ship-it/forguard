@@ -404,6 +404,69 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Analyst (no Owner/Admin): "Nómina directa del pilar" regresa a $0 aunque el dato exista (sueldo es sensible)',
     nominaAnalyst.tecnicos.every(m => m === 0) && nominaAnalyst.operativos.every(m => m === 0));
 
+  // --------- 13) "Proveedores / servicios subcontratados": gastos de proveedor con Pilar asignado ---------
+  await page.evaluate((anio) => {
+    datos.gastosProveedor = [
+      // 'por-pagar': ya es un compromiso real, cuenta aunque no se haya pagado.
+      normalizarGastoProveedor({ id:'g1', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte', concepto:'Servicio', monto:5000, fecha: anio+'-04-10', estatus:'por-pagar', pilarId:'tecnicos' }),
+      // 'pagado': también cuenta, mismo mes.
+      normalizarGastoProveedor({ id:'g2', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte', concepto:'Servicio', monto:3000, fecha: anio+'-04-15', estatus:'pagado', pilarId:'tecnicos' }),
+      // 'cotizacion' (ni siquiera aceptada): NO cuenta, aunque el monto sea enorme.
+      normalizarGastoProveedor({ id:'g3', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte', concepto:'Cotización sin aceptar', monto:99999, fecha: anio+'-04-01', estatus:'cotizacion', pilarId:'tecnicos' }),
+      // 'cancelado': NO cuenta.
+      normalizarGastoProveedor({ id:'g4', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte', concepto:'Cancelado', monto:99999, fecha: anio+'-04-01', estatus:'cancelado', pilarId:'tecnicos' }),
+      // Otro pilar: NO debe colarse en Servicios Técnicos.
+      normalizarGastoProveedor({ id:'g5', proveedorId:'pr2', proveedorNombre:'Limpieza Total', concepto:'Servicio', monto:7000, fecha: anio+'-04-01', estatus:'pagado', pilarId:'operativos' }),
+      // Sin pilar asignado: NO cuenta en ninguno.
+      normalizarGastoProveedor({ id:'g6', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte', concepto:'Sin pilar', monto:99999, fecha: anio+'-04-01', estatus:'pagado', pilarId:'' }),
+      // Otro año: NO se cuela en el año actual.
+      normalizarGastoProveedor({ id:'g7', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte', concepto:'De otro año', monto:99999, fecha: (Number(anio)-1)+'-04-01', estatus:'pagado', pilarId:'tecnicos' })
+    ];
+    // Órdenes de Compra (17-sep-2026 en adelante, el camino real de captura
+    // hoy): confirmada/enviada/recibida cuentan completas en Servicios
+    // Técnicos (confirmado con Victor: no tienen campo Pilar propio).
+    datos.ordenesCompra = [
+      normalizarOrdenCompra({ id:'oc1', folio:'OC-1', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte',
+        fecha: anio+'-05-01', estatus:'confirmada', renglones:[{ concepto:'Refacción X', cantidad:2, precioUnitario:1000 }] }),
+      normalizarOrdenCompra({ id:'oc2', folio:'OC-2', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte',
+        fecha: anio+'-05-10', estatus:'recibida', renglones:[{ concepto:'Servicio Y', cantidad:1, precioUnitario:1500 }] }),
+      // 'borrador' (ni siquiera enviada): NO cuenta.
+      normalizarOrdenCompra({ id:'oc3', folio:'OC-3', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte',
+        fecha: anio+'-05-01', estatus:'borrador', renglones:[{ concepto:'Borrador', cantidad:1, precioUnitario:99999 }] }),
+      // 'cancelada': NO cuenta.
+      normalizarOrdenCompra({ id:'oc4', folio:'OC-4', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte',
+        fecha: anio+'-05-01', estatus:'cancelada', renglones:[{ concepto:'Cancelada', cantidad:1, precioUnitario:99999 }] }),
+      // Otro año: NO se cuela.
+      normalizarOrdenCompra({ id:'oc5', folio:'OC-5', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte',
+        fecha: (Number(anio)-1)+'-05-01', estatus:'confirmada', renglones:[{ concepto:'De otro año', cantidad:1, precioUnitario:99999 }] })
+    ];
+    render();
+  }, anioActual);
+  await page.waitForTimeout(100);
+
+  const proveedoresTecnicos = await page.evaluate(() => {
+    const anio = hoyISO().slice(0,4);
+    return PILARES_PROFORMA.find(p => p.id === 'tecnicos').costos.find(c => c.id === 'proveedores-subcontratados').montosPorMes(anio);
+  });
+  chkF('"Proveedores / servicios subcontratados": abril suma "por-pagar" + "pagado" ($5,000 + $3,000 = $8,000)', proveedoresTecnicos[3] === 8000);
+  chkF('Mayo suma las 2 OC reales sin IVA (confirmada $2,000 + recibida $1,500 = $3,500) — borrador/cancelada/otro año no se cuelan',
+    proveedoresTecnicos[4] === 3500);
+  chkF('El resto de los meses siguen en $0', proveedoresTecnicos.filter((_,i) => ![3,4].includes(i)).every(m => m === 0));
+
+  const filaProveedores = await page.evaluate(() => {
+    document.querySelector('[data-accion="vista-lista"][data-campo="resultadosMeses"][data-modo="todos"]').click();
+  });
+  await page.waitForTimeout(100);
+  const filaProveedoresTexto = await page.evaluate(() => {
+    const tecnicos = Array.from(document.querySelectorAll('#vista .bloque-pilar')).find(b => b.querySelector('h3').textContent === 'Servicios Técnicos');
+    const fila = Array.from(tecnicos.querySelectorAll('table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes('Proveedores / servicios subcontratados'));
+    return fila.textContent;
+  });
+  chkF('"Proveedores / servicios subcontratados" ya se ve en la tabla ($8,000 de gastos + $3,500 de Órdenes de Compra)',
+    filaProveedoresTexto.includes('$8,000') && filaProveedoresTexto.includes('$3,500'));
+  await page.evaluate(() => { document.querySelector('[data-accion="vista-lista"][data-campo="resultadosMeses"][data-modo="compacto"]').click(); });
+  await page.waitForTimeout(100);
+
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 
   console.log('Errores capturados:', JSON.stringify(errores));
