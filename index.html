@@ -13045,9 +13045,10 @@ const TEMAS_AYUDA = [
         ])
       + guiaTip('Exportar (25-sep-2026, formato calcado del Excel de Victor)', [
           'Arriba a la derecha: <b>Descargar Excel</b> y <b>Generar PDF</b>.',
-          '<b>Descargar Excel</b> baja un libro con la hoja <b>"Framework Proforma"</b> calcada del archivo real de Victor ("Framework Proforma Forguard V2"): los 4 pilares apilados uno debajo del otro —mismos colores, mismas fórmulas vivas (SUM, restas y márgenes con IFERROR, no números ya calculados)—, más el bloque <b>RESUMEN FORGUARD</b> y <b>GASTOS DE ESTRUCTURA FORGUARD</b> al final (este último en $0 a propósito: todavía no hay de dónde conectarlo). <b>Cumplimiento de pólizas</b> —que no existe en el Excel original, es un aporte de esta app— va en una segunda hoja aparte. Siempre los 12 meses completos, sin ninguna app externa.',
-          '<b>Generar PDF</b> abre el documento con la misma identidad Forguard que Pólizas/Cotizaciones/Órdenes de Compra, siempre en <b>horizontal</b> (las tablas de 12 meses no caben en vertical): da clic en "Guardar como PDF" adentro de esa pestaña nueva. Cumplimiento de pólizas reparte sus filas MIDIENDO de verdad cuánto cabe en cada hoja (igual que Cotizaciones/Órdenes de Compra), así que el pie nunca queda encimado con la tabla aunque haya muchas pólizas activas.',
-          'Los dos formatos respetan exactamente el mismo candado que la pantalla: "Nómina directa del pilar" sale en $0 para quien no sea Owner/Admin, sin excepción por ser un archivo descargado.'
+          '<b>Descargar Excel</b> baja un libro con la hoja <b>"Framework Proforma"</b> calcada del archivo real de Victor ("Framework Proforma Forguard V2"): los 4 pilares apilados uno debajo del otro —mismos colores, mismas fórmulas vivas (SUM, restas y márgenes con IFERROR, no números ya calculados)—, más el bloque <b>RESUMEN FORGUARD</b> y <b>GASTOS DE ESTRUCTURA FORGUARD</b> al final (este último en $0 a propósito: todavía no hay de dónde conectarlo). Siempre los 12 meses completos, sin ninguna app externa.',
+          '<b>Generar PDF</b> abre el documento con la misma identidad Forguard que Pólizas/Cotizaciones/Órdenes de Compra, siempre en <b>horizontal</b> (las tablas de 12 meses no caben en vertical): da clic en "Guardar como PDF" adentro de esa pestaña nueva.',
+          'Los dos formatos respetan exactamente el mismo candado que la pantalla: "Nómina directa del pilar" sale en $0 para quien no sea Owner/Admin, sin excepción por ser un archivo descargado.',
+          '<b>Cumplimiento de pólizas se pausó por ahora en ambos exportados</b> (25-sep-2026, tras un segundo reporte de traslape con datos reales — más de 40 pólizas activas): sigue viéndose normal en pantalla, debajo del gráfico de Servicios Técnicos; se vuelve a incluir en el Excel/PDF en cuanto quede resuelta a fondo su paginación.'
         ])
       + guiaTip('Por qué no incluye "Gastos de Estructura Forguard" todavía', [
           'El Excel de referencia trae, debajo de los 4 pilares, un bloque aparte de gastos que no se reparten entre pilares ("Gastos de Estructura Forguard" — nómina administrativa, renta de oficina, etc.). Se dejó fuera a propósito por ahora: Victor pidió específicamente "el total deben ser 4 secciones" para los pilares de negocio — este bloque de gastos generales de la empresa se agrega después si hace falta, sin tocar los 4 pilares.'
@@ -29761,9 +29762,16 @@ function hojaCumplimientoPolizasXlsx(){
 
 function descargarExcelResultados(){
   const anio = hoyISO().slice(0,4);
+  /* "Cumplimiento de pólizas" se pausa por ahora (Victor, 25-sep-2026, tras
+     el segundo reporte de traslape en el PDF: "por el momento omite
+     también el cumplimiento de las pólizas" — "solo en el reporte
+     exportado"): sigue viéndose normal en pantalla (bloqueCumplimientoPolizas,
+     debajo del gráfico de Servicios Técnicos), solo se deja fuera de los
+     documentos exportados mientras se revisa la paginación a fondo.
+     hojaCumplimientoPolizasXlsx() se deja escrita, sin usar, para no tener
+     que rehacerla el día que se reactive. */
   const hojas = [
-    { nombre:'Framework Proforma', xml: construirHojaFrameworkProforma(anio) },
-    { nombre:'Cumplimiento de pólizas', xml: hojaCumplimientoPolizasXlsx() }
+    { nombre:'Framework Proforma', xml: construirHojaFrameworkProforma(anio) }
   ];
 
   const overrides = hojas.map((h,i) => '<Override PartName="/xl/worksheets/sheet' + (i+1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('');

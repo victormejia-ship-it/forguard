@@ -407,11 +407,17 @@ if(!RES){
      document.fonts.ready y otra vez en beforeprint, que es el único momento
      que de verdad importa"). Resumen/pilares no necesitan remedirse —caben
      completos siempre— pero recalcularlos de nuevo aquí es gratis. */
+  /* "Cumplimiento de pólizas" se pausa por ahora (Victor, 25-sep-2026, tras
+     un segundo reporte de traslape con datos reales: "por el momento omite
+     también el cumplimiento de las pólizas" — "solo en el reporte
+     exportado"): sigue viéndose normal en pantalla, solo se deja fuera de
+     este documento mientras se revisa la paginación a fondo.
+     paginarCumplimiento()/paginaCumplimientoHTML() se dejan escritas, sin
+     usar, para no tener que rehacerlas el día que se reactive. */
   function pintarTodo(){
     let docHTML = '', docRoto = null;
     try{
-      const paginasCumpl = paginarCumplimiento().map(paginaCumplimientoHTML).join('');
-      docHTML = paginaResumen() + paginasCumpl + RES.pilares.map(paginaPilar).join('');
+      docHTML = paginaResumen() + RES.pilares.map(paginaPilar).join('');
     }catch(e){
       docRoto = e;
       console.error('El documento no se pudo armar:', e);
