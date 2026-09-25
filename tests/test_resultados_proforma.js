@@ -64,10 +64,37 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   // --------- 3) EXACTAMENTE 4 secciones — un pilar de negocio cada una, en el orden del Excel ---------
   await page.evaluate(() => { irAModulo('resultados'); });
   await page.waitForTimeout(150);
-  const secciones = await page.evaluate(() => Array.from(document.querySelectorAll('#vista h3')).map(h => h.textContent));
-  chkF('Son EXACTAMENTE 4 secciones (pedido explícito: "el total deben ser 4 secciones")', secciones.length === 4);
+  const secciones = await page.evaluate(() => Array.from(document.querySelectorAll('#vista .bloque-pilar h3')).map(h => h.textContent));
+  chkF('Son EXACTAMENTE 4 secciones (pedido explícito: "el total deben ser 4 secciones") — sin contar el Resumen general', secciones.length === 4);
   chkF('En el orden y con el nombre exacto del Excel "Framework Proforma Forguard V2"',
     JSON.stringify(secciones) === JSON.stringify(['Servicios Técnicos', 'Servicios Operativos', 'Proyectos e Infraestructura', 'Tecnología y Control']));
+
+  // --------- 3b) .wrap se ensancha en Resultados (pedido de Victor, 25-sep-2026: "un poco más amplio... para visualizar todo") ---------
+  const anchoWrap = await page.evaluate(() => document.querySelector('.wrap').classList.contains('wrap-ancho'));
+  chkF('.wrap lleva la clase wrap-ancho en Resultados (más espacio para gráfico + tabla lado a lado)', anchoWrap === true);
+  const anchoEnOtroModulo = await page.evaluate(() => { irAModulo('clientes'); return document.querySelector('.wrap').classList.contains('wrap-ancho'); });
+  chkF('Fuera de Resultados, .wrap vuelve a su ancho normal (no se ensancha toda la app)', anchoEnOtroModulo === false);
+  await page.evaluate(() => { irAModulo('resultados'); });
+  await page.waitForTimeout(150);
+
+  // --------- 3c) Resumen general arriba de los 4 pilares (pedido de Victor: "el dato general de la empresa") ---------
+  const resumen = await page.evaluate(() => {
+    const bloque = Array.from(document.querySelectorAll('#vista h3')).find(h => h.textContent === 'Resumen general Forguard');
+    return { existe: !!bloque, esPrimero: bloque === document.querySelectorAll('#vista h3')[0] };
+  });
+  chkF('Existe el bloque "Resumen general Forguard"', resumen.existe === true);
+  chkF('El Resumen general va ANTES que los 4 pilares', resumen.esPrimero === true);
+
+  // --------- 3d) Cada bloque (Resumen y cada pilar) trae gráfico a la izquierda y datos a la derecha ---------
+  const layout = await page.evaluate(() => {
+    const grids = Array.from(document.querySelectorAll('#vista .proforma-grid'));
+    return grids.map(g => ({
+      primerHijoEsGrafico: g.firstElementChild.classList.contains('proforma-grafico'),
+      traeGrafico: g.querySelector('.proforma-grafico svg, .proforma-grafico .svg-vacio') !== null
+    }));
+  });
+  chkF('Son 5 bloques con gráfico+datos (Resumen general + 4 pilares)', layout.length === 5);
+  chkF('En TODOS, el gráfico va primero (columna izquierda) y los datos después (columna derecha)', layout.every(l => l.primerHijoEsGrafico && l.traeGrafico));
 
   // --------- 4) Cada sección trae sus renglones de Ingresos/Costos, calcados del Excel ---------
   const textoVista = await page.evaluate(() => document.getElementById('vista').textContent);
@@ -187,6 +214,45 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     filasCotizadas.ingreso.includes('$230') && filasCotizadas.ingreso.includes('$1,150') && filasCotizadas.ingreso.includes('$690'));
   chkF('El renglón "Otros costos directos" ya trae sus montos en la tabla ($200/$1,000/$600)',
     filasCotizadas.costo.includes('$200') && filasCotizadas.costo.includes('$1,000') && filasCotizadas.costo.includes('$600'));
+
+  // --------- 9) Con datos reales: el Resumen general los suma y el gráfico de Servicios Técnicos deja de ser el placeholder vacío ---------
+  const resumenConDatos = await page.evaluate(() => {
+    const r = resumenGeneralProforma(hoyISO().slice(0,4));
+    return { totalIngresos: r.totalIngresos, porPilarTecnicos: r.porPilar.find(p => p.nombre === 'Servicios Técnicos').totalIngresos };
+  });
+  chkF('Resumen general: Ingresos totales de la empresa = suma de Servicios Técnicos ($12,000 + $5,280 + $2,070 = $19,350)', resumenConDatos.totalIngresos === 19350);
+  chkF('Resumen general: el aporte de Servicios Técnicos al ranking es ese mismo total', resumenConDatos.porPilarTecnicos === 19350);
+
+  const kpiIngresos = await page.evaluate(() => {
+    const kpi = Array.from(document.querySelectorAll('#vista .kpis .kpi')).find(k => k.textContent.includes('Ingresos totales'));
+    return kpi ? kpi.querySelector('.k-valor').textContent : null;
+  });
+  chkF('La tarjeta KPI "Ingresos totales" del Resumen general muestra $19,350', kpiIngresos === '$19,350');
+
+  const graficoTecnicos = await page.evaluate(() => {
+    const bloque = document.querySelector('.bloque-pilar');
+    return {
+      esServiciosTecnicos: bloque.querySelector('h3').textContent === 'Servicios Técnicos',
+      traeSvg: bloque.querySelector('.proforma-grafico svg') !== null,
+      traePlaceholderVacio: bloque.querySelector('.proforma-grafico .svg-vacio') !== null,
+      cantidadHits: bloque.querySelectorAll('.proforma-grafico rect.grafica-hit').length
+    };
+  });
+  chkF('El primer bloque-pilar es Servicios Técnicos', graficoTecnicos.esServiciosTecnicos === true);
+  chkF('Su gráfico ya no muestra el placeholder de "sin renglones conectados" (ya tiene datos)', graficoTecnicos.traeSvg === true && graficoTecnicos.traePlaceholderVacio === false);
+  chkF('Su gráfico trae 12 blancos de mouse (uno por mes) para el tooltip', graficoTecnicos.cantidadHits === 12);
+
+  // --------- 10) El tooltip real, al pasar el mouse sobre Febrero de Servicios Técnicos ---------
+  await page.locator('.bloque-pilar').first().locator('rect.grafica-hit[data-mes="2"]').hover({ force: true });
+  await page.waitForTimeout(80);
+  const tt = await page.evaluate(() => ({ visible: document.getElementById('graficaTT').classList.contains('visible'), texto: document.getElementById('graficaTT').textContent }));
+  chkF('El tooltip aparece al pasar el mouse sobre un mes del gráfico', tt.visible === true);
+  chkF('El tooltip de Febrero muestra el ingreso correcto ($2,590 = $1,000 pólizas cliente + $440 incluidas en precio + $1,150 de la cotización "realizado")',
+    tt.texto.includes('Feb') && tt.texto.includes('$2,590'));
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(80);
+  const ttOculto = await page.evaluate(() => document.getElementById('graficaTT').classList.contains('visible'));
+  chkF('El tooltip se esconde al sacar el mouse', ttOculto === false);
 
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 

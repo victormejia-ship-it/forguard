@@ -400,6 +400,32 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .tabla-proforma tr.fila-total td{font-weight:700; color:var(--navy); border-top:1.5px solid var(--line);}
 .tabla-proforma tr.fila-utilidad td{background:#F7F8FB;}
 
+/* Resultados necesita más aire que el resto de la app (14 columnas por
+   pilar: Concepto + 12 meses + Total) — .wrap se ensancha SOLO en este
+   módulo (ver render(), que pone/quita esta clase según estado.modulo) en
+   vez de tocar el ancho global de las demás pantallas. */
+.wrap.wrap-ancho{max-width:1680px;}
+/* Gráfico a la izquierda, datos a la derecha (pedido de Victor, 25-sep-2026:
+   "los datos del lado derecho... del lado izquierdo los gráficos"), tanto
+   en cada pilar como en el resumen general de arriba. Se apila en una sola
+   columna en pantallas angostas — la tabla ya trae su propio scroll
+   horizontal (.rodillo) para esos casos. */
+.proforma-grid{display:grid; grid-template-columns:340px 1fr; gap:20px; align-items:start;}
+@media (max-width:960px){ .proforma-grid{grid-template-columns:1fr;} }
+.proforma-grafico{background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:var(--sombra-suave);}
+.proforma-grafico h4{font-size:12px; font-weight:700; color:var(--navy); margin-bottom:2px;}
+.proforma-grafico svg{overflow:visible;}
+/* Ranking de "Ingresos por pilar" del resumen general: barras horizontales
+   con su propia etiqueta (nombre del pilar) — no necesitan leyenda de color
+   porque no comparan identidad por tono, comparan magnitud por longitud. */
+.proforma-ranking{display:flex; flex-direction:column; gap:10px;}
+.proforma-ranking .pr-fila{display:grid; grid-template-columns:170px 1fr auto; align-items:center; gap:10px; font-size:12.5px; cursor:pointer; border-radius:6px; padding:3px 4px; margin:-3px -4px;}
+.proforma-ranking .pr-fila:hover{background:var(--bg);}
+.proforma-ranking .pr-nombre{color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.proforma-ranking .pr-pista{background:var(--bg); border-radius:5px; height:14px; overflow:hidden;}
+.proforma-ranking .pr-barra{height:100%; border-radius:5px; background:var(--accent); min-width:2px;}
+.proforma-ranking .pr-monto{font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--navy);}
+
 /* Gráficas de Resultados: leyenda en HTML (texto nítido, seleccionable) y el
    dibujo mismo en SVG inline — sin librerías, para no meter una dependencia
    externa a una app de un solo archivo. */
@@ -12043,6 +12069,145 @@ function filaTotalProforma(label, totalesPorMes, clase){
     + totalesPorMes.map(m => '<td class="num">' + dinero(m) + '</td>').join('')
     + '<td class="num">' + dinero(totalesPorMes.reduce((a,b)=>a+b,0)) + '</td></tr>';
 }
+
+/* ---- Gráficas del Framework de Proforma (25-sep-2026, pedido de Victor:
+   "los datos del lado derecho... del lado izquierdo los gráficos") ----
+   Reutiliza el mecanismo de tooltip que ya traía la app (grafica-hit/
+   graficaTT/contenidoGraficaTT), huérfano desde que se borró por completo
+   el primer intento de Resultados el 24-sep-2026 — el rect invisible +
+   atributos data-* + el switch de contenidoGraficaTT() son genéricos, así
+   que se vuelven a cablear aquí con los datos nuevos en vez de dejarlos
+   muertos. Paleta validada con el validador de la guía de dataviz
+   (node scripts/validate_palette.js): el verde de marca ya pasaba, el navy
+   de marca es DEMASIADO oscuro para una barra categórica (L fuera de
+   banda) así que se usa un azul-navy más claro de la misma familia
+   (#2F5FB8) solo para estas gráficas — el navy real de marca (#002369)
+   se deja para la línea de Utilidad, que no necesita pasar el mismo
+   checador (es una línea, no un relleno categórico). */
+const COLOR_PROFORMA_INGRESO = '#54C682';
+const COLOR_PROFORMA_COSTO = '#2F5FB8';
+const COLOR_PROFORMA_UTILIDAD = '#002369';
+
+function leyendaProforma(){
+  return '<div class="grafica-leyenda">'
+    + '<span><i style="background:' + COLOR_PROFORMA_INGRESO + '"></i>Ingresos</span>'
+    + '<span><i style="background:' + COLOR_PROFORMA_COSTO + '"></i>Costos directos</span>'
+    + '<span><i class="linea" style="background:' + COLOR_PROFORMA_UTILIDAD + '"></i>Utilidad bruta</span>'
+    + '</div>';
+}
+/* Barra con solo las esquinas de ARRIBA redondeadas, anclada a la base —
+   Ingresos y Costos nunca son negativos, así que nunca hace falta al revés. */
+function barraTopeRedondeado(x, yTope, ancho, yBase, color){
+  const alto = yBase - yTope;
+  if(alto <= 0.5) return '';
+  const r = Math.min(3, ancho / 2, alto);
+  return '<path d="M' + x + ',' + yBase
+    + ' L' + x + ',' + (yTope + r)
+    + ' Q' + x + ',' + yTope + ' ' + (x + r) + ',' + yTope
+    + ' L' + (x + ancho - r) + ',' + yTope
+    + ' Q' + (x + ancho) + ',' + yTope + ' ' + (x + ancho) + ',' + (yTope + r)
+    + ' L' + (x + ancho) + ',' + yBase + ' Z" fill="' + color + '"></path>';
+}
+/* Barras de Ingresos/Costos + línea de Utilidad, mes a mes — un solo eje
+   (todo en pesos), así que la Utilidad va superpuesta como línea, nunca
+   como segundo eje. Sirve igual para un pilar que para el resumen general
+   (recibe los 3 arreglos ya sumados en cualquiera de los dos casos). */
+function graficoProforma(ingresosPorMes, costosPorMes, utilidadPorMes, anio){
+  const hayDatos = ingresosPorMes.some(Boolean) || costosPorMes.some(Boolean) || utilidadPorMes.some(Boolean);
+  if(!hayDatos){
+    return leyendaProforma() + '<p class="svg-vacio">Todavía sin renglones conectados aquí.</p>';
+  }
+  const W = 400, H = 250, padI = 6, padD = 6, padArriba = 10, padAbajo = 20;
+  const anchoUtil = W - padI - padD;
+  const altoUtil = H - padArriba - padAbajo;
+  const valores = ingresosPorMes.concat(costosPorMes, utilidadPorMes);
+  const yMax = Math.max(1, ...valores);
+  const yMin = Math.min(0, ...valores);
+  const rango = (yMax - yMin) || 1;
+  const escalaY = v => padArriba + altoUtil - ((v - yMin) / rango) * altoUtil;
+  const yCero = escalaY(0);
+  const anchoGrupo = anchoUtil / 12;
+  const anchoBarra = Math.min(11, anchoGrupo * 0.3);
+
+  let barras = '', hits = '', etiquetas = '';
+  const puntosUtil = [];
+  for(let i = 0; i < 12; i++){
+    const cx = padI + anchoGrupo * i + anchoGrupo / 2;
+    const ing = ingresosPorMes[i], cos = costosPorMes[i], util = utilidadPorMes[i];
+    barras += barraTopeRedondeado(cx - anchoBarra - 1, escalaY(ing), anchoBarra, yCero, COLOR_PROFORMA_INGRESO);
+    barras += barraTopeRedondeado(cx + 1, escalaY(cos), anchoBarra, yCero, COLOR_PROFORMA_COSTO);
+    puntosUtil.push([cx, escalaY(util)]);
+    const margen = ing ? Math.round(util / ing * 1000) / 10 : 0;
+    hits += '<rect class="grafica-hit grafica-hit-transparente" data-tt-tipo="proforma-mes" data-mes="' + (i + 1) + '" data-anio="' + anio + '"'
+      + ' data-ingreso="' + ing + '" data-costo="' + cos + '" data-utilidad="' + util + '" data-margen="' + margen + '"'
+      + ' data-cruce-x="' + cx + '" x="' + (padI + anchoGrupo * i) + '" y="0" width="' + anchoGrupo + '" height="' + H + '"></rect>';
+    if(i % 2 === 0) etiquetas += '<text x="' + cx + '" y="' + (H - 6) + '" text-anchor="middle" font-size="8.5" fill="var(--gray)">' + MESES_PROFORMA[i] + '</text>';
+  }
+  const lineaUtil = puntosUtil.map((p,i) => (i === 0 ? 'M' : 'L') + p[0] + ',' + p[1]).join(' ');
+  const marcasUtil = puntosUtil.map(p => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="2.5" fill="#fff" stroke="' + COLOR_PROFORMA_UTILIDAD + '" stroke-width="1.6"></circle>').join('');
+
+  return leyendaProforma()
+    + '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Ingresos, costos y utilidad, mes a mes">'
+    +   '<line x1="' + padI + '" y1="' + yCero + '" x2="' + (W - padD) + '" y2="' + yCero + '" stroke="var(--line)" stroke-width="1"></line>'
+    +   '<line class="eje-cruce" x1="0" x2="0" y1="' + padArriba + '" y2="' + (H - padAbajo) + '"></line>'
+    +   barras
+    +   '<path d="' + lineaUtil + '" fill="none" stroke="' + COLOR_PROFORMA_UTILIDAD + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>'
+    +   marcasUtil
+    +   etiquetas
+    +   hits
+    + '</svg>';
+}
+/* Resumen general: suma los 4 pilares mes a mes, más cuánto aporta cada
+   uno al ingreso total del año (para el ranking de al lado). */
+function resumenGeneralProforma(anio){
+  const ingresosPorMes = Array(12).fill(0);
+  const costosPorMes = Array(12).fill(0);
+  const porPilar = PILARES_PROFORMA.map(pilar => {
+    const ingresos = totalesPorMesDe(pilar.ingresos, anio);
+    const costos = totalesPorMesDe(pilar.costos, anio);
+    ingresos.forEach((v,i) => { ingresosPorMes[i] += v; });
+    costos.forEach((v,i) => { costosPorMes[i] += v; });
+    return { nombre: pilar.nombre, totalIngresos: ingresos.reduce((a,b)=>a+b,0) };
+  });
+  const utilidadPorMes = ingresosPorMes.map((ing,i) => ing - costosPorMes[i]);
+  const totalIngresos = ingresosPorMes.reduce((a,b)=>a+b,0);
+  const totalCostos = costosPorMes.reduce((a,b)=>a+b,0);
+  const totalUtilidad = totalIngresos - totalCostos;
+  const margenTotal = totalIngresos ? Math.round(totalUtilidad / totalIngresos * 100) : 0;
+  return { ingresosPorMes, costosPorMes, utilidadPorMes, totalIngresos, totalCostos, totalUtilidad, margenTotal, porPilar };
+}
+/* Ranking de "Ingresos por pilar": barras horizontales con su propio
+   nombre — no comparan identidad por color (sería un 5to hue sin necesidad),
+   comparan magnitud por longitud, así que van en un solo tono con etiqueta
+   directa (ver color-formula.md § "nominal categorical"). */
+function rankingIngresosPorPilar(porPilar, totalIngresos, anio){
+  if(!totalIngresos) return '<p class="svg-vacio">Todavía sin ingresos conectados en ningún pilar.</p>';
+  const maxIngreso = Math.max(...porPilar.map(p => p.totalIngresos), 1);
+  return '<div class="proforma-ranking">' + porPilar.map(p=>{
+    const pct = Math.round(p.totalIngresos / totalIngresos * 1000) / 10;
+    const anchoPct = Math.round(p.totalIngresos / maxIngreso * 100);
+    return '<div class="pr-fila grafica-hit" data-tt-tipo="proforma-pilar" data-etiqueta="' + esc(p.nombre) + '" data-valor="' + p.totalIngresos + '" data-pct="' + pct + '" data-anio="' + anio + '">'
+      +   '<span class="pr-nombre">' + esc(p.nombre) + '</span>'
+      +   '<span class="pr-pista"><span class="pr-barra" style="width:' + anchoPct + '%"></span></span>'
+      +   '<span class="pr-monto">' + dinero(p.totalIngresos) + '</span>'
+      + '</div>';
+  }).join('') + '</div>';
+}
+function bloqueResumenGeneralProforma(anio){
+  const r = resumenGeneralProforma(anio);
+  return '<div class="bloque"><h3 style="margin:0 0 4px">Resumen general Forguard</h3>'
+    + '<p class="pista" style="margin:0 0 14px">La suma de los 4 pilares — el número general de la empresa, ' + anio + '.</p>'
+    + '<div class="kpis">'
+    +   tarjetaKpi('Ingresos totales', dinero(r.totalIngresos))
+    +   tarjetaKpi('Costos directos totales', dinero(r.totalCostos))
+    +   tarjetaKpi('Utilidad bruta', dinero(r.totalUtilidad), '', r.totalUtilidad < 0 ? 'k-error' : '')
+    +   tarjetaKpi('Margen bruto', r.margenTotal + '%', '', r.margenTotal < 0 ? 'k-error' : '')
+    + '</div>'
+    + '<div class="proforma-grid">'
+    +   '<div class="proforma-grafico"><h4>Ingresos, costos y utilidad — todos los pilares</h4>' + graficoProforma(r.ingresosPorMes, r.costosPorMes, r.utilidadPorMes, anio) + '</div>'
+    +   '<div class="proforma-grafico"><h4>Ingresos por pilar</h4>' + rankingIngresosPorPilar(r.porPilar, r.totalIngresos, anio) + '</div>'
+    + '</div></div>';
+}
 function bloquePilarProforma(pilar, anio){
   const totalIngresosPorMes = totalesPorMesDe(pilar.ingresos, anio);
   const totalCostosPorMes = totalesPorMesDe(pilar.costos, anio);
@@ -12052,8 +12217,7 @@ function bloquePilarProforma(pilar, anio){
   const utilidadTotal = utilidadPorMes.reduce((a,b)=>a+b,0);
   const margenTotal = totalIngresos ? Math.round(utilidadTotal / totalIngresos * 100) : 0;
 
-  return '<div class="bloque"><h3 style="margin:0 0 12px">' + esc(pilar.nombre) + '</h3>'
-    + '<div class="rodillo"><table class="tabla tabla-proforma"><thead><tr>'
+  const tabla = '<div class="rodillo"><table class="tabla tabla-proforma"><thead><tr>'
     +   '<th>Concepto</th>' + MESES_PROFORMA.map(m => '<th class="num">' + m + '</th>').join('') + '<th class="num">Total ' + anio + '</th>'
     + '</tr></thead><tbody>'
     +   '<tr class="fila-seccion"><td colspan="14">Ingresos</td></tr>'
@@ -12064,7 +12228,13 @@ function bloquePilarProforma(pilar, anio){
     +   filaTotalProforma('Total costos directos', totalCostosPorMes)
     +   filaTotalProforma('Utilidad bruta ' + pilar.nombre, utilidadPorMes, 'fila-utilidad')
     +   '<tr class="fila-utilidad"><td>Margen bruto</td>' + margenPorMes.map(m => '<td class="num">' + m + '%</td>').join('') + '<td class="num">' + margenTotal + '%</td></tr>'
-    + '</tbody></table></div></div>';
+    + '</tbody></table></div>';
+
+  return '<div class="bloque bloque-pilar"><h3 style="margin:0 0 12px">' + esc(pilar.nombre) + '</h3>'
+    + '<div class="proforma-grid">'
+    +   '<div class="proforma-grafico">' + graficoProforma(totalIngresosPorMes, totalCostosPorMes, utilidadPorMes, anio) + '</div>'
+    +   tabla
+    + '</div></div>';
 }
 function vistaResultados(){
   const anio = hoyISO().slice(0,4);
@@ -12077,6 +12247,7 @@ function vistaResultados(){
      +   '<p class="pista" style="margin:0">Este es el <b>armazón</b> del estado de resultados, calcado del Excel "Framework Proforma Forguard V2": los 4 pilares con sus renglones de ingreso y costo directo, mes a mes. Se va conectando renglón por renglón, en vivo, según se decide con Victor — un renglón sin fuente decidida todavía se queda en $0, nunca inventa un número.</p>'
      + '</div>';
 
+  h += bloqueResumenGeneralProforma(anio);
   h += PILARES_PROFORMA.map(pilar => bloquePilarProforma(pilar, anio)).join('');
 
   return h;
@@ -12324,8 +12495,13 @@ const TEMAS_AYUDA = [
           '<b>Trabajos correctivos / preventivo</b> (Servicios Técnicos): cotizaciones con estatus <b>Realizado</b> (sin importar cargo a cliente o comedor) — cuenta en el mes de la fecha de servicio realizado, por su monto al cliente sin IVA.',
           '<b>Otros costos directos</b> (Servicios Técnicos, costo): el costo de esas mismas cotizaciones "Realizado", sin IVA.'
         ])
-      + guiaTip('Por qué no incluye "Resumen Forguard" ni "Gastos de Estructura" todavía', [
-          'El Excel de referencia trae, debajo de los 4 pilares, un acumulado de los 4 ("Resumen Forguard") y un bloque aparte de gastos que no se reparten entre pilares ("Gastos de Estructura Forguard"). Se dejaron fuera a propósito por ahora: Victor pidió específicamente "el total deben ser 4 secciones" — se agregan después si hace falta.'
+      + guiaTip('Cómo leer cada bloque (25-sep-2026)', [
+          'Cada pilar —y el Resumen general de arriba— trae el <b>gráfico a la izquierda</b> y la <b>tabla a la derecha</b>: barras de Ingresos/Costos directos con la línea de Utilidad bruta encima, mes a mes. Pasa el mouse sobre cualquier mes para ver el detalle exacto.',
+          'Un pilar sin ningún renglón conectado todavía muestra "Todavía sin renglones conectados aquí" en vez de una gráfica vacía o inventada.',
+          '<b>Resumen general Forguard</b> es la suma en vivo de los 4 pilares — Ingresos/Costos/Utilidad/Margen de TODA la empresa— más un ranking de qué tanto aporta cada pilar al ingreso del año. No es un renglón nuevo capturado a mano: se recalcula solo de lo que ya está conectado abajo.'
+        ])
+      + guiaTip('Por qué no incluye "Gastos de Estructura Forguard" todavía', [
+          'El Excel de referencia trae, debajo de los 4 pilares, un bloque aparte de gastos que no se reparten entre pilares ("Gastos de Estructura Forguard" — nómina administrativa, renta de oficina, etc.). Se dejó fuera a propósito por ahora: Victor pidió específicamente "el total deben ser 4 secciones" para los pilares de negocio — este bloque de gastos generales de la empresa se agrega después si hace falta, sin tocar los 4 pilares.'
         ]) },
 
   { id:'clientes', titulo:'Clientes',
@@ -20933,6 +21109,11 @@ function render(){
   }
   pintarEstadoNube();
   pintarCabecera();
+  /* Resultados necesita más ancho que el resto de la app (gráfico + tabla
+     de 14 columnas lado a lado) — se ensancha SOLO .wrap para este módulo,
+     ver .wrap.wrap-ancho en el CSS, en vez de tocar el ancho global de las
+     demás pantallas. */
+  document.querySelector('.wrap').classList.toggle('wrap-ancho', estado.modulo === 'resultados');
   /* Se despacha primero por módulo y luego por vista. El panel de admin va antes
      que los dos: es de la app entera, no de un producto, y se llega a él desde
      cualquiera de los dos módulos. */
@@ -28086,33 +28267,31 @@ $('vista').addEventListener('click', ev=>{
   if(irQR){ irADetalleCotizacion(irQR.dataset.irCotizacionResumen); return; }
 });
 
-/* ---------------- Tooltip interactivo de las gráficas de Resultados ----------------
-   Un solo mecanismo para las tres gráficas: cada una deja "blancos de mouse"
-   invisibles (rect.grafica-hit) con el detalle en atributos data-*; aquí
-   nada más se lee, se arma el contenido y se posiciona el tooltip cerca del
-   cursor sin que se salga de la pantalla. */
+/* ---------------- Tooltip interactivo de las gráficas ----------------
+   Un solo mecanismo para todas las gráficas de la app: cada una deja
+   "blancos de mouse" invisibles (rect.grafica-hit) con el detalle en
+   atributos data-*; aquí nada más se lee, se arma el contenido y se
+   posiciona el tooltip cerca del cursor sin que se salga de la pantalla.
+   Nació con el primer intento de Resultados (tipos 'mes'/'margen'/
+   'segmento', atados a FUENTES_INGRESO) y quedó huérfano cuando ese módulo
+   se borró por completo el 24-sep-2026 —el mecanismo en sí (rect invisible +
+   data-* + este switch) es genérico, así que se reutiliza aquí con el tipo
+   nuevo del Framework de Proforma en vez de dejarlo muerto. */
 function contenidoGraficaTT(el){
   const tipo = el.dataset.ttTipo;
-  const mesTxt = () => MES_CORTO[Number(el.dataset.mes)-1] + ' ' + el.dataset.anio;
-  if(tipo === 'mes'){
-    let h = '<div class="tt-titulo">' + esc(mesTxt()) + '</div>';
-    FUENTES_INGRESO.forEach(f=>{
-      const v = Number(el.dataset[f.clave] || 0);
-      if(!v) return;
-      h += '<div class="tt-fila"><span><i style="background:' + f.color + '"></i>' + esc(f.etiqueta) + '</span><span class="tt-monto">' + dinero(v) + '</span></div>';
-    });
-    const utilidad = Number(el.dataset.utilidad);
-    h += '<div class="tt-fila tt-total"><span>Utilidad bruta</span><span class="tt-monto' + (utilidad < 0 ? ' tt-negativo' : '') + '">' + dinero(utilidad) + '</span></div>'
-       + '<div class="tt-fila"><span>Margen</span><span class="tt-monto">' + Number(el.dataset.margen).toFixed(1) + '%</span></div>';
-    return h;
+  if(tipo === 'proforma-mes'){
+    const mesTxt = MESES_PROFORMA[Number(el.dataset.mes)-1] + ' ' + el.dataset.anio;
+    const ingreso = Number(el.dataset.ingreso), costo = Number(el.dataset.costo), utilidad = Number(el.dataset.utilidad);
+    return '<div class="tt-titulo">' + esc(mesTxt) + '</div>'
+      + '<div class="tt-fila"><span><i style="background:' + COLOR_PROFORMA_INGRESO + '"></i>Ingresos</span><span class="tt-monto">' + dinero(ingreso) + '</span></div>'
+      + '<div class="tt-fila"><span><i style="background:' + COLOR_PROFORMA_COSTO + '"></i>Costos directos</span><span class="tt-monto">' + dinero(costo) + '</span></div>'
+      + '<div class="tt-fila tt-total"><span><i class="linea" style="background:' + COLOR_PROFORMA_UTILIDAD + '"></i>Utilidad bruta</span><span class="tt-monto' + (utilidad < 0 ? ' tt-negativo' : '') + '">' + dinero(utilidad) + '</span></div>'
+      + '<div class="tt-fila"><span>Margen</span><span class="tt-monto">' + Number(el.dataset.margen).toFixed(1) + '%</span></div>';
   }
-  if(tipo === 'margen'){
-    return '<div class="tt-titulo">' + esc(mesTxt()) + '</div>'
-         + '<div class="tt-fila"><span>Margen bruto</span><span class="tt-monto">' + Number(el.dataset.margen).toFixed(1) + '%</span></div>';
-  }
-  if(tipo === 'segmento'){
+  if(tipo === 'proforma-pilar'){
     return '<div class="tt-titulo">' + esc(el.dataset.etiqueta) + '</div>'
-         + '<div class="tt-fila"><span>' + dinero(Number(el.dataset.valor)) + '</span><span class="tt-monto">' + Number(el.dataset.pct).toFixed(1) + '%</span></div>';
+         + '<div class="tt-fila"><span>Ingresos ' + esc(el.dataset.anio) + '</span><span class="tt-monto">' + dinero(Number(el.dataset.valor)) + '</span></div>'
+         + '<div class="tt-fila"><span>% del total</span><span class="tt-monto">' + Number(el.dataset.pct).toFixed(1) + '%</span></div>';
   }
   return '';
 }
