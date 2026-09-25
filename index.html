@@ -415,6 +415,11 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .proforma-grafico{background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:var(--sombra-suave);}
 .proforma-grafico h4{font-size:12px; font-weight:700; color:var(--navy); margin-bottom:2px;}
 .proforma-grafico svg{overflow:visible;}
+/* Un segundo widget apilado dentro del mismo .proforma-grafico (Cumplimiento
+   de pólizas, debajo del gráfico de Ingresos/Costos de Servicios Técnicos) —
+   una raya separa los dos en vez de que se vean pegados. */
+.proforma-divisor{margin-top:16px; padding-top:16px; border-top:1px solid var(--line);}
+.proforma-divisor h4{font-size:12px; font-weight:700; color:var(--navy); margin-bottom:2px;}
 /* Ranking de "Ingresos por pilar" del resumen general: barras horizontales
    con su propia etiqueta (nombre del pilar) — no necesitan leyenda de color
    porque no comparan identidad por tono, comparan magnitud por longitud. */
@@ -12257,7 +12262,7 @@ function leyendaCumplimientoPolizas(){
    lo mismo. */
 function graficoDispersionCumplimientoPolizas(items){
   if(!items.length) return '<p class="svg-vacio">Todavía no hay pólizas activas para mostrar.</p>';
-  const W = 460, H = 250, padI = 10, padD = 14, padArriba = 12, padAbajo = 26;
+  const W = 400, H = 210, padI = 10, padD = 14, padArriba = 12, padAbajo = 26;
   const anchoUtil = W - padI - padD, altoUtil = H - padArriba - padAbajo;
   const yMax = Math.max(1, ...items.map(it => it.precioAnual));
   const escalaX = pct => padI + (pct / 100) * anchoUtil;
@@ -12287,6 +12292,12 @@ function graficoDispersionCumplimientoPolizas(items){
     +   puntos + etiquetasX + hits
     + '</svg>';
 }
+/* Debajo del gráfico de Ingresos/Costos/Utilidad de Servicios Técnicos, no
+   como sección aparte — pedido de Victor (25-sep-2026): "lo que buscaba es
+   que este apartado se incluyera debajo de la gráfica de la sección de
+   servicios técnicos". Pólizas es un asunto de ESE pilar (ahí vive su
+   ingreso y su costo), así que su cumplimiento vive ahí también, apilado
+   en la misma columna angosta en vez de una fila ancha propia. */
 function bloqueCumplimientoPolizas(){
   const items = polizasActivasParaCumplimiento();
   const hechosTotal = items.reduce((t,it)=> t + it.hechosDebidos, 0);
@@ -12297,12 +12308,11 @@ function bloqueCumplimientoPolizas(){
   const piePositivo = atrasadasCount
     ? (atrasadasCount + ' ' + plural(atrasadasCount,'póliza','pólizas') + ' con servicio atrasado')
     : 'Todas las pólizas al corriente';
-  return '<div class="bloque"><h3 style="margin:0 0 4px">Cumplimiento de pólizas</h3>'
-    + '<p class="pista" style="margin:0 0 14px">De lo que ya le tocaba a cada póliza <b>activa</b>, cuánto se hizo de verdad — mismo % que el calendario de cada póliza, aquí todas juntas.</p>'
-    + '<div class="proforma-grid">'
+  return '<div class="proforma-divisor"><h4>Cumplimiento de pólizas</h4>'
+    + '<p class="pista" style="margin:0 0 10px">De lo que ya le tocaba a cada póliza <b>activa</b>, cuánto se hizo de verdad.</p>'
     +   tarjetaCumplimiento('Cumplimiento general', pctTotal, hechosTotal, debidosTotal, piePositivo, 'Sin servicios programados todavía')
-    +   '<div class="proforma-grafico"><h4>Cada póliza activa: cumplimiento vs. ingreso anual</h4>' + leyendaCumplimientoPolizas() + graficoDispersionCumplimientoPolizas(items) + '</div>'
-    + '</div></div>';
+    +   '<div style="margin-top:12px">' + leyendaCumplimientoPolizas() + graficoDispersionCumplimientoPolizas(items) + '</div>'
+    + '</div>';
 }
 /* Un solo control para las 4 tablas (estado.resultadosMeses es global, no
    por pilar) — pedido de Victor: "no quiere decir que los omitas sino que
@@ -12347,7 +12357,8 @@ function bloquePilarProforma(pilar, anio){
 
   return '<div class="bloque bloque-pilar"><h3 style="margin:0 0 12px">' + esc(pilar.nombre) + '</h3>'
     + '<div class="proforma-grid">'
-    +   '<div class="proforma-grafico">' + graficoProforma(totalIngresosPorMes, totalCostosPorMes, utilidadPorMes, anio) + '</div>'
+    +   '<div class="proforma-grafico">' + graficoProforma(totalIngresosPorMes, totalCostosPorMes, utilidadPorMes, anio)
+    +     (pilar.id === 'tecnicos' ? bloqueCumplimientoPolizas() : '') + '</div>'
     +   tabla
     + '</div></div>';
 }
@@ -12363,7 +12374,6 @@ function vistaResultados(){
      + '</div>';
 
   h += bloqueResumenGeneralProforma(anio);
-  h += bloqueCumplimientoPolizas();
   h += controlMesesProforma();
   h += PILARES_PROFORMA.map(pilar => bloquePilarProforma(pilar, anio)).join('');
 
@@ -12616,7 +12626,7 @@ const TEMAS_AYUDA = [
           'Cada pilar —y el Resumen general de arriba— trae el <b>gráfico a la izquierda</b> y la <b>tabla a la derecha</b>: barras de Ingresos/Costos directos con la línea de Utilidad bruta encima, mes a mes. Pasa el mouse sobre cualquier mes para ver el detalle exacto.',
           'Un pilar sin ningún renglón conectado todavía muestra "Todavía sin renglones conectados aquí" en vez de una gráfica vacía o inventada.',
           '<b>Resumen general Forguard</b> es la suma en vivo de los 4 pilares — Ingresos/Costos/Utilidad/Margen de TODA la empresa— más un ranking de qué tanto aporta cada pilar al ingreso del año. No es un renglón nuevo capturado a mano: se recalcula solo de lo que ya está conectado abajo.',
-          '<b>Cumplimiento de pólizas</b>: el mismo % que ya ves en el calendario de cada póliza (de lo que ya le tocaba, cuánto se hizo a tiempo), aquí todas las pólizas Activas juntas en un solo gráfico de dispersión — cada punto es una póliza, su posición horizontal es su % de cumplimiento y la vertical su ingreso anual, y su color es el mismo semáforo de siempre (verde/naranja/rojo/gris). Pasa el mouse sobre un punto para ver de cuál póliza se trata.',
+          '<b>Cumplimiento de pólizas</b> (debajo del gráfico de Servicios Técnicos): el mismo % que ya ves en el calendario de cada póliza (de lo que ya le tocaba, cuánto se hizo a tiempo), aquí todas las pólizas Activas juntas en un solo gráfico de dispersión — cada punto es una póliza, su posición horizontal es su % de cumplimiento y la vertical su ingreso anual, y su color es el mismo semáforo de siempre (verde/naranja/rojo/gris). Pasa el mouse sobre un punto para ver de cuál póliza se trata.',
           'Las tablas mensuales arrancan <b>compactas</b> (el mes actual y los 3 anteriores) para no verse amontonadas — el Total del año siempre suma los 12 meses completos, se vean o no. "Ver los 12 meses" (arriba de los 4 pilares) los revela con un clic en las 4 tablas a la vez; nunca se pierde un mes, solo se oculta.'
         ])
       + guiaTip('Por qué no incluye "Gastos de Estructura Forguard" todavía', [

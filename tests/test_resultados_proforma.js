@@ -89,16 +89,12 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   const layout = await page.evaluate(() => {
     const grids = Array.from(document.querySelectorAll('#vista .proforma-grid'));
     return grids.map(g => ({
-      // Casi todos traen el gráfico (.proforma-grafico) primero; el de
-      // Cumplimiento de pólizas trae el anillo (.kpi, ver tarjetaCumplimiento)
-      // primero y el gráfico de dispersión después — ambos cuentan como "lo
-      // visual va primero", solo cambia CUÁL widget visual es.
-      primerHijoEsVisual: g.firstElementChild.classList.contains('proforma-grafico') || g.firstElementChild.classList.contains('kpi'),
+      primerHijoEsGrafico: g.firstElementChild.classList.contains('proforma-grafico'),
       traeGrafico: g.querySelector('.proforma-grafico svg, .proforma-grafico .svg-vacio') !== null
     }));
   });
-  chkF('Son 6 bloques con .proforma-grid (Resumen general + Cumplimiento de pólizas + 4 pilares)', layout.length === 6);
-  chkF('En TODOS, lo visual (gráfico o anillo) va primero y los datos después', layout.every(l => l.primerHijoEsVisual && l.traeGrafico));
+  chkF('Son 5 bloques con .proforma-grid (Resumen general + 4 pilares)', layout.length === 5);
+  chkF('En TODOS, el gráfico va primero (columna izquierda) y los datos después (columna derecha)', layout.every(l => l.primerHijoEsGrafico && l.traeGrafico));
 
   // --------- 3e) Tablas compactas por default (pedido de Victor: "que no se vea tan amontonada... solo el mes actual y los 3 anteriores") ---------
   const compacto = await page.evaluate(() => {
@@ -311,16 +307,30 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('El ingreso anual de cada punto es el mismo que ya usan "Pólizas de mantenimiento" ($12,000 y $5,280)',
     JSON.stringify(cumplimiento.ingresos) === JSON.stringify([5280, 12000]));
 
+  // Pedido de Victor (25-sep-2026, tras ver la primera versión como sección
+  // aparte): "que este apartado se incluyera debajo de la gráfica de la
+  // sección de servicios técnicos" — vive DENTRO del bloque-pilar de
+  // Servicios Técnicos, apilado bajo su gráfico de Ingresos/Costos, no en
+  // su propia fila ancha ni en los otros 3 pilares.
   const bloqueCumplimiento = await page.evaluate(() => {
-    const h3 = Array.from(document.querySelectorAll('#vista h3')).find(h => h.textContent === 'Cumplimiento de pólizas');
-    const bloque = h3 && h3.closest('.bloque');
+    const bloquesPilar = Array.from(document.querySelectorAll('#vista .bloque-pilar'));
+    const tecnicos = bloquesPilar.find(b => b.querySelector('h3').textContent === 'Servicios Técnicos');
+    const h4 = tecnicos && Array.from(tecnicos.querySelectorAll('h4')).find(h => h.textContent === 'Cumplimiento de pólizas');
+    const divisor = h4 && h4.closest('.proforma-divisor');
+    const graficoIngresos = tecnicos && tecnicos.querySelector('.proforma-grafico svg[aria-label*="Ingresos, costos y utilidad"]');
+    const otrosConCumplimiento = bloquesPilar.filter(b => b !== tecnicos && Array.from(b.querySelectorAll('h4')).some(h => h.textContent === 'Cumplimiento de pólizas')).length;
     return {
-      existe: !!bloque,
-      avisaAtrasadas: bloque ? bloque.querySelector('.kpi').textContent.includes('atrasado') : false,
-      cantidadHits: bloque ? bloque.querySelectorAll('circle.grafica-hit[data-tt-tipo="poliza-cumplimiento"]').length : 0
+      existe: !!divisor,
+      // firstElementChild.nextElementSibling... más simple: compara posición en el DOM (compareDocumentPosition)
+      vaDespuesDelGraficoDeIngresos: !!(graficoIngresos && divisor) && !!(graficoIngresos.compareDocumentPosition(divisor) & Node.DOCUMENT_POSITION_FOLLOWING),
+      avisaAtrasadas: divisor ? divisor.querySelector('.kpi').textContent.includes('atrasado') : false,
+      cantidadHits: divisor ? divisor.querySelectorAll('circle.grafica-hit[data-tt-tipo="poliza-cumplimiento"]').length : 0,
+      otrosConCumplimiento
     };
   });
-  chkF('Existe el bloque "Cumplimiento de pólizas"', bloqueCumplimiento.existe === true);
+  chkF('El bloque de Servicios Técnicos trae "Cumplimiento de pólizas" (no una sección aparte)', bloqueCumplimiento.existe === true);
+  chkF('Va DEBAJO del gráfico de Ingresos/Costos/Utilidad, dentro de la misma columna', bloqueCumplimiento.vaDespuesDelGraficoDeIngresos === true);
+  chkF('Ningún otro pilar trae "Cumplimiento de pólizas" (es exclusivo de Servicios Técnicos)', bloqueCumplimiento.otrosConCumplimiento === 0);
   chkF('Avisa que hay pólizas con servicio atrasado (ninguna de las 2 tiene su enero marcado como hecho)', bloqueCumplimiento.avisaAtrasadas === true);
   chkF('El gráfico de dispersión trae un punto interactivo por cada póliza activa (2)', bloqueCumplimiento.cantidadHits === 2);
 
