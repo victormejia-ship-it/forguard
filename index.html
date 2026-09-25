@@ -11880,10 +11880,14 @@ function rangoPeriodoResultados(modo, desde, hasta){
    total deben ser 4 secciones", y esas dos no son un pilar de negocio
    sino un acumulado de los 4 — se agregan después si hace falta.
 
-   Ya conectados (ver el comentario junto a montosPorMesPolizas más abajo
-   para el criterio exacto de cada uno):
+   Ya conectados (ver el comentario junto a montosPorMesPolizas/
+   montosPorMesCotizacionesRealizadas más abajo para el criterio exacto de
+   cada uno):
    - Servicios Técnicos → Pólizas de mantenimiento / …incluidas en precio
-     (ingreso) y Refacciones y materiales (costo). */
+     (ingreso) y Refacciones y materiales (costo).
+   - Servicios Técnicos → Trabajos correctivos / preventivo (ingreso, de
+     Cotizaciones con estatus 'realizado') y Otros costos directos (costo
+     de esas mismas cotizaciones). */
 const MESES_PROFORMA = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 /* Placeholder explícito, no implícito: un concepto sin fuente decidida
    todavía DEBE regresar ceros a la vista, nunca inventarle un número. */
@@ -11933,18 +11937,57 @@ function montosPorMesPolizas(cargoA, campo){
   };
 }
 
+/* ---- Cotizaciones → "Trabajos correctivos / preventivo" (ingreso) y "Otros costos directos" (costo) ----
+   Segundo renglón conectado (25-sep-2026), definido con Victor punto por
+   punto: "trabajos correctivos y preventivos son todas las cotizaciones
+   realizadas. Todo aquello marcado en el estatus ejecución y estatus de
+   servicio como 'realizado' se marcará como ingreso, y el costo será como
+   gasto" — es decir, SOLO estatus === 'realizado' cuenta. A propósito MÁS
+   angosto que ESTATUS_COTIZACION_INGRESO (que también incluye 'aprobada'
+   y 'realizado_comedor'): ese arreglo sirve para marcar una cotización
+   como "ganada" en otras pantallas del tablero, no es el criterio de
+   reconocimiento de ingreso de Resultados. Confirmado también con Victor:
+   sin filtrar por cargoA — una cotización de comedor "realizado" cuenta
+   aquí igual que una de mantenimiento (no hay todavía un renglón propio
+   para separarla).
+
+   Fecha: la del servicio realizado (fechaRealizado); si por algún hueco de
+   captura no la trae, se usa la fecha de la cotización (fecha) para no
+   perder el monto de vista. Montos: subtotalCliente/subtotalCosto de
+   calcularCotizacion() — SIN IVA, mismo criterio que Pólizas (el IVA es un
+   impuesto de paso, no ingreso ni costo real de Forguard).
+
+   El costo cae en "Otros costos directos" —confirmado con Victor vía
+   AskUserQuestion— y NO en "Refacciones y materiales", que se deja
+   exclusivo del costo de Pólizas. */
+function montosPorMesCotizacionesRealizadas(campo){
+  return (anio) => {
+    const totales = Array(12).fill(0);
+    datos.cotizaciones
+      .filter(q => q.estatus === 'realizado')
+      .forEach(q => {
+        const fecha = q.fechaRealizado || q.fecha;
+        if(!fecha || fecha.slice(0,4) !== String(anio)) return;
+        const mes = Number(fecha.slice(5,7)) - 1;
+        const c = calcularCotizacion(q);
+        totales[mes] += campo === 'ingreso' ? c.subtotalCliente : c.subtotalCosto;
+      });
+    return totales;
+  };
+}
+
 const PILARES_PROFORMA = [
   { id:'tecnicos', nombre:'Servicios Técnicos',
     ingresos: [
       { id:'polizas-cliente', label:'Pólizas de mantenimiento', montosPorMes: montosPorMesPolizas('cliente', 'ingreso') },
       { id:'polizas-interno', label:'Pólizas de mantenimiento incluidas en precio', montosPorMes: montosPorMesPolizas('interno', 'ingreso') },
-      { id:'correctivo-preventivo', label:'Trabajos correctivos / preventivo', montosPorMes: sinDatosTodavia() }
+      { id:'correctivo-preventivo', label:'Trabajos correctivos / preventivo', montosPorMes: montosPorMesCotizacionesRealizadas('ingreso') }
     ],
     costos: [
       { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: sinDatosTodavia() },
       { id:'refacciones-materiales', label:'Refacciones y materiales', montosPorMes: montosPorMesPolizas(null, 'costo') },
       { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: sinDatosTodavia() },
-      { id:'otros-costos', label:'Otros costos directos', montosPorMes: sinDatosTodavia() }
+      { id:'otros-costos', label:'Otros costos directos', montosPorMes: montosPorMesCotizacionesRealizadas('costo') }
     ] },
   { id:'operativos', nombre:'Servicios Operativos',
     ingresos: [
@@ -12277,7 +12320,9 @@ const TEMAS_AYUDA = [
       + guiaTip('Ya conectados', [
           '<b>Pólizas de mantenimiento</b> (Servicios Técnicos): pólizas con Cargo a Cliente, Activas — el ingreso cuenta en el mes que le toca por su calendario de facturación (mensual o anual), sin esperar a que se marque como cobrada.',
           '<b>Pólizas de mantenimiento incluidas en precio</b> (Servicios Técnicos): pólizas con Cargo a Interno, Activas —las que se absorben, facturadas aparte (p.ej. a Plato Express)— mismo criterio de calendario.',
-          '<b>Refacciones y materiales</b> (Servicios Técnicos, costo): el costo anual de CUALQUIER póliza activa (cliente o interno) repartido parejo entre sus 12 meses, sin esperar a que el técnico marque el servicio como hecho.'
+          '<b>Refacciones y materiales</b> (Servicios Técnicos, costo): el costo anual de CUALQUIER póliza activa (cliente o interno) repartido parejo entre sus 12 meses, sin esperar a que el técnico marque el servicio como hecho.',
+          '<b>Trabajos correctivos / preventivo</b> (Servicios Técnicos): cotizaciones con estatus <b>Realizado</b> (sin importar cargo a cliente o comedor) — cuenta en el mes de la fecha de servicio realizado, por su monto al cliente sin IVA.',
+          '<b>Otros costos directos</b> (Servicios Técnicos, costo): el costo de esas mismas cotizaciones "Realizado", sin IVA.'
         ])
       + guiaTip('Por qué no incluye "Resumen Forguard" ni "Gastos de Estructura" todavía', [
           'El Excel de referencia trae, debajo de los 4 pilares, un acumulado de los 4 ("Resumen Forguard") y un bloque aparte de gastos que no se reparten entre pilares ("Gastos de Estructura Forguard"). Se dejaron fuera a propósito por ahora: Victor pidió específicamente "el total deben ser 4 secciones" — se agregan después si hace falta.'

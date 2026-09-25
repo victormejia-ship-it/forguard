@@ -8,10 +8,12 @@
    4 secciones", pidió Victor) se van conectando renglón por renglón,
    confirmando con él el criterio exacto antes de tocar código —esta
    prueba cubre el armazón en general (que sigue sin inventar números en
-   los renglones aún no conectados) y el primer renglón ya wireado:
+   los renglones aún no conectados) y los dos renglones ya wireados:
    Pólizas de mantenimiento / …incluidas en precio / Refacciones y
-   materiales (ver montosPorMesPolizas() en index.html para el criterio
-   exacto, confirmado con Victor vía AskUserQuestion). */
+   materiales (ver montosPorMesPolizas() en index.html) y Trabajos
+   correctivos / preventivo / Otros costos directos (ver
+   montosPorMesCotizacionesRealizadas()) — ambos con el criterio exacto
+   confirmado con Victor vía AskUserQuestion. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -132,6 +134,59 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('El ingreso ya wireado se refleja en la tabla ($1,000)', vistaConDatos.includes('$1,000'));
   chkF('El ingreso "incluidas en precio" ya wireado se refleja en la tabla ($440)', vistaConDatos.includes('$440'));
   chkF('El costo de Refacciones y materiales ya wireado se refleja en la tabla ($900)', vistaConDatos.includes('$900'));
+
+  // --------- 8) Trabajos correctivos / preventivo + Otros costos directos (segundo renglón conectado, Cotizaciones) ---------
+  await page.evaluate((anio) => {
+    datos.cotizaciones = [
+      // 'realizado', cargo cliente: SÍ cuenta. Costo 1000 × margen 15% = 1150 de ingreso.
+      normalizarCotizacion({ id:'q1', clienteId:'c1', sitioId:'s1', folio:'COT-1', cargoA:'cliente',
+        estatus:'realizado', fecha: anio+'-02-01', fechaRealizado: anio+'-02-10',
+        partidas: [{ concepto:'Reparación de compresor', cantidad:1, precioCosto:1000 }] }),
+      // 'realizado', cargo comedor: confirmado con Victor que TAMBIÉN cuenta (sin filtrar por cargoA).
+      normalizarCotizacion({ id:'q2', clienteId:'c1', sitioId:'s1', folio:'COT-2', cargoA:'comedor',
+        estatus:'realizado', fecha: anio+'-03-01', fechaRealizado: anio+'-03-05',
+        partidas: [{ concepto:'Ajuste de equipo de comedor', cantidad:2, precioCosto:300 }] }),
+      // 'realizado' sin fechaRealizado capturada: usa `fecha` como respaldo, no se pierde.
+      normalizarCotizacion({ id:'q4', clienteId:'c1', sitioId:'s1', folio:'COT-4', cargoA:'cliente',
+        estatus:'realizado', fecha: anio+'-01-20', fechaRealizado:'',
+        partidas: [{ concepto:'Trabajo con fecha de respaldo', cantidad:1, precioCosto:200 }] }),
+      // 'aprobada' (NO 'realizado'): a propósito NO debe contar, aunque ESTATUS_COTIZACION_INGRESO sí la marque como "ganada".
+      normalizarCotizacion({ id:'q3', clienteId:'c1', sitioId:'s1', folio:'COT-3', cargoA:'cliente',
+        estatus:'aprobada', fecha: anio+'-02-01', fechaRealizado: anio+'-02-10',
+        partidas: [{ concepto:'Cotización solo aprobada', cantidad:1, precioCosto:99999999 }] }),
+      // 'realizado' pero de OTRO año: no debe colarse en el año actual.
+      normalizarCotizacion({ id:'q5', clienteId:'c1', sitioId:'s1', folio:'COT-5', cargoA:'cliente',
+        estatus:'realizado', fecha: (Number(anio)-1)+'-12-01', fechaRealizado: (Number(anio)-1)+'-12-01',
+        partidas: [{ concepto:'Cotización de otro año', cantidad:1, precioCosto:50000 }] })
+    ];
+    render();
+  }, anioActual);
+  await page.waitForTimeout(150);
+
+  const cotizTecnicos = await page.evaluate(() => {
+    const pilar = PILARES_PROFORMA.find(p => p.id === 'tecnicos');
+    const anio = hoyISO().slice(0,4);
+    return {
+      ingreso: pilar.ingresos.find(c => c.id === 'correctivo-preventivo').montosPorMes(anio),
+      costo: pilar.costos.find(c => c.id === 'otros-costos').montosPorMes(anio)
+    };
+  });
+  chkF('"Trabajos correctivos / preventivo": Ene $230 (fecha de respaldo), Feb $1,150 (cliente, la "aprobada" NO se cuela), Mar $690 (comedor, sí cuenta)',
+    Math.round(cotizTecnicos.ingreso[0]) === 230 && Math.round(cotizTecnicos.ingreso[1]) === 1150 && Math.round(cotizTecnicos.ingreso[2]) === 690);
+  chkF('El resto de los meses de "Trabajos correctivos / preventivo" siguen en $0 (la de otro año no se coló)',
+    cotizTecnicos.ingreso.filter((_,i) => ![0,1,2].includes(i)).every(m => m === 0));
+  chkF('"Otros costos directos": Ene $200, Feb $1,000, Mar $600 (costo sin IVA de esas mismas cotizaciones)',
+    cotizTecnicos.costo[0] === 200 && cotizTecnicos.costo[1] === 1000 && cotizTecnicos.costo[2] === 600);
+  chkF('El resto de los meses de "Otros costos directos" siguen en $0', cotizTecnicos.costo.filter((_,i) => ![0,1,2].includes(i)).every(m => m === 0));
+
+  const filasCotizadas = await page.evaluate(() => {
+    const filaDe = (texto) => Array.from(document.querySelectorAll('#vista table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes(texto)).textContent;
+    return { ingreso: filaDe('Trabajos correctivos / preventivo'), costo: filaDe('Otros costos directos') };
+  });
+  chkF('El renglón "Trabajos correctivos / preventivo" ya trae sus montos en la tabla ($230/$1,150/$690)',
+    filasCotizadas.ingreso.includes('$230') && filasCotizadas.ingreso.includes('$1,150') && filasCotizadas.ingreso.includes('$690'));
+  chkF('El renglón "Otros costos directos" ya trae sus montos en la tabla ($200/$1,000/$600)',
+    filasCotizadas.costo.includes('$200') && filasCotizadas.costo.includes('$1,000') && filasCotizadas.costo.includes('$600'));
 
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 
