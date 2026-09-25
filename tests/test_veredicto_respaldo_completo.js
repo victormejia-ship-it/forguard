@@ -4,7 +4,9 @@
    18 claves de `datos` y nunca se actualizó al agregar módulos nuevos
    (Activos, Proveedores, Refacciones, Órdenes de Compra, Visitas,
    Imagen/Aperturas, Personal), a diferencia del listener de restaurar que
-   sí las traía todas. Este test llena las 18 colecciones con datos reales,
+   sí las traía todas. Este test llena las 19 colecciones con datos reales
+   (la 19na, nominaPersonal, agregada el 25-sep-2026 junto con "Nómina
+   directa del pilar" de Resultados),
    llama a descargarRespaldo() interceptando el Blob, y confirma que TODAS
    quedan en el JSON exportado, no solo las 9 originales. */
 const { chromium } = require('playwright');
@@ -40,6 +42,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     datos.proyectosImagen = [normalizarProyectoImagen({ id:'pi1', clienteId:'c1' })];
     datos.activos = [{ id:'act1' }];
     datos.personal = [{ id:'per1' }];
+    datos.nominaPersonal = [{ id:'per1', sueldoMensual:100 }];
     datos.proveedores = [{ id:'prov1' }];
     datos.gastosProveedor = [{ id:'gp1' }];
     datos.refacciones = [{ id:'ref1' }];
@@ -59,7 +62,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   const json = JSON.parse(await exportado);
 
   const colecciones = ['clientes','sitios','polizas','catalogo','segmentos','cotizaciones','reportes',
-    'levantamientos','proyectosImagen','activos','personal','proveedores','gastosProveedor',
+    'levantamientos','proyectosImagen','activos','personal','nominaPersonal','proveedores','gastosProveedor',
     'refacciones','ordenesCompra','visitas'];
   colecciones.forEach(clave => {
     chkF(`El respaldo SÍ incluye "${clave}" con datos`, Array.isArray(json[clave]) && json[clave].length > 0);

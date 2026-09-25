@@ -516,6 +516,18 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- Sueldo mensual por persona (25-sep-2026, para "Nómina directa del
+       pilar" en Resultados) --- A PROPÓSITO en su propia colección, aparte
+       de /personal: ese directorio lo lee cualquiera con acceso (útil para
+       el organigrama), pero Victor pidió explícito que el sueldo lo vea
+       SOLO Owner/Admin — meterlo en /personal lo habría expuesto igual de
+       ancho. El id del documento es el mismo id que la persona en
+       /personal (relación 1 a 1). Mismo candado que /bitacora. */
+    match /nominaPersonal/{id} {
+      allow read:  if esAdmin();
+      allow write: if esAdmin();
+    }
+
     /* --- Lista de precios de equipos ---
        Un solo documento, catalogo/lista, con el arreglo de equipos adentro. Va
        en un documento y no en uno por equipo para que sean 48 equipos por UNA

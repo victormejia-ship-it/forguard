@@ -342,6 +342,68 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.mouse.move(5, 5);
   await page.waitForTimeout(80);
 
+  // --------- 12) "Nómina directa del pilar": se deriva del Organigrama + sueldo, no se vuelve a capturar ---------
+  await page.evaluate(() => {
+    datos.personal = [
+      normalizarPersona({ id:'per1', nombre:'Ana', estatus:'activo', pilarId:'tecnicos' }),
+      normalizarPersona({ id:'per2', nombre:'Beto', estatus:'activo', pilarId:'tecnicos' }),
+      // De baja: NO debe contar aunque tenga sueldo capturado.
+      normalizarPersona({ id:'per3', nombre:'Caro', estatus:'baja', pilarId:'tecnicos' }),
+      normalizarPersona({ id:'per4', nombre:'Dani', estatus:'activo', pilarId:'operativos' }),
+      // Sin pilar asignado: no debe contar en NINGÚN pilar.
+      normalizarPersona({ id:'per5', nombre:'Eva', estatus:'activo', pilarId:'' }),
+      // Activo en Proyectos pero sin sueldo capturado todavía: cuenta como $0, no truena.
+      normalizarPersona({ id:'per6', nombre:'Fer', estatus:'activo', pilarId:'proyectos' })
+    ];
+    datos.nominaPersonal = [
+      normalizarNominaPersona({ id:'per1', sueldoMensual:20000 }),
+      normalizarNominaPersona({ id:'per2', sueldoMensual:15000 }),
+      normalizarNominaPersona({ id:'per3', sueldoMensual:99999 }),
+      normalizarNominaPersona({ id:'per4', sueldoMensual:12000 }),
+      normalizarNominaPersona({ id:'per5', sueldoMensual:50000 })
+    ];
+    render();
+  });
+  await page.waitForTimeout(100);
+
+  const nominaOwner = await page.evaluate(() => {
+    const anio = hoyISO().slice(0,4);
+    return {
+      tecnicos: PILARES_PROFORMA.find(p => p.id === 'tecnicos').costos.find(c => c.id === 'nomina-directa').montosPorMes(anio),
+      operativos: PILARES_PROFORMA.find(p => p.id === 'operativos').costos.find(c => c.id === 'nomina-directa').montosPorMes(anio),
+      proyectos: PILARES_PROFORMA.find(p => p.id === 'proyectos').costos.find(c => c.id === 'nomina-directa').montosPorMes(anio)
+    };
+  });
+  chkF('Servicios Técnicos: suma $20,000 + $15,000 (Ana + Beto) — Caro (de baja) no se cuela, parejo los 12 meses',
+    nominaOwner.tecnicos.every(m => m === 35000));
+  chkF('Servicios Operativos: solo Dani ($12,000) — Eva (sin pilar) no se cuela',
+    nominaOwner.operativos.every(m => m === 12000));
+  chkF('Proyectos: Fer está activo ahí pero sin sueldo capturado — $0, no truena', nominaOwner.proyectos.every(m => m === 0));
+
+  const filaNominaTecnicos = await page.evaluate(() => {
+    const tecnicos = Array.from(document.querySelectorAll('#vista .bloque-pilar')).find(b => b.querySelector('h3').textContent === 'Servicios Técnicos');
+    const fila = Array.from(tecnicos.querySelectorAll('table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes('Nómina directa del pilar'));
+    return fila.textContent;
+  });
+  chkF('"Nómina directa del pilar" de Servicios Técnicos ya se ve en su tabla ($35,000 en cada mes visible)', filaNominaTecnicos.includes('$35,000'));
+
+  // Dato sensible: confirmado con Victor que SOLO Owner/Admin lo ven — para
+  // cualquier otro rol el mismo renglón, con los MISMOS datos cargados,
+  // debe seguir en $0 (no un error, no un hueco: sigue viéndose "sin
+  // conectar", como cualquier renglón sin fuente decidida).
+  const nominaAnalyst = await page.evaluate(() => {
+    sesion.rol = 'analyst';
+    const anio = hoyISO().slice(0,4);
+    const valores = {
+      tecnicos: PILARES_PROFORMA.find(p => p.id === 'tecnicos').costos.find(c => c.id === 'nomina-directa').montosPorMes(anio),
+      operativos: PILARES_PROFORMA.find(p => p.id === 'operativos').costos.find(c => c.id === 'nomina-directa').montosPorMes(anio)
+    };
+    sesion.rol = 'owner';
+    return valores;
+  });
+  chkF('Analyst (no Owner/Admin): "Nómina directa del pilar" regresa a $0 aunque el dato exista (sueldo es sensible)',
+    nominaAnalyst.tecnicos.every(m => m === 0) && nominaAnalyst.operativos.every(m => m === 0));
+
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 
   console.log('Errores capturados:', JSON.stringify(errores));

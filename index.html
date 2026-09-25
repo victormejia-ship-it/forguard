@@ -2502,7 +2502,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
 
 function cargar(){
   try{
@@ -2532,6 +2532,12 @@ function cargar(){
         proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen),
         activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo),
         personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona),
+        /* Sueldo mensual por persona — solo baja de la nube para Owner/Admin
+           (ver la regla de Firestore y listarNubeSuave() en bajarDeLaNube()),
+           así que un respaldo local de otro rol nunca la trae; se abre con
+           la lista vacía igual que cualquier colección más nueva que el
+           respaldo. */
+        nominaPersonal: (Array.isArray(d.nominaPersonal) ? d.nominaPersonal : []).map(normalizarNominaPersona),
         proveedores: (Array.isArray(d.proveedores) ? d.proveedores : []).map(normalizarProveedor),
         gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor),
         refacciones: (Array.isArray(d.refacciones) ? d.refacciones : []).map(normalizarRefaccion),
@@ -2639,6 +2645,7 @@ async function restaurarSnapshotIndexedDB(){
       proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : []).map(normalizarProyectoImagen),
       activos: (Array.isArray(d.activos) ? d.activos : []).map(normalizarActivo),
       personal: (Array.isArray(d.personal) ? d.personal : []).map(normalizarPersona),
+      nominaPersonal: (Array.isArray(d.nominaPersonal) ? d.nominaPersonal : []).map(normalizarNominaPersona),
       proveedores: (Array.isArray(d.proveedores) ? d.proveedores : []).map(normalizarProveedor),
       gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : []).map(normalizarGastoProveedor),
       refacciones: (Array.isArray(d.refacciones) ? d.refacciones : []).map(normalizarRefaccion),
@@ -3727,7 +3734,7 @@ function limpiarSesionYDatos(){
      undefined hasta que bajarDeLaNube() alcanzara a repoblarlas, y un
      render() de por medio —con cola pendiente o sin internet— tronaba con
      cualquier vista que las tocara.) */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -4413,7 +4420,7 @@ async function bajarDeLaNube(soloColecciones){
   /* Si no se pidió una colección en este refresco, ni se intenta leerla —
      null de una vez, en vez de disparar la red y tirar la respuesta. */
   const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, pv, gp, rf, oc, vi] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi] = await Promise.all([
     p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
     p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
     p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
@@ -4422,6 +4429,11 @@ async function bajarDeLaNube(soloColecciones){
     p('proyectosImagen', () => listarNubeSuave('proyectosImagen', 60)),
     p('cotizaciones', () => listarNubeSuave('serviciosExtras', 60)),
     p('activos', () => listarNube('activos', 60)), p('personal', () => listarNube('personal', 200)),
+    /* Solo esAdmin() puede leer 'nominaPersonal' (ver firestore.rules) — con
+       listarNubeSuave en vez de listarNube a secas, un 403 aquí para
+       cualquier otro rol no tumba el resto del login (mismo criterio que
+       proveedores/gastosProveedor, ver el comentario de listarNubeSuave). */
+    p('nominaPersonal', () => listarNubeSuave('nominaPersonal', 200)),
     p('proveedores', () => listarNubeSuave('proveedores', 100)),
     p('gastosProveedor', () => listarNubeSuave('gastosProveedor', 100)),
     p('refacciones', () => listarNubeSuave('refacciones', 100)),
@@ -4444,7 +4456,7 @@ async function bajarDeLaNube(soloColecciones){
      REGISTRO más arriba). Es lo que huboConflictoDeEdicion() compara para
      avisar si alguien más ya guardó encima mientras se editaba. */
   [['clientes',cl],['sitios',si],['polizas',po],['cotizaciones',co],['reportes',rp],
-   ['levantamientos',lv],['proyectosImagen',im],['activos',ac],['personal',pe],
+   ['levantamientos',lv],['proyectosImagen',im],['activos',ac],['personal',pe],['nominaPersonal',np],
    ['proveedores',pv],['gastosProveedor',gp],['refacciones',rf],['ordenesCompra',oc],
    ['visitas',vi]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
   datos = { v:1,
@@ -4460,6 +4472,7 @@ async function bajarDeLaNube(soloColecciones){
             proyectosImagen: (im === null ? datos.proyectosImagen : im.map(normalizarProyectoImagen)),
             activos: ac === null ? datos.activos : ac.map(normalizarActivo),
             personal: pe === null ? datos.personal : pe.map(normalizarPersona),
+            nominaPersonal: np === null ? datos.nominaPersonal : np.map(normalizarNominaPersona),
             proveedores: (pv === null ? datos.proveedores : pv.map(normalizarProveedor)),
             gastosProveedor: (gp === null ? datos.gastosProveedor : gp.map(normalizarGastoProveedor)),
             refacciones: (rf === null ? datos.refacciones : rf.map(normalizarRefaccion)),
@@ -6394,6 +6407,12 @@ function normalizarPersona(p){
     foto: (p && p.foto) ? String(p.foto) : '',
     fechaIngreso: /^\d{4}-\d{2}-\d{2}$/.test(p && p.fechaIngreso) ? p.fechaIngreso : '',
     estatus: ESTATUS_PERSONAL.includes(p && p.estatus) ? p.estatus : 'activo',
+    /* A cuál de los 4 pilares de Resultados pertenece —de aquí sale sola
+       "Nómina directa del pilar" (ver montosPorMesNominaPorPilar), sin
+       tener que capturar nada aparte cada mes. No es sensible (a diferencia
+       del sueldo, ver normalizarNominaPersona): cualquiera que ya ve el
+       organigrama puede ver/editar a qué pilar pertenece alguien. */
+    pilarId: PILARES_PROFORMA.some(pl => pl.id === (p && p.pilarId)) ? p.pilarId : '',
     notas: (p && p.notas ? String(p.notas) : '').trim(),
     fechaCreacion: /^\d{4}-\d{2}-\d{2}$/.test(p && p.fechaCreacion) ? p.fechaCreacion : hoyISO()
   };
@@ -6429,6 +6448,32 @@ function guardarPersona(p, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'personal', id:p.id, obj:p });
   anotar(accion || 'editó', 'persona', p.nombre || 'sin nombre', detalle);
+}
+
+/* El sueldo vive en SU PROPIA colección ('nominaPersonal'), separada de
+   'personal' —a propósito, no por prolijidad—: las reglas de Firestore de
+   /personal permiten leer todo el directorio a cualquiera con acceso (es
+   justo lo que necesita el organigrama), y meter el sueldo ahí lo habría
+   expuesto igual de ancho pese a que Victor pidió explícito (25-sep-2026)
+   "solo Owner/Admin ven sueldos". 'nominaPersonal' tiene su propia regla,
+   read/write exclusivo de esAdmin() (ver config/firestore.rules) — el
+   mismo candado que ya usa 'bitacora' para su historial. El id del
+   documento ES el id de la persona (relación 1 a 1, no hace falta uno
+   propio). */
+function puedeVerNomina(){ return esAdmin(); }
+function normalizarNominaPersona(n){
+  return {
+    id: (n && n.id) || nuevoId(),
+    sueldoMensual: Math.max(0, numDef(n && n.sueldoMensual, 0))
+  };
+}
+function nominaDePersona(personaId){ return datos.nominaPersonal.find(n => n.id === personaId); }
+function guardarNominaPersonal(personaId, sueldoMensual){
+  const reg = normalizarNominaPersona({ id: personaId, sueldoMensual });
+  const i = datos.nominaPersonal.findIndex(n => n.id === personaId);
+  if(i === -1) datos.nominaPersonal.push(reg); else datos.nominaPersonal[i] = reg;
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'nominaPersonal', id:personaId, obj:reg });
 }
 
 /* ============================ Levantamientos ============================
@@ -12013,6 +12058,35 @@ function montosPorMesCotizacionesRealizadas(campo){
   };
 }
 
+/* ---- Personal → "Nómina directa del pilar" ----
+   Definido con Victor (25-sep-2026): en vez de capturar un número aparte
+   cada mes (justo lo que causó la confusión que se tiró el 24-sep), se
+   deriva sola del Organigrama que ya mantiene — cada persona Activa trae un
+   Pilar (pnPilar en modalPersona) y un Sueldo mensual, y aquí solo se suma.
+   Se actualiza sola en cuanto alguien da de alta/baja o cambia de pilar,
+   sin volver a tocar Resultados.
+
+   Sueldo actual, parejo en los 12 meses (confirmado con Victor): no se
+   prorratea por fecha de ingreso/baja — si el sueldo de alguien cambia hoy,
+   cambia el año completo (pasado y futuro), no solo de aquí en adelante.
+
+   El sueldo es dato sensible (confirmado con Victor): SOLO Owner/Admin lo
+   ven — para cualquier otro rol este renglón regresa a puros $0, igual que
+   un renglón sin conectar. No es que el dato no exista, es que a ese rol no
+   se le muestra (ver también /nominaPersonal en firestore.rules, que lo
+   bloquea desde el servidor, no solo aquí). */
+function montosPorMesNominaPorPilar(pilarId){
+  return () => {
+    if(!puedeVerNomina()) return Array(12).fill(0);
+    const total = datos.personal
+      .filter(p => p.estatus === 'activo' && p.pilarId === pilarId)
+      .reduce((t,p) => {
+        const n = nominaDePersona(p.id);
+        return t + (n ? n.sueldoMensual : 0);
+      }, 0);
+    return Array(12).fill(total);
+  };
+}
 const PILARES_PROFORMA = [
   { id:'tecnicos', nombre:'Servicios Técnicos',
     ingresos: [
@@ -12021,7 +12095,7 @@ const PILARES_PROFORMA = [
       { id:'correctivo-preventivo', label:'Trabajos correctivos / preventivo', montosPorMes: montosPorMesCotizacionesRealizadas('ingreso') }
     ],
     costos: [
-      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: sinDatosTodavia() },
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('tecnicos') },
       { id:'refacciones-materiales', label:'Refacciones y materiales', montosPorMes: montosPorMesPolizas(null, 'costo') },
       { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: sinDatosTodavia() },
       { id:'otros-costos', label:'Otros costos directos', montosPorMes: montosPorMesCotizacionesRealizadas('costo') }
@@ -12034,7 +12108,7 @@ const PILARES_PROFORMA = [
       { id:'otros-servicios', label:'Otros servicios operativos', montosPorMes: sinDatosTodavia() }
     ],
     costos: [
-      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: sinDatosTodavia() },
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('operativos') },
       { id:'materiales-insumos', label:'Materiales e insumos', montosPorMes: sinDatosTodavia() },
       { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: sinDatosTodavia() },
       { id:'otros-costos', label:'Otros costos directos', montosPorMes: sinDatosTodavia() }
@@ -12047,7 +12121,7 @@ const PILARES_PROFORMA = [
       { id:'otros-proyectos', label:'Otros proyectos', montosPorMes: sinDatosTodavia() }
     ],
     costos: [
-      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: sinDatosTodavia() },
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('proyectos') },
       { id:'materiales', label:'Materiales', montosPorMes: sinDatosTodavia() },
       { id:'contratistas-proveedores', label:'Contratistas / proveedores', montosPorMes: sinDatosTodavia() },
       { id:'costo-equipos', label:'Costo de equipos', montosPorMes: sinDatosTodavia() },
@@ -12620,7 +12694,8 @@ const TEMAS_AYUDA = [
           '<b>Pólizas de mantenimiento incluidas en precio</b> (Servicios Técnicos): pólizas con Cargo a Interno, Activas —las que se absorben, facturadas aparte (p.ej. a Plato Express)— mismo criterio de calendario.',
           '<b>Refacciones y materiales</b> (Servicios Técnicos, costo): el costo anual de CUALQUIER póliza activa (cliente o interno) repartido parejo entre sus 12 meses, sin esperar a que el técnico marque el servicio como hecho.',
           '<b>Trabajos correctivos / preventivo</b> (Servicios Técnicos): cotizaciones con estatus <b>Realizado</b> (sin importar cargo a cliente o comedor) — cuenta en el mes de la fecha de servicio realizado, por su monto al cliente sin IVA.',
-          '<b>Otros costos directos</b> (Servicios Técnicos, costo): el costo de esas mismas cotizaciones "Realizado", sin IVA.'
+          '<b>Otros costos directos</b> (Servicios Técnicos, costo): el costo de esas mismas cotizaciones "Realizado", sin IVA.',
+          '<b>Nómina directa del pilar</b> (Servicios Técnicos, Servicios Operativos y Proyectos e Infraestructura — Tecnología y Control no la trae, calcado del Excel): la suma del sueldo mensual de todo el personal <b>Activo</b> asignado a ESE pilar en el Organigrama, parejo en los 12 meses. Se asigna el pilar y el sueldo de cada persona desde su ficha en Organigrama —no se vuelve a capturar nada aquí—; el sueldo es dato sensible, así que <b>solo Owner/Admin</b> lo ven, para cualquier otro rol el renglón se queda en $0.'
         ])
       + guiaTip('Cómo leer cada bloque (25-sep-2026)', [
           'Cada pilar —y el Resumen general de arriba— trae el <b>gráfico a la izquierda</b> y la <b>tabla a la derecha</b>: barras de Ingresos/Costos directos con la línea de Utilidad bruta encima, mes a mes. Pasa el mouse sobre cualquier mes para ver el detalle exacto.',
@@ -12965,7 +13040,7 @@ const TEMAS_AYUDA = [
     contenido:
       guiaSeccion('Lo básico', guiaPasos([
         'KPIs: Personal, Áreas, En la cima (sin jefe capturado), De baja.',
-        'Usa <b>Nueva persona</b>: Foto institucional (opcional, se recorta al centro sola), Nombre*, Puesto, Área/Departamento, Reporta a, Correo, Teléfono, Fecha de ingreso, Estatus (Activo/De baja), Notas.',
+        'Usa <b>Nueva persona</b>: Foto institucional (opcional, se recorta al centro sola), Nombre*, Puesto, Área/Departamento, Pilar, (Sueldo mensual, solo Owner/Admin), Reporta a, Correo, Teléfono, Fecha de ingreso, Estatus (Activo/De baja), Notas.',
         'Búscala por nombre, puesto, área o correo — al buscar, la vista cambia de árbol a tarjetas en cuadrícula.',
         'Sin buscador activo, se ve como <b>árbol</b> jerárquico completo, agrupado desde quienes no tienen jefe capturado.'
       ]))
@@ -12973,6 +13048,11 @@ const TEMAS_AYUDA = [
           'Una persona <b>de baja</b> no desaparece del árbol: se queda en su lugar, marcada, junto con quienes le reportan.',
           'Eliminar a alguien es exclusivo de Admin/Owner (aunque editar solo pide Analyst+); si tenía gente a su cargo, el diálogo de confirmación te dice a quién se le va a reasignar.'
         ])
+        + guiaTip('Pilar y Sueldo mensual (25-sep-2026): de aquí sale "Nómina directa del pilar"', [
+            'El campo <b>Pilar</b> (Servicios Técnicos, Servicios Operativos, Proyectos e Infraestructura o Tecnología y Control) es lo que le dice a Resultados a cuál de los 4 pilares sumar el sueldo de esta persona — sin esto, no cuenta en ningún lado, aunque tenga sueldo capturado.',
+            'El campo <b>Sueldo mensual</b> solo lo ve y edita Owner/Admin —es dato sensible—; para cualquier otro rol el campo ni se dibuja en el formulario, y "Nómina directa del pilar" en Resultados se les queda en $0. Vive en su propia colección de Firestore ("nominaPersonal"), separada del directorio general, con su propia regla de solo-Admin — no solo escondido en la pantalla.',
+            'Nada de esto se vuelve a capturar por separado cada mes: en cuanto das de alta, das de baja o cambias el pilar/sueldo de alguien aquí, Resultados se actualiza solo.'
+          ])
         + guiaTip('Por qué nunca se puede formar un ciclo', [
             'El desplegable "Reporta a" excluye siempre a la propia persona y a todos sus subordinados (directos e indirectos) — no hay forma de elegir, por accidente, a alguien de su propia cadena hacia abajo.',
             'Si das de baja o eliminas a alguien que tenía gente a su cargo, esa gente sube automáticamente un nivel (al jefe de quien se fue), en vez de quedarse "huérfana" sin nadie arriba.',
@@ -17146,6 +17226,14 @@ function modalPersona(id){
     +   '<div class="campo"><label>Área / Departamento</label>'
     +     '<input type="text" id="pnArea" placeholder="Ej. Operaciones" value="' + esc(p ? p.area : '') + '"></div>'
     + '</div>'
+    + '<div class="campo"><label>Pilar (para "Nómina directa del pilar" en Resultados)</label><select id="pnPilar">'
+    +   '<option value="">— Sin asignar —</option>'
+    +   PILARES_PROFORMA.map(pl => '<option value="' + esc(pl.id) + '"' + (p && p.pilarId === pl.id ? ' selected' : '') + '>' + esc(pl.nombre) + '</option>').join('')
+    + '</select></div>'
+    + (puedeVerNomina()
+        ? '<div class="campo"><label>Sueldo mensual <span class="pista">(solo Owner/Admin lo ve)</span></label>'
+          +   '<input type="number" id="pnSueldo" min="0" step="1" placeholder="0" value="' + (p && nominaDePersona(p.id) ? nominaDePersona(p.id).sueldoMensual : '') + '"></div>'
+        : '')
     + '<div class="campo"><label>Reporta a</label><select id="pnJefe">'
     +   '<option value="">— Nadie capturado / está en la cima —</option>'
     +   candidatos.map(c => '<option value="' + esc(c.id) + '"' + (p && p.jefeId === c.id ? ' selected' : '') + '>' + esc(c.nombre) + '</option>').join('')
@@ -17228,7 +17316,7 @@ function modalPersona(id){
     if(!nombre){ $('pnNombre').setAttribute('aria-invalid','true'); $('pnNombre').focus(); aviso('Ponle un nombre a esta persona.', true); return; }
 
     const datosComunes = {
-      nombre, puesto: $('pnPuesto').value.trim(), area: $('pnArea').value.trim(),
+      nombre, puesto: $('pnPuesto').value.trim(), area: $('pnArea').value.trim(), pilarId: $('pnPilar').value,
       jefeId: $('pnJefe').value, correo: $('pnCorreo').value.trim(), telefono: $('pnTelefono').value.trim(),
       foto: fotoTmp, fechaIngreso: $('pnIngreso').value, estatus: $('pnEstatus').value,
       notas: $('pnNotas').value.trim()
@@ -17244,6 +17332,13 @@ function modalPersona(id){
       datos.personal.push(reg);
     }
     guardarPersona(reg, p ? 'editó' : 'creó');
+    /* El campo de sueldo ni siquiera se dibuja si !puedeVerNomina() (ver
+       arriba) — $('pnSueldo') no existe en ese caso, así que esto nunca
+       intenta leerlo ni, más importante, nunca lo borra por accidente: un
+       Analyst editando puesto/pilar deja el sueldo ya capturado intacto. */
+    if(puedeVerNomina()){
+      guardarNominaPersonal(reg.id, Number($('pnSueldo').value) || 0);
+    }
     cerrarModal();
     render();
     aviso(p ? 'Persona actualizada.' : nombre + ' agregado(a) al organigrama.');
@@ -28588,6 +28683,7 @@ $('archivoRestaurar').addEventListener('change', ev=>{
                   proyectosImagen: (Array.isArray(d.proyectosImagen) ? d.proyectosImagen : datos.proyectosImagen).map(normalizarProyectoImagen),
                   activos: (Array.isArray(d.activos) ? d.activos : datos.activos).map(normalizarActivo),
                   personal: (Array.isArray(d.personal) ? d.personal : datos.personal).map(normalizarPersona),
+                  nominaPersonal: (Array.isArray(d.nominaPersonal) ? d.nominaPersonal : datos.nominaPersonal).map(normalizarNominaPersona),
                   proveedores: (Array.isArray(d.proveedores) ? d.proveedores : datos.proveedores).map(normalizarProveedor),
                   gastosProveedor: (Array.isArray(d.gastosProveedor) ? d.gastosProveedor : datos.gastosProveedor).map(normalizarGastoProveedor),
                   refacciones: (Array.isArray(d.refacciones) ? d.refacciones : datos.refacciones).map(normalizarRefaccion),
@@ -29497,7 +29593,7 @@ function salirSilencioso(tambienLosDatos){
     /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
        21-sep-2026): faltaban proveedores/gastosProveedor/refacciones/
        ordenesCompra. */
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;
