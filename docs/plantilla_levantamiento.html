@@ -386,6 +386,7 @@ if(!LV){
       +   '<span class="pastilla alerta">' + esc(h.prioridadEtiqueta) + '</span>'
       +   '<span class="pastilla ' + (h.resuelto ? 'ok' : 'alerta') + '">' + esc(h.estatusEtiqueta) + '</span>'
       + '</div>'
+      + (h.equipoDetalle ? '<div class="hz-linea"><b>Equipo:</b> ' + esc(h.equipoDetalle) + '</div>' : '')
       + '<div class="hz-texto">' + esc(h.hallazgo) + '</div>'
       + (h.accionSugerida ? '<div class="hz-linea"><b>Acción sugerida:</b> ' + esc(h.accionSugerida) + '</div>' : '')
       + (h.resuelto && h.resueltoNota ? '<div class="hz-linea"><b>Resolución:</b> ' + esc(h.resueltoNota) + '</div>' : '')

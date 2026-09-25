@@ -6510,8 +6510,16 @@ function guardarNominaPersonal(personaId, sueldoMensual){
    Permisos: ver puedeGestionarLevantamiento(), arriba — "para todos los
    perfiles", sin el piso/techo que sí tiene Reportes. */
 
-const ACCION_HALLAZGO = ['correctivo', 'preventivo'];
-const ETIQUETA_ACCION_HALLAZGO = { correctivo:'Correctivo', preventivo:'Preventivo' };
+/* Pedido de Victor (25-sep-2026): "coloca una opción que solo sea
+   'levantamiento'... si no requiere una acción preventiva o correctiva se
+   genere solo el levantamiento" — un hallazgo puede existir solo para dejar
+   documentado un equipo (con su marca/modelo/serie), sin que eso implique
+   que algo esté mal ni que haya que programar nada. 'sin_accion' se trata
+   igual que 'preventivo' en todo lo que mide gravedad (scoreHallazgo,
+   etiquetaSeveridadHallazgo): nunca baja el score ni pinta en rojo. */
+const ACCION_HALLAZGO = ['correctivo', 'preventivo', 'sin_accion'];
+const ETIQUETA_ACCION_HALLAZGO = { correctivo:'Correctivo', preventivo:'Preventivo', sin_accion:'Solo levantamiento (sin acción)' };
+const TONO_ACCION_HALLAZGO = { correctivo:'alerta', preventivo:'info', sin_accion:'neutro' };
 
 const ESTATUS_HALLAZGO = ['pendiente', 'resuelto'];
 const ETIQUETA_ESTATUS_HALLAZGO = { pendiente:'Pendiente', resuelto:'Resuelto' };
@@ -6531,6 +6539,14 @@ function normalizarHallazgo(h){
        hallazgo de "falta señalización de salida" no tiene equipo. */
     equipoCatalogoId: (h && h.equipoCatalogoId ? String(h.equipoCatalogoId) : '').trim(),
     equipoNombre: aOracion((h && h.equipoNombre ? String(h.equipoNombre) : '').trim()),
+    /* Marca/modelo/serie del equipo (25-sep-2026, pedido de Victor): para
+       que, al armar una póliza más adelante a partir de lo que se levantó,
+       el equipo ya traiga estos datos sin tener que volver a preguntarlos
+       en sitio. Mismos nombres de campo que ya usa Activos (marca/modelo/
+       serie), para no inventar una tercera convención. */
+    marca: (h && h.marca ? String(h.marca) : '').trim(),
+    modelo: (h && h.modelo ? String(h.modelo) : '').trim(),
+    serie: (h && h.serie ? String(h.serie) : '').trim(),
     hallazgo: (h && h.hallazgo ? String(h.hallazgo) : '').trim(),
     accion: ACCION_HALLAZGO.includes(h && h.accion) ? h.accion : 'correctivo',
     prioridad: PRIORIDAD_REPORTE.includes(h && h.prioridad) ? h.prioridad : 'media',
@@ -6647,7 +6663,7 @@ function generarSolicitudCotizacionHallazgos(l, hallazgos){
    operación, es mantenimiento recomendado o ya atendido. */
 const FACTOR_HALLAZGO_CORRECTIVO_PENDIENTE = { urgente:0, alta:0.25, media:0.5, baja:0.75 };
 function scoreHallazgo(h){
-  if(h.accion === 'preventivo' || h.estatus === 'resuelto') return 1;
+  if(h.accion !== 'correctivo' || h.estatus === 'resuelto') return 1;
   const f = FACTOR_HALLAZGO_CORRECTIVO_PENDIENTE[h.prioridad];
   return f === undefined ? 0.5 : f;
 }
@@ -6666,6 +6682,7 @@ const ETIQUETA_SEVERIDAD_PRIORIDAD = {
 function etiquetaSeveridadHallazgo(h){
   if(h.estatus === 'resuelto') return { texto: 'Resuelto', tono: 'ok' };
   if(h.accion === 'preventivo') return { texto: 'Preventivo', tono: 'ok' };
+  if(h.accion === 'sin_accion') return { texto: 'Sin acción', tono: 'ok' };
   return ETIQUETA_SEVERIDAD_PRIORIDAD[h.prioridad] || { texto: 'Medio', tono: 'alerta' };
 }
 
@@ -10387,6 +10404,11 @@ function armarPayloadLevantamiento(l){
     hallazgos: l.hallazgos.map(h => ({
       ubicacion: h.ubicacion || '',
       equipoNombre: h.equipoNombre || '',
+      /* Ya resuelto aquí, no en la plantilla (que no calcula: formatea y
+         concatena): una sola línea con lo que haya de marca/modelo/serie,
+         o vacío si no se capturó nada. */
+      equipoDetalle: [h.marca && 'Marca ' + h.marca, h.modelo && 'Modelo ' + h.modelo, h.serie && 'Serie ' + h.serie]
+        .filter(Boolean).join(' · '),
       hallazgo: h.hallazgo,
       accionEtiqueta: ETIQUETA_ACCION_HALLAZGO[h.accion],
       prioridadEtiqueta: ETIQUETA_PRIORIDAD[h.prioridad],
@@ -13192,7 +13214,8 @@ const TEMAS_AYUDA = [
       guiaSeccion('Lo básico', guiaPasos([
         'Usa <b>Nuevo levantamiento</b>: Cliente y Sitio (con alta al vuelo si hacen falta), Fecha de la visita y quién <b>Realizó</b> el recorrido (se autosugiere tu nombre) y Notas generales. Folio automático <b>LV-DDMMAA-##</b>.',
         'Al guardar entras directo al detalle para empezar a <b>Agregar hallazgo</b> por cada cosa que encuentres.',
-        'Cada hallazgo captura: Ubicación/área, Equipo del catálogo (u "Otro" con nombre libre), Qué se encontró (obligatorio), Tipo de acción (correctivo/preventivo), Prioridad, Acción sugerida, Nota de resolución, hasta 4 fotos, y una casilla "¿Hay que cotizar algo?" con su propio texto.',
+        'Cada hallazgo captura: Ubicación/área, Equipo del catálogo (u "Otro" con nombre libre), <b>Marca/Modelo/Número de serie</b> del equipo (opcionales, 25-sep-2026), Qué se encontró (obligatorio), Tipo de acción (correctivo/preventivo/<b>solo levantamiento</b>), Prioridad, Acción sugerida, Nota de resolución, hasta 4 fotos, y una casilla "¿Hay que cotizar algo?" con su propio texto.',
+        '<b>"Solo levantamiento (sin acción)"</b> es para cuando no hace falta programar nada — el hallazgo existe nada más para dejar documentado un equipo (con su marca/modelo/serie): nunca baja el "Análisis de funcionamiento" ni pinta en rojo, igual que uno preventivo.',
         'Al capturar varios hallazgos seguidos, usa <b>Guardar y agregar otro</b> para no cerrar el formulario cada vez.',
         'Marca cada hallazgo como <b>Resuelto</b> cuando se atienda, o <b>Reabrir</b> si vuelve a fallar — es un interruptor simple, sin formulario aparte.',
         'Filtra la lista por "Con pendientes", "Cerrados" o "Con urgentes", y busca por folio/sitio/cliente. Un levantamiento se marca "Cerrado" solo cuando TODOS sus hallazgos quedan resueltos — nunca lo cierras tú a mano.'
@@ -13201,7 +13224,7 @@ const TEMAS_AYUDA = [
         'El bloque <b>Cotizaciones por generar</b> aparece solo cuando hay hallazgos marcados "hay que cotizar" y sin cotización todavía: selecciona los que quieras con los checkboxes y elige <b>Una sola cotización con los seleccionados</b> o <b>Una cotización por cada seleccionado</b>, luego <b>Generar</b>.',
         'Una vez que un hallazgo ya tiene su cotización ligada, su casilla de "cotizar" se bloquea (para no duplicar la solicitud) y aparece <b>Ver cotización [folio] →</b>.',
         'Usa <b>Generar PDF</b> para el documento completo del levantamiento — no necesita permiso de edición, cualquiera que lo vea lo puede generar.',
-        'Si el sitio no tiene ya una póliza en curso, usa <b>Generar póliza desde este levantamiento</b>: arma un renglón por cada equipo distinto con hallazgo ligado a catálogo, con precio/costo/frecuencia ya sugeridos.'
+        'Si el sitio no tiene ya una póliza en curso, usa <b>Generar póliza desde este levantamiento</b>: arma un renglón por cada equipo distinto con hallazgo ligado a catálogo, con precio/costo/frecuencia ya sugeridos — y si el hallazgo trae marca/modelo/serie capturados, el renglón nace con esos datos puestos, sin volver a preguntarlos.'
       ]))
       + guiaSeccion('Funciones avanzadas', guiaPasos([
           'Quitar un hallazgo que ya generó una cotización NO borra esa cotización — se avisa al confirmar, queda huérfana a propósito en vez de perder la solicitud.',
@@ -18866,7 +18889,7 @@ function vistaLevantamiento(){
   h += bloqueFuncionamiento(l);
 
   h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Hallazgos</h3>'
-     +   '<p>Correctivo: hay que atenderlo ya. Preventivo: conviene hacerlo antes de que truene.</p></div>'
+     +   '<p>Correctivo: hay que atenderlo ya. Preventivo: conviene hacerlo antes de que truene. Solo levantamiento: no requiere ninguna acción, es nada más para dejar documentado el equipo.</p></div>'
      +   (puede ? '<div class="acciones"><button type="button" class="btn btn-suave btn-mini" data-accion="agregar-hallazgo">' + ICONO.mas + 'Agregar hallazgo</button></div>' : '')
      + '</div>';
 
@@ -18875,7 +18898,9 @@ function vistaLevantamiento(){
   }else{
     h += '<div class="lista-hallazgos">' + l.hallazgos.map(hz=>{
       const resuelto = hz.estatus === 'resuelto';
-      const tonoAccion = hz.accion === 'preventivo' ? 'info' : 'alerta';
+      const tonoAccion = TONO_ACCION_HALLAZGO[hz.accion] || 'alerta';
+      const detalleEquipo = [hz.marca && 'Marca ' + hz.marca, hz.modelo && 'Modelo ' + hz.modelo, hz.serie && 'Serie ' + hz.serie]
+        .filter(Boolean).join(' · ');
       const cotLigada = hz.cotizacionId ? cotizacionPorId(hz.cotizacionId) : null;
       return '<div class="bloque hallazgo-item' + (resuelto ? ' resuelto' : '') + '" style="margin-bottom:12px">'
         +   '<div class="bloque-cabeza"><div>'
@@ -18887,6 +18912,7 @@ function vistaLevantamiento(){
         +       '<span class="insignia i-' + (resuelto ? 'ok' : 'neutro') + '">' + esc(ETIQUETA_ESTATUS_HALLAZGO[hz.estatus]) + '</span>'
         +     '</h3>'
         +     (hz.equipoNombre && hz.ubicacion ? '<p>' + esc(hz.equipoNombre) + '</p>' : '')
+        +     (detalleEquipo ? '<p class="pista" style="margin:0">' + esc(detalleEquipo) + '</p>' : '')
         +   '</div></div>'
         +   '<p style="margin:0 0 8px">' + esc(hz.hallazgo) + '</p>'
         +   (hz.accionSugerida ? '<p class="pista" style="margin:0 0 8px"><b>Acción sugerida:</b> ' + esc(hz.accionSugerida) + '</p>' : '')
@@ -19160,6 +19186,14 @@ function modalHallazgo(levantamientoId, hallazgoId){
     + '<div class="campo" id="zonaEquipoTextoHZ" hidden><label>Nombre del equipo</label>'
     +   '<input type="text" id="hzEquipoTexto" placeholder="Ej. Refrigerador de postres" '
     +     'value="' + esc(hz && !equipoEsDelCatalogo ? hz.equipoNombre : '') + '"></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Marca (opcional)</label>'
+    +     '<input type="text" id="hzMarca" placeholder="Ej. True, Turbo Air…" value="' + esc(hz ? hz.marca : '') + '"></div>'
+    +   '<div class="campo"><label>Modelo (opcional)</label>'
+    +     '<input type="text" id="hzModelo" value="' + esc(hz ? hz.modelo : '') + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Número de serie (opcional)</label>'
+    +   '<input type="text" id="hzSerie" value="' + esc(hz ? hz.serie : '') + '"></div>'
     + '<div class="campo"><label>¿Qué se encontró? *</label>'
     +   '<textarea id="hzHallazgo" placeholder="Describe la condición encontrada…">' + esc(hz ? hz.hallazgo : '') + '</textarea></div>'
     + '<div class="fila2">'
@@ -19289,6 +19323,9 @@ function modalHallazgo(levantamientoId, hallazgoId){
       id: hz ? hz.id : nuevoId(),
       ubicacion: $('hzUbicacion').value.trim(),
       equipoCatalogoId, equipoNombre,
+      marca: $('hzMarca').value.trim(),
+      modelo: $('hzModelo').value.trim(),
+      serie: $('hzSerie').value.trim(),
       hallazgo,
       accion: $('hzAccion').value,
       prioridad: $('hzPrioridad').value,
@@ -19320,6 +19357,7 @@ function modalHallazgo(levantamientoId, hallazgoId){
      tecleo; todo lo demás sí se limpia. */
   function limpiarFormularioHz(){
     $('hzEquipoId').value = ''; pintarEquipoTexto(); $('hzEquipoTexto').value = '';
+    $('hzMarca').value = ''; $('hzModelo').value = ''; $('hzSerie').value = '';
     $('hzHallazgo').value = ''; $('hzHallazgo').removeAttribute('aria-invalid');
     $('hzAccion').value = 'correctivo';
     $('hzPrioridad').value = 'media';
@@ -25259,6 +25297,13 @@ function modalPoliza(id, origenLevantamiento){
       partidasTmp.push(normalizarPartida({
         catalogoId: h.equipoCatalogoId || '',
         concepto: h.equipoNombre || (eq && eq.concepto) || '',
+        /* Pedido de Victor (25-sep-2026): "para que a la momento de generar
+           una póliza también incluya el dato del equipo" — si el hallazgo
+           ya trae marca/modelo/serie (capturados en campo), la póliza nace
+           con ellos puestos, en vez de tener que volver a preguntarlos. */
+        marca: h.marca || '',
+        modelo: h.modelo || '',
+        serie: h.serie || '',
         cantidad: 1,
         precioUnitario: eq ? eq.precio : 0,
         costoUnitario: eq ? costoTotalEquipo(eq) : 0,
