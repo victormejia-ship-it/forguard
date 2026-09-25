@@ -467,6 +467,84 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.evaluate(() => { document.querySelector('[data-accion="vista-lista"][data-campo="resultadosMeses"][data-modo="compacto"]').click(); });
   await page.waitForTimeout(100);
 
+  // --------- 14) Dashboard interactivo: clic para consultar el detalle (pedido de Victor, 25-sep-2026) ---------
+  const detalleDirecto = await page.evaluate(() => {
+    const anio = hoyISO().slice(0,4);
+    const tecnicos = PILARES_PROFORMA.find(p => p.id === 'tecnicos');
+    const polizasCliente = tecnicos.ingresos.find(c => c.id === 'polizas-cliente');
+    const correctivo = tecnicos.ingresos.find(c => c.id === 'correctivo-preventivo');
+    const nomina = tecnicos.costos.find(c => c.id === 'nomina-directa');
+    const proveedores = tecnicos.costos.find(c => c.id === 'proveedores-subcontratados');
+    const limpieza = PILARES_PROFORMA.find(p => p.id === 'operativos').ingresos.find(c => c.id === 'limpieza');
+
+    const anioAnterior = sesion.rol;
+    const nominaAnalyst = (()=>{ sesion.rol = 'analyst'; const r = nomina.detalle(anio, null); sesion.rol = anioAnterior; return r; })();
+
+    return {
+      polizasClienteAnio: polizasCliente.detalle(anio, null),
+      polizasClienteFeb: polizasCliente.detalle(anio, 1),
+      correctivoAnio: correctivo.detalle(anio, null).map(it => ({ etiqueta: it.etiqueta, monto: Math.round(it.monto) })),
+      nominaOwner: nomina.detalle(anio, null),
+      nominaAnalyst,
+      proveedoresAbril: proveedores.detalle(anio, 3),
+      proveedoresMayo: proveedores.detalle(anio, 4),
+      limpiezaTieneDetalle: typeof limpieza.detalle === 'function'
+    };
+  });
+
+  chkF('Detalle de "Pólizas de mantenimiento" (año): 1 registro, POL-1, con el total anual ($12,000)',
+    detalleDirecto.polizasClienteAnio.length === 1
+    && detalleDirecto.polizasClienteAnio[0].etiqueta.includes('POL-1')
+    && detalleDirecto.polizasClienteAnio[0].monto === 12000
+    && detalleDirecto.polizasClienteAnio[0].accion === 'ir-poliza');
+  chkF('Detalle de "Pólizas de mantenimiento" (solo Febrero): el mismo registro, pero con el monto de ESE mes ($1,000)',
+    detalleDirecto.polizasClienteFeb.length === 1 && detalleDirecto.polizasClienteFeb[0].monto === 1000);
+  chkF('Detalle de "Trabajos correctivos / preventivo" (año): las 3 cotizaciones reales, ninguna otra',
+    detalleDirecto.correctivoAnio.length === 3
+    && detalleDirecto.correctivoAnio.some(it => it.etiqueta.includes('COT-1') && it.monto === 1150)
+    && detalleDirecto.correctivoAnio.some(it => it.etiqueta.includes('COT-2') && it.monto === 690)
+    && detalleDirecto.correctivoAnio.some(it => it.etiqueta.includes('COT-4') && it.monto === 230));
+  chkF('Detalle de "Nómina directa del pilar" (Owner): Ana y Beto con su sueldo ANUAL (×12), con enlace a Organigrama',
+    detalleDirecto.nominaOwner.length === 2
+    && detalleDirecto.nominaOwner.every(it => it.accion === 'ir-persona')
+    && detalleDirecto.nominaOwner.some(it => it.etiqueta.includes('Ana') && it.monto === 240000)
+    && detalleDirecto.nominaOwner.some(it => it.etiqueta.includes('Beto') && it.monto === 180000));
+  chkF('Detalle de "Nómina directa del pilar" (Analyst): vacío — mismo candado que puedeVerNomina()', detalleDirecto.nominaAnalyst.length === 0);
+  chkF('Detalle de "Proveedores / servicios subcontratados" (Abril): los 2 gastos reales, con enlace a su ficha',
+    detalleDirecto.proveedoresAbril.length === 2 && detalleDirecto.proveedoresAbril.every(it => it.accion === 'ir-gasto-proveedor'));
+  chkF('Detalle de "Proveedores / servicios subcontratados" (Mayo): las 2 Órdenes de Compra reales, con enlace a su ficha',
+    detalleDirecto.proveedoresMayo.length === 2 && detalleDirecto.proveedoresMayo.every(it => it.accion === 'ir-orden-compra'));
+  chkF('Un renglón sin conectar todavía (Limpieza) no trae función de detalle', detalleDirecto.limpiezaTieneDetalle === false);
+
+  // De verdad en el DOM: solo lo conectado es clicable, y el clic real abre el modal y navega.
+  const clicabilidad = await page.evaluate(() => {
+    const filaLimpieza = Array.from(document.querySelectorAll('#vista table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes('Limpieza'));
+    const filaPolizas = Array.from(document.querySelectorAll('#vista table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes('Pólizas de mantenimiento') && !tr.textContent.includes('incluidas'));
+    return {
+      limpiezaClicable: filaLimpieza.querySelector('td.clic-detalle') !== null,
+      polizasClicable: filaPolizas.querySelector('td.clic-detalle') !== null
+    };
+  });
+  chkF('"Limpieza" (sin conectar) NO tiene celdas clicables', clicabilidad.limpiezaClicable === false);
+  chkF('"Pólizas de mantenimiento" (conectado) SÍ tiene celdas clicables', clicabilidad.polizasClicable === true);
+
+  await page.locator('td.clic-detalle', { hasText: 'Pólizas de mantenimiento' }).first().click();
+  await page.waitForTimeout(150);
+  const modalAbierto = await page.evaluate(() => ({
+    abierto: document.getElementById('telon').classList.contains('abierto'),
+    titulo: document.getElementById('modalTitulo').textContent,
+    trePOL1: document.getElementById('modalCuerpo').textContent.includes('POL-1'),
+    treTotal: document.getElementById('modalCuerpo').textContent.includes('$12,000')
+  }));
+  chkF('El modal de detalle abre con el título del renglón y el año', modalAbierto.abierto && modalAbierto.titulo.includes('Pólizas de mantenimiento'));
+  chkF('El modal de detalle muestra el registro real (POL-1) y su total', modalAbierto.trePOL1 && modalAbierto.treTotal);
+
+  await page.locator('.dp-fila.dp-clic', { hasText: 'POL-1' }).click();
+  await page.waitForTimeout(200);
+  const trasNavegar = await page.evaluate(() => ({ modulo: estado.modulo, polizaId: estado.polizaId, modalCerrado: !document.getElementById('telon').classList.contains('abierto') }));
+  chkF('Clic en el registro del modal cierra el modal y navega a esa póliza en su propio módulo',
+    trasNavegar.modulo === 'polizas' && trasNavegar.polizaId === 'p1' && trasNavegar.modalCerrado === true);
+
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 
   console.log('Errores capturados:', JSON.stringify(errores));

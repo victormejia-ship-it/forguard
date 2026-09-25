@@ -399,6 +399,23 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .tabla-proforma tr.fila-seccion td{font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--gray); text-transform:uppercase; background:#F7F8FB; border-bottom:1px solid var(--line);}
 .tabla-proforma tr.fila-total td{font-weight:700; color:var(--navy); border-top:1.5px solid var(--line);}
 .tabla-proforma tr.fila-utilidad td{background:#F7F8FB;}
+/* Celdas clicables (pedido de Victor, 25-sep-2026: "que el dash también
+   pueda ser interactivo... se pueda desplegar un modal"): solo los
+   renglones ya conectados a una fuente real las traen (ver
+   filaConceptoProforma) — un $0 sin conectar se queda como texto plano. */
+.tabla-proforma td.clic-detalle{cursor:pointer; border-radius:5px; transition:background .12s;}
+.tabla-proforma td.clic-detalle:hover{background:var(--bg); color:var(--navy);}
+.tabla-proforma td.clic-detalle:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
+/* Modal de detalle: una fila por registro real (póliza, cotización,
+   persona, gasto u orden de compra), con enlace directo al suyo. */
+.detalle-proforma-lista{display:flex; flex-direction:column; gap:2px; max-height:50vh; overflow-y:auto;}
+.dp-fila{display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 12px; border-radius:8px; font-size:13.5px;}
+.dp-fila.dp-clic{cursor:pointer; transition:background .12s;}
+.dp-fila.dp-clic:hover{background:var(--bg);}
+.dp-fila.dp-clic:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
+.dp-etiqueta{color:var(--ink); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.dp-monto{font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; flex-shrink:0;}
+.dp-fila.dp-total{border-top:1.5px solid var(--line); margin-top:6px; padding-top:12px; font-weight:700; color:var(--navy);}
 
 /* Resultados necesita más aire que el resto de la app (14 columnas por
    pilar: Concepto + 12 meses + Total) — .wrap se ensancha SOLO en este
@@ -11218,6 +11235,16 @@ function irADetalleCotizacion(id){
   estado.busca = ''; estado.filtro = 'todos';
   entrarCotizacion(id);
 }
+/* Personal no tiene una "vista de detalle" propia como Pólizas/Cotizaciones
+   —se edita directo en su modal—, así que el puente desde el detalle de
+   Resultados (ver modalDetalleProforma) cambia de módulo y abre ese mismo
+   modal, mismo criterio que los de arriba. */
+function irAEditarPersona(id){
+  estado.modulo = 'organigrama'; guardarModulo();
+  estado.busca = '';
+  render();
+  modalPersona(id);
+}
 
 const ICONO = {
   mas:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
@@ -12024,6 +12051,25 @@ function montosPorMesPolizas(cargoA, campo){
     return totales;
   };
 }
+/* Detalle por póliza para el modal de "consultar la información" (pedido de
+   Victor, 25-sep-2026) — mismo filtro que montosPorMesPolizas de arriba,
+   nada más que en vez de sumar todo en un solo número, regresa una fila por
+   póliza para poder ver/abrir cada una. `mes` null = el año completo. */
+function detallePolizas(cargoA, campo){
+  return (anio, mes) => {
+    const items = [];
+    datos.polizas
+      .filter(p => p.estatus === 'activa' && (!cargoA || p.cargoA === cargoA))
+      .forEach(p => {
+        let monto = 0;
+        periodosPolizaEnAnio(p, anio).forEach(per => {
+          if(mes == null || per.mes === mes) monto += per[campo];
+        });
+        if(monto) items.push({ etiqueta: (p.folio || 'Póliza') + ' — ' + (p.sitioNombre || 'Sin sitio'), monto, accion:'ir-poliza', accionId:p.id });
+      });
+    return items;
+  };
+}
 
 /* ---- Cotizaciones → "Trabajos correctivos / preventivo" (ingreso) y "Otros costos directos" (costo) ----
    Segundo renglón conectado (25-sep-2026), definido con Victor punto por
@@ -12063,6 +12109,25 @@ function montosPorMesCotizacionesRealizadas(campo){
     return totales;
   };
 }
+/* Detalle por cotización, mismo filtro que montosPorMesCotizacionesRealizadas
+   de arriba — ver detallePolizas() para el criterio de `mes`. */
+function detalleCotizacionesRealizadas(campo){
+  return (anio, mes) => {
+    const items = [];
+    datos.cotizaciones
+      .filter(q => q.estatus === 'realizado')
+      .forEach(q => {
+        const fecha = q.fechaRealizado || q.fecha;
+        if(!fecha || fecha.slice(0,4) !== String(anio)) return;
+        const m = Number(fecha.slice(5,7)) - 1;
+        if(mes != null && m !== mes) return;
+        const c = calcularCotizacion(q);
+        const monto = campo === 'ingreso' ? c.subtotalCliente : c.subtotalCosto;
+        if(monto) items.push({ etiqueta: (q.folio || 'Cotización') + ' — ' + fecha, monto, accion:'ir-cotizacion', accionId:q.id });
+      });
+    return items;
+  };
+}
 
 /* ---- Personal → "Nómina directa del pilar" ----
    Definido con Victor (25-sep-2026): en vez de capturar un número aparte
@@ -12091,6 +12156,22 @@ function montosPorMesNominaPorPilar(pilarId){
         return t + (n ? n.sueldoMensual : 0);
       }, 0);
     return Array(12).fill(total);
+  };
+}
+/* Detalle por persona — igual que arriba, solo Owner/Admin lo ven (mismo
+   candado que puedeVerNomina()). `mes` null = el año completo (12 sueldos),
+   un mes concreto = 1 sueldo, ya que es parejo todo el año. */
+function detalleNominaPorPilar(pilarId){
+  return (anio, mes) => {
+    if(!puedeVerNomina()) return [];
+    return datos.personal
+      .filter(p => p.estatus === 'activo' && p.pilarId === pilarId)
+      .map(p => {
+        const n = nominaDePersona(p.id);
+        const sueldo = n ? n.sueldoMensual : 0;
+        return { etiqueta: p.nombre + (p.puesto ? ' — ' + p.puesto : ''), monto: mes == null ? sueldo * 12 : sueldo, accion:'ir-persona', accionId:p.id };
+      })
+      .filter(it => it.monto);
   };
 }
 
@@ -12138,18 +12219,43 @@ function montosPorMesGastosProveedorPorPilar(pilarId){
     return totales;
   };
 }
+/* Detalle por gasto/orden — mismo filtro que montosPorMesGastosProveedorPorPilar
+   de arriba, una fila por gasto de proveedor y por Orden de Compra. */
+function detalleGastosProveedorPorPilar(pilarId){
+  return (anio, mes) => {
+    const items = [];
+    datos.gastosProveedor
+      .filter(g => (g.estatus === 'por-pagar' || g.estatus === 'pagado') && g.pilarId === pilarId && g.fecha.slice(0,4) === String(anio))
+      .forEach(g => {
+        const m = Number(g.fecha.slice(5,7)) - 1;
+        if(mes != null && m !== mes) return;
+        items.push({ etiqueta: g.proveedorNombre + ' — ' + g.concepto, monto: g.monto, accion:'ir-gasto-proveedor', accionId:g.id });
+      });
+    if(pilarId === 'tecnicos'){
+      datos.ordenesCompra
+        .filter(o => ['confirmada','enviada','recibida'].includes(o.estatus) && o.fecha.slice(0,4) === String(anio))
+        .forEach(o => {
+          const m = Number(o.fecha.slice(5,7)) - 1;
+          if(mes != null && m !== mes) return;
+          const monto = calcularOrdenCompra(o).subtotal;
+          if(monto) items.push({ etiqueta: (o.folio || 'OC') + ' — ' + o.proveedorNombre, monto, accion:'ir-orden-compra', accionId:o.id });
+        });
+    }
+    return items;
+  };
+}
 const PILARES_PROFORMA = [
   { id:'tecnicos', nombre:'Servicios Técnicos',
     ingresos: [
-      { id:'polizas-cliente', label:'Pólizas de mantenimiento', montosPorMes: montosPorMesPolizas('cliente', 'ingreso') },
-      { id:'polizas-interno', label:'Pólizas de mantenimiento incluidas en precio', montosPorMes: montosPorMesPolizas('interno', 'ingreso') },
-      { id:'correctivo-preventivo', label:'Trabajos correctivos / preventivo', montosPorMes: montosPorMesCotizacionesRealizadas('ingreso') }
+      { id:'polizas-cliente', label:'Pólizas de mantenimiento', montosPorMes: montosPorMesPolizas('cliente', 'ingreso'), detalle: detallePolizas('cliente', 'ingreso') },
+      { id:'polizas-interno', label:'Pólizas de mantenimiento incluidas en precio', montosPorMes: montosPorMesPolizas('interno', 'ingreso'), detalle: detallePolizas('interno', 'ingreso') },
+      { id:'correctivo-preventivo', label:'Trabajos correctivos / preventivo', montosPorMes: montosPorMesCotizacionesRealizadas('ingreso'), detalle: detalleCotizacionesRealizadas('ingreso') }
     ],
     costos: [
-      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('tecnicos') },
-      { id:'refacciones-materiales', label:'Refacciones y materiales', montosPorMes: montosPorMesPolizas(null, 'costo') },
-      { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: montosPorMesGastosProveedorPorPilar('tecnicos') },
-      { id:'otros-costos', label:'Otros costos directos', montosPorMes: montosPorMesCotizacionesRealizadas('costo') }
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('tecnicos'), detalle: detalleNominaPorPilar('tecnicos') },
+      { id:'refacciones-materiales', label:'Refacciones y materiales', montosPorMes: montosPorMesPolizas(null, 'costo'), detalle: detallePolizas(null, 'costo') },
+      { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: montosPorMesGastosProveedorPorPilar('tecnicos'), detalle: detalleGastosProveedorPorPilar('tecnicos') },
+      { id:'otros-costos', label:'Otros costos directos', montosPorMes: montosPorMesCotizacionesRealizadas('costo'), detalle: detalleCotizacionesRealizadas('costo') }
     ] },
   { id:'operativos', nombre:'Servicios Operativos',
     ingresos: [
@@ -12159,7 +12265,7 @@ const PILARES_PROFORMA = [
       { id:'otros-servicios', label:'Otros servicios operativos', montosPorMes: sinDatosTodavia() }
     ],
     costos: [
-      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('operativos') },
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('operativos'), detalle: detalleNominaPorPilar('operativos') },
       { id:'materiales-insumos', label:'Materiales e insumos', montosPorMes: sinDatosTodavia() },
       { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: sinDatosTodavia() },
       { id:'otros-costos', label:'Otros costos directos', montosPorMes: sinDatosTodavia() }
@@ -12172,7 +12278,7 @@ const PILARES_PROFORMA = [
       { id:'otros-proyectos', label:'Otros proyectos', montosPorMes: sinDatosTodavia() }
     ],
     costos: [
-      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('proyectos') },
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('proyectos'), detalle: detalleNominaPorPilar('proyectos') },
       { id:'materiales', label:'Materiales', montosPorMes: sinDatosTodavia() },
       { id:'contratistas-proveedores', label:'Contratistas / proveedores', montosPorMes: sinDatosTodavia() },
       { id:'costo-equipos', label:'Costo de equipos', montosPorMes: sinDatosTodavia() },
@@ -12210,11 +12316,25 @@ function mesesVisiblesProforma(){
   for(let i = desde; i <= mesActual; i++) indices.push(i);
   return indices;
 }
-function filaConceptoProforma(c, anio, idxVisibles){
+/* Pedido de Victor (25-sep-2026): "que el dash también pueda ser
+   interactivo... se pueda desplegar un modal en caso de requerir
+   consultar la información" — clic en el NOMBRE del renglón abre el
+   detalle del año completo, clic en CUALQUIER mes abre el detalle de ESE
+   mes (ver modalDetalleProforma()). Solo los renglones que ya traen
+   `detalle` (un concepto ya conectado a una fuente real) se vuelven
+   clicables — uno todavía en $0 (sinDatosTodavia) no tiene nada que
+   mostrar, así que se queda como texto plano, sin fingir que hay algo
+   que consultar. */
+function filaConceptoProforma(c, anio, idxVisibles, pilarId){
   const montos = c.montosPorMes(anio);
-  return '<tr><td>' + esc(c.label) + '</td>'
-    + idxVisibles.map(i => '<td class="num">' + dinero(montos[i]) + '</td>').join('')
-    + '<td class="num">' + dinero(montos.reduce((a,b)=>a+b,0)) + '</td></tr>';
+  const clicable = typeof c.detalle === 'function';
+  const atributos = (mes) => clicable
+    ? ' class="clic-detalle" data-accion="detalle-proforma" data-pilar="' + esc(pilarId) + '" data-concepto="' + esc(c.id) + '"'
+      + (mes != null ? ' data-mes="' + mes + '"' : '') + ' tabindex="0" role="button"'
+    : '';
+  return '<tr><td' + atributos(null) + '>' + esc(c.label) + '</td>'
+    + idxVisibles.map(i => '<td class="num"' + atributos(i) + '>' + dinero(montos[i]) + '</td>').join('')
+    + '<td class="num"' + atributos(null) + '>' + dinero(montos.reduce((a,b)=>a+b,0)) + '</td></tr>';
 }
 function filaTotalProforma(label, totalesPorMes, idxVisibles, clase){
   return '<tr class="fila-total' + (clase ? ' ' + clase : '') + '"><td>' + esc(label) + '</td>'
@@ -12471,10 +12591,10 @@ function bloquePilarProforma(pilar, anio){
     +   '<th>Concepto</th>' + idxVisibles.map(i => '<th class="num">' + MESES_PROFORMA[i] + '</th>').join('') + '<th class="num">Total ' + anio + '</th>'
     + '</tr></thead><tbody>'
     +   '<tr class="fila-seccion"><td colspan="' + colspanSeccion + '">Ingresos</td></tr>'
-    +   pilar.ingresos.map(c => filaConceptoProforma(c, anio, idxVisibles)).join('')
+    +   pilar.ingresos.map(c => filaConceptoProforma(c, anio, idxVisibles, pilar.id)).join('')
     +   filaTotalProforma('Total ingresos ' + pilar.nombre, totalIngresosPorMes, idxVisibles)
     +   '<tr class="fila-seccion"><td colspan="' + colspanSeccion + '">Costos directos</td></tr>'
-    +   pilar.costos.map(c => filaConceptoProforma(c, anio, idxVisibles)).join('')
+    +   pilar.costos.map(c => filaConceptoProforma(c, anio, idxVisibles, pilar.id)).join('')
     +   filaTotalProforma('Total costos directos', totalCostosPorMes, idxVisibles)
     +   filaTotalProforma('Utilidad bruta ' + pilar.nombre, utilidadPorMes, idxVisibles, 'fila-utilidad')
     +   '<tr class="fila-utilidad"><td>Margen bruto</td>' + idxVisibles.map(i => '<td class="num">' + margenPorMes[i] + '%</td>').join('') + '<td class="num">' + margenTotal + '%</td></tr>'
@@ -12503,6 +12623,61 @@ function vistaResultados(){
   h += PILARES_PROFORMA.map(pilar => bloquePilarProforma(pilar, anio)).join('');
 
   return h;
+}
+
+/* ---------------------------- Modal: detalle de un renglón de Resultados ----------------------------
+   Pedido de Victor (25-sep-2026): "que el dash también pueda ser
+   interactivo... se pueda desplegar un modal en caso de requerir consultar
+   la información" — clic en el nombre de un renglón ya conectado (ver
+   filaConceptoProforma) abre esto con el año completo; clic en un mes
+   puntual, con solo ese mes. Cada fila del detalle trae un enlace directo
+   al registro real (póliza, cotización, persona, gasto u orden de compra)
+   que la generó — nunca solo el número, siempre de dónde salió. */
+const IR_DETALLE_PROFORMA = {
+  'ir-poliza': irADetallePoliza,
+  'ir-cotizacion': irADetalleCotizacion,
+  'ir-persona': irAEditarPersona,
+  'ir-gasto-proveedor': entrarGastoProveedor,
+  'ir-orden-compra': entrarOrdenCompra
+};
+function modalDetalleProforma(pilarId, conceptoId, mes){
+  const pilar = PILARES_PROFORMA.find(p => p.id === pilarId);
+  const concepto = pilar && pilar.ingresos.concat(pilar.costos).find(c => c.id === conceptoId);
+  if(!concepto || typeof concepto.detalle !== 'function') return;
+  const anio = hoyISO().slice(0,4);
+  const items = concepto.detalle(anio, mes).slice().sort((a,b) => b.monto - a.monto);
+  const totalMostrado = items.reduce((t,it) => t + it.monto, 0);
+  const tituloMes = mes != null ? esc(MESES_PROFORMA[mes]) + ' ' + anio : 'Todo ' + anio;
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">' + esc(pilar.nombre) + '. Haz clic en un registro para abrirlo en su propio módulo.</p>'
+    + (!items.length
+        ? '<p class="vacio-chico">Sin registros que expliquen este monto todavía.</p>'
+        : '<div class="detalle-proforma-lista">'
+          + items.map(it =>
+              '<div class="dp-fila' + (it.accion ? ' dp-clic' : '') + '"'
+                + (it.accion ? ' data-accion="' + esc(it.accion) + '" data-id="' + esc(it.accionId) + '" tabindex="0" role="button"' : '') + '>'
+              +   '<span class="dp-etiqueta">' + esc(it.etiqueta) + '</span>'
+              +   '<span class="dp-monto">' + dinero(it.monto) + '</span>'
+              + '</div>'
+            ).join('')
+          + '</div>'
+          + '<div class="dp-fila dp-total"><span>Total</span><span>' + dinero(totalMostrado) + '</span></div>');
+
+  abrirModal(esc(concepto.label) + ' — ' + tituloMes, cuerpo,
+    '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
+
+  /* Delegado y colgado aquí, no fuera: #modalCuerpo lo reemplaza cerrarModal()
+     por un clon limpio en cada cierre, así que este listener se va con él y
+     no se acumula (mismo criterio que modalCalendarioPoliza). */
+  $('modalCuerpo').addEventListener('click', ev=>{
+    const fila = ev.target.closest('[data-accion]');
+    if(!fila) return;
+    const ir = IR_DETALLE_PROFORMA[fila.dataset.accion];
+    if(!ir) return;
+    cerrarModal();
+    ir(fila.dataset.id);
+  });
 }
 
 /* ==================== Cocinas: funcionalidad de equipos ====================
@@ -12754,7 +12929,8 @@ const TEMAS_AYUDA = [
           'Un pilar sin ningún renglón conectado todavía muestra "Todavía sin renglones conectados aquí" en vez de una gráfica vacía o inventada.',
           '<b>Resumen general Forguard</b> es la suma en vivo de los 4 pilares — Ingresos/Costos/Utilidad/Margen de TODA la empresa— más un ranking de qué tanto aporta cada pilar al ingreso del año. No es un renglón nuevo capturado a mano: se recalcula solo de lo que ya está conectado abajo.',
           '<b>Cumplimiento de pólizas</b> (debajo del gráfico de Servicios Técnicos): el mismo % que ya ves en el calendario de cada póliza (de lo que ya le tocaba, cuánto se hizo a tiempo), aquí todas las pólizas Activas juntas en un solo gráfico de dispersión — cada punto es una póliza, su posición horizontal es su % de cumplimiento y la vertical su ingreso anual, y su color es el mismo semáforo de siempre (verde/naranja/rojo/gris). Pasa el mouse sobre un punto para ver de cuál póliza se trata.',
-          'Las tablas mensuales arrancan <b>compactas</b> (el mes actual y los 3 anteriores) para no verse amontonadas — el Total del año siempre suma los 12 meses completos, se vean o no. "Ver los 12 meses" (arriba de los 4 pilares) los revela con un clic en las 4 tablas a la vez; nunca se pierde un mes, solo se oculta.'
+          'Las tablas mensuales arrancan <b>compactas</b> (el mes actual y los 3 anteriores) para no verse amontonadas — el Total del año siempre suma los 12 meses completos, se vean o no. "Ver los 12 meses" (arriba de los 4 pilares) los revela con un clic en las 4 tablas a la vez; nunca se pierde un mes, solo se oculta.',
+          '<b>El dashboard es interactivo</b> (25-sep-2026): en cualquier renglón ya conectado (se ve con el cursor de "mano" al pasar el mouse), clic en el <b>nombre</b> abre el detalle del año completo, clic en <b>cualquier mes</b> (o en el Total) abre el detalle de solo ese mes — la lista exacta de pólizas, cotizaciones, personas o gastos que suman ese número, cada una con un enlace para abrirla directo en su propio módulo. Un renglón todavía en $0 (sin conectar) no tiene nada que mostrar, así que no es clicable.'
         ])
       + guiaTip('Por qué no incluye "Gastos de Estructura Forguard" todavía', [
           'El Excel de referencia trae, debajo de los 4 pilares, un bloque aparte de gastos que no se reparten entre pilares ("Gastos de Estructura Forguard" — nómina administrativa, renta de oficina, etc.). Se dejó fuera a propósito por ahora: Victor pidió específicamente "el total deben ser 4 secciones" para los pilares de negocio — este bloque de gastos generales de la empresa se agrega después si hace falta, sin tocar los 4 pilares.'
@@ -27730,6 +27906,11 @@ $('vista').addEventListener('click', ev=>{
          agrega un tercer botón, "calendario", con su propio cronograma. */
       estado[acc.dataset.campo] = acc.dataset.modo;
       render();
+    }
+    else if(a === 'detalle-proforma'){
+      /* data-mes ausente = todo el año (ver filaConceptoProforma: la celda
+         del nombre y la del Total no llevan data-mes, cada celda de mes sí). */
+      modalDetalleProforma(acc.dataset.pilar, acc.dataset.concepto, acc.dataset.mes !== undefined ? Number(acc.dataset.mes) : null);
     }
     else if(a === 'ordenar-poliza'){
       /* Un segundo clic en la misma columna invierte el sentido; cambiar de
