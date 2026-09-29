@@ -702,6 +702,41 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     Math.round(equipo.correctivoPreventivo[3]) === 1150);
   chkF('"Otros costos directos" (Servicios Técnicos): abril SOLO trae el costo de qe4 ($1,000) — sin el de qe1/qe2', equipo.otrosCostos[3] === 1000);
 
+  // --------- 17) "Otros costos directos" (Proyectos e Infraestructura, costo), desde gastosProveedor con pilarId 'proyectos' (29-sep-2026) ---------
+  // Mismo mecanismo que "Proveedores / servicios subcontratados" en
+  // Servicios Técnicos (sección 13), pero SIN las Órdenes de Compra — esas
+  // se siguen sumando completas a Servicios Técnicos (no tienen campo Pilar
+  // propio), no a Proyectos.
+  await page.evaluate((anio) => {
+    datos.gastosProveedor = [
+      // pilarId 'proyectos', 'por-pagar': cuenta.
+      normalizarGastoProveedor({ id:'gp1', proveedorId:'pr3', proveedorNombre:'Constructora Acme', concepto:'Renta de andamios', monto:6000, fecha: anio+'-07-05', estatus:'por-pagar', pilarId:'proyectos' }),
+      // pilarId 'proyectos', 'pagado': también cuenta, mismo mes.
+      normalizarGastoProveedor({ id:'gp2', proveedorId:'pr3', proveedorNombre:'Constructora Acme', concepto:'Permiso municipal', monto:1500, fecha: anio+'-07-20', estatus:'pagado', pilarId:'proyectos' }),
+      // otro pilar: NO debe colarse en Proyectos.
+      normalizarGastoProveedor({ id:'gp3', proveedorId:'pr1', proveedorNombre:'Refrigeración del Norte', concepto:'De Servicios Técnicos', monto:99999, fecha: anio+'-07-01', estatus:'pagado', pilarId:'tecnicos' })
+    ];
+    // Las mismas Órdenes de Compra de la sección 13 (oc1/oc2, confirmada/
+    // recibida en mayo) siguen ahí: deben seguir sumando SOLO en Servicios
+    // Técnicos, nunca en Proyectos, aunque Proyectos ya tenga este renglón conectado.
+    render();
+  }, anioActual);
+  await page.waitForTimeout(100);
+
+  const otrosCostosProyectos = await page.evaluate(() => {
+    const anio = hoyISO().slice(0,4);
+    const pilar = PILARES_PROFORMA.find(p => p.id === 'proyectos');
+    return {
+      montos: pilar.costos.find(c => c.id === 'otros-costos').montosPorMes(anio),
+      detalleJulio: pilar.costos.find(c => c.id === 'otros-costos').detalle(anio, 6)
+    };
+  });
+  chkF('"Otros costos directos" (Proyectos): julio suma "por-pagar" + "pagado" ($6,000 + $1,500 = $7,500)', otrosCostosProyectos.montos[6] === 7500);
+  chkF('El gasto de Servicios Técnicos (gp3) NO se cuela en Proyectos', otrosCostosProyectos.montos.filter((_,i) => i !== 6).every(m => m === 0));
+  chkF('Las Órdenes de Compra de mayo (Servicios Técnicos) NO se suman aquí (mayo sigue en $0)', otrosCostosProyectos.montos[4] === 0);
+  chkF('Detalle de "Otros costos directos" (Proyectos, julio): los 2 gastos reales, con enlace a su ficha', otrosCostosProyectos.detalleJulio.length === 2
+    && otrosCostosProyectos.detalleJulio.every(it => it.accion === 'ir-gasto-proveedor'));
+
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 
   console.log('Errores capturados:', JSON.stringify(errores));

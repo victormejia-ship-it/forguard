@@ -12272,8 +12272,11 @@ function detalleNominaPorPilar(pilarId){
    - A cuál pilar pertenece lo dice el campo Pilar del propio gasto
      (gpPilar en modalGastoProveedor) — un gasto sin pilar asignado no
      cuenta en ninguno. Mismo mecanismo que pilarId en Personal, reusable
-     para el mismo renglón en los otros pilares que lo tienen (Servicios
-     Operativos, Proyectos e Infraestructura) el día que se conecten.
+     para el mismo renglón en los otros pilares que lo tienen — ya
+     conectado también en Proyectos e Infraestructura (29-sep-2026, como
+     "Otros costos directos": ahí "Proveedores / servicios subcontratados"
+     como tal no existe, ya está ocupado por la mano de obra de Imagen/
+     Aperturas), pendiente todavía en Servicios Operativos.
 
    Órdenes de Compra (25-sep-2026, mismo día — hallazgo propio al revisar
    el módulo): desde el 17-sep-2026 ya NO se captura un "gasto" suelto para
@@ -12437,7 +12440,7 @@ const PILARES_PROFORMA = [
       { id:'materiales', label:'Materiales', montosPorMes: montosPorMesCostoProyectoImagen('materiales'), detalle: detalleCostoProyectoImagen('materiales') },
       { id:'contratistas-proveedores', label:'Contratistas / proveedores', montosPorMes: montosPorMesCostoProyectoImagen('manoObra'), detalle: detalleCostoProyectoImagen('manoObra') },
       { id:'costo-equipos', label:'Costo de equipos', montosPorMes: montosPorMesCotizacionesEquipo('costo'), detalle: detalleCotizacionesEquipo('costo') },
-      { id:'otros-costos', label:'Otros costos directos', montosPorMes: sinDatosTodavia() }
+      { id:'otros-costos', label:'Otros costos directos', montosPorMes: montosPorMesGastosProveedorPorPilar('proyectos'), detalle: detalleGastosProveedorPorPilar('proyectos') }
     ] },
   { id:'tecnologia', nombre:'Tecnología y Control',
     ingresos: [
@@ -13192,7 +13195,8 @@ const TEMAS_AYUDA = [
           '<b>Proveedores / servicios subcontratados</b> (Servicios Técnicos, costo): dos fuentes juntas — (1) gastos de Proveedores capturados a mano con estatus <b>Por pagar</b> o <b>Pagado</b> y el campo <b>Pilar</b> puesto en "Servicios Técnicos" (una simple "Cotización" sin aceptar, o uno "Cancelado", no cuentan); y (2) <b>Órdenes de Compra</b> Confirmadas/Enviadas/Recibidas (Borrador o Cancelada no) — como una Orden de Compra no tiene campo Pilar propio, TODAS se suman aquí por ahora. Ambas cuentan en el mes de su fecha, sin IVA, se hayan pagado o no todavía.',
           '<b>Aperturas / Remodelaciones / Otros proyectos</b> (Proyectos e Infraestructura, ingreso): proyectos de <b>Imagen/Aperturas</b> según su tipo (Apertura nueva → "Aperturas", Remodelación → "Remodelaciones", Cambio de imagen → "Otros proyectos") — cuentan SOLO desde que el cliente aprobó el presupuesto (estatus <b>Aprobado</b>/<b>En obra</b>/<b>Terminado</b>: Diseño y Cotización todavía pueden cambiar o no concretarse), por el precio de venta total del proyecto.',
           '<b>Materiales / Contratistas y proveedores</b> (Proyectos e Infraestructura, costo): el mismo desglose de costo que ya usa el módulo de Imagen/Aperturas (materiales comprados vs. mano de obra, según el proveedor de cada concepto venga marcado como "Servicios") — con el MISMO candado que el ingreso, solo de proyectos Aprobados/En obra/Terminado (29-sep-2026: antes el costo contaba desde que se capturaba y el ingreso no, y con proyectos acumulados en Diseño/Cotización eso pintaba pérdida en Resultados aunque cada proyecto tuviera margen positivo — ahora los dos usan el mismo estatus, simetría total).',
-          '<b>Venta / renta de equipos</b> (Proyectos e Infraestructura, ingreso) y <b>Costo de equipos</b> (costo) (29-sep-2026, pedido de Victor: "podemos contemplar la venta de equipo y renta de equipos, derivado de las cotizaciones las podemos tomar"): cotizaciones con estatus <b>Realizado</b> Y <b>Tipo de mantenimiento: EQUIPO</b> — mismo criterio de fecha/monto sin IVA que "Trabajos correctivos / preventivo", de donde se sacaron para no contarlas dos veces. "Otros costos directos" (Proyectos e Infraestructura) sigue sin conectar.',
+          '<b>Venta / renta de equipos</b> (Proyectos e Infraestructura, ingreso) y <b>Costo de equipos</b> (costo) (29-sep-2026, pedido de Victor: "podemos contemplar la venta de equipo y renta de equipos, derivado de las cotizaciones las podemos tomar"): cotizaciones con estatus <b>Realizado</b> Y <b>Tipo de mantenimiento: EQUIPO</b> — mismo criterio de fecha/monto sin IVA que "Trabajos correctivos / preventivo", de donde se sacaron para no contarlas dos veces.',
+          '<b>Otros costos directos</b> (Proyectos e Infraestructura, costo) (29-sep-2026, mismo día): gastos de <b>Proveedores</b> capturados a mano con estatus <b>Por pagar</b> o <b>Pagado</b> y el campo <b>Pilar</b> puesto en "Proyectos e Infraestructura" — mismo mecanismo que "Proveedores / servicios subcontratados" en Servicios Técnicos, pero SIN las Órdenes de Compra (esas, al no tener campo Pilar propio, se siguen sumando completas a Servicios Técnicos por ahora, como ya se documentó ahí).',
           'El <b>mes</b> en el que cae cualquiera de los dos renglones de Proyectos (ingreso o costo) es el de la <b>fecha de salida del sitio</b> (fin de obra) — si el trabajo cruza de un mes a otro, cuenta en el que se terminó, no en el que arrancó. Sin fecha de salida capturada todavía (obra en curso), se usa la de entrada; sin ninguna de las dos, la fecha de alta del proyecto.'
         ])
       + guiaTip('Cómo leer cada bloque (25-sep-2026)', [
