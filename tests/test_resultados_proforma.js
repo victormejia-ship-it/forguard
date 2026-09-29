@@ -545,6 +545,106 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Clic en el registro del modal cierra el modal y navega a esa póliza en su propio módulo',
     trasNavegar.modulo === 'polizas' && trasNavegar.polizaId === 'p1' && trasNavegar.modalCerrado === true);
 
+  // --------- 15) "Proyectos e Infraestructura" ← Proyectos de Imagen/Aperturas (29-sep-2026) ---------
+  // La sección anterior (14) termina navegando a Pólizas (clic en el
+  // registro del modal) — hay que volver a Resultados antes de seguir.
+  await page.evaluate(() => { irAModulo('resultados'); });
+  await page.waitForTimeout(100);
+  // Confirmado con Victor: el INGRESO cuenta solo desde Aprobado/En obra/
+  // Terminado (Diseño/Cotización no); el COSTO cuenta siempre, desde que se
+  // captura. El MES de cualquiera de los dos es el de la fecha de SALIDA
+  // del sitio — si la obra cruza de un mes a otro, cuenta en el que
+  // terminó, no en el que arrancó. Sin fecha de salida capturada, se usa la
+  // de entrada. "Cambio de imagen" cuenta en "Otros proyectos".
+  await page.evaluate((anio) => {
+    datos.proyectosImagen = [
+      // Apertura YA aprobada, entrada y salida en el MISMO mes (junio): su
+      // ingreso SÍ cuenta, en junio.
+      normalizarProyectoImagen({
+        id:'pi1', folio:'IMG-1', nombreProyecto:'Sucursal Centro', clienteId:'c1', sitioId:'s1',
+        tipo:'apertura', estatus:'aprobado', fecha: anio+'-05-01',
+        fechaEntrada: anio+'-06-05', fechaSalida: anio+'-06-20',
+        conceptos: [
+          { proveedor:'Equipos del Norte', concepto:'Refrigerador nuevo', cantidad:1, costoUnitario:10000, precioVenta:15000 },
+          { proveedor:'Servicios', concepto:'Instalación', cantidad:1, costoUnitario:2000, precioVenta:3000 }
+        ]
+      }),
+      // Apertura TODAVÍA en diseño: su ingreso NO cuenta (puede cambiar o no
+      // concretarse) pero su COSTO sí, igual en junio... julio, para no
+      // mezclarse con pi1 en las sumas de costo.
+      normalizarProyectoImagen({
+        id:'pi2', folio:'IMG-2', nombreProyecto:'Sucursal Norte (en diseño)', clienteId:'c1', sitioId:'s1',
+        tipo:'apertura', estatus:'diseno', fecha: anio+'-06-01',
+        fechaEntrada: anio+'-07-01', fechaSalida: anio+'-07-05',
+        conceptos: [{ proveedor:'Materiales X', concepto:'Piso nuevo', cantidad:1, costoUnitario:4000, precioVenta:6000 }]
+      }),
+      // Remodelación en obra: entrada 28 de agosto, salida 3 de septiembre —
+      // la semana cruza de mes, así que cuenta en SEPTIEMBRE (fecha de
+      // salida), no en agosto.
+      normalizarProyectoImagen({
+        id:'pi3', folio:'IMG-3', nombreProyecto:'Remodelación de baños', clienteId:'c1', sitioId:'s1',
+        tipo:'remodelacion', estatus:'obra', fecha: anio+'-08-01',
+        fechaEntrada: anio+'-08-28', fechaSalida: anio+'-09-03',
+        conceptos: [{ proveedor:'Servicios', concepto:'Mano de obra remodelación', cantidad:1, costoUnitario:5000, precioVenta:9000 }]
+      }),
+      // Cambio de imagen terminado: cuenta en "Otros proyectos", en octubre.
+      normalizarProyectoImagen({
+        id:'pi4', folio:'IMG-4', nombreProyecto:'Cambio de imagen', clienteId:'c1', sitioId:'s1',
+        tipo:'cambio_imagen', estatus:'terminado', fecha: anio+'-09-15',
+        fechaEntrada: anio+'-10-01', fechaSalida: anio+'-10-10',
+        conceptos: [{ proveedor:'Rotulación SA', concepto:'Letrero nuevo', cantidad:1, costoUnitario:3000, precioVenta:5000 }]
+      })
+    ];
+    render();
+  }, anioActual);
+  await page.waitForTimeout(100);
+
+  const proyectos = await page.evaluate(() => {
+    const anio = hoyISO().slice(0,4);
+    const pilar = PILARES_PROFORMA.find(p => p.id === 'proyectos');
+    return {
+      aperturas: pilar.ingresos.find(c => c.id === 'aperturas').montosPorMes(anio),
+      remodelaciones: pilar.ingresos.find(c => c.id === 'remodelaciones').montosPorMes(anio),
+      otrosProyectos: pilar.ingresos.find(c => c.id === 'otros-proyectos').montosPorMes(anio),
+      ventaRentaEquipos: pilar.ingresos.find(c => c.id === 'venta-renta-equipos').montosPorMes(anio),
+      materiales: pilar.costos.find(c => c.id === 'materiales').montosPorMes(anio),
+      contratistas: pilar.costos.find(c => c.id === 'contratistas-proveedores').montosPorMes(anio),
+      detalleAperturasJunio: pilar.ingresos.find(c => c.id === 'aperturas').detalle(anio, 5),
+      detalleMaterialesAnio: pilar.costos.find(c => c.id === 'materiales').detalle(anio, null)
+    };
+  });
+  chkF('"Aperturas": solo la YA APROBADA cuenta, en JUNIO (mes de entrada=salida) — $15,000+$3,000 = $18,000', proyectos.aperturas[5] === 18000);
+  chkF('"Aperturas": la que sigue en Diseño NO cuenta como ingreso todavía', proyectos.aperturas.filter((_,i) => i !== 5).every(m => m === 0));
+  chkF('"Remodelaciones": entrada 28-ago/salida 3-sep cuenta en SEPTIEMBRE (fecha de salida), no en agosto', proyectos.remodelaciones[7] === 0 && proyectos.remodelaciones[8] === 9000);
+  chkF('"Otros proyectos": el "Cambio de imagen" terminado cuenta ahí, en octubre', proyectos.otrosProyectos[9] === 5000);
+  chkF('"Venta / renta de equipos" sigue sin fuente conectada, en $0', proyectos.ventaRentaEquipos.every(m => m === 0));
+  chkF('"Materiales": cuenta SIEMPRE, sin esperar estatus — junio (pi1, $10,000) + julio (pi2 en diseño, $4,000) + octubre (pi4, $3,000)',
+    proyectos.materiales[5] === 10000 && proyectos.materiales[6] === 4000 && proyectos.materiales[9] === 3000);
+  chkF('"Contratistas / proveedores" (mano de obra, proveedor "Servicios"): junio (pi1, $2,000) + septiembre (pi3, $5,000)',
+    proyectos.contratistas[5] === 2000 && proyectos.contratistas[8] === 5000);
+  chkF('Detalle de "Aperturas" en junio: solo IMG-1, con enlace al proyecto', proyectos.detalleAperturasJunio.length === 1
+    && proyectos.detalleAperturasJunio[0].accion === 'ir-proyecto-imagen' && proyectos.detalleAperturasJunio[0].accionId === 'pi1' && proyectos.detalleAperturasJunio[0].monto === 18000);
+  chkF('Detalle de "Materiales" en el año: IMG-1/IMG-2/IMG-4 (la remodelación de IMG-3 fue mano de obra, no aporta aquí)',
+    proyectos.detalleMaterialesAnio.length === 3 && proyectos.detalleMaterialesAnio.every(it => it.accion === 'ir-proyecto-imagen'));
+
+  // De verdad en pantalla: clic en el renglón navega al proyecto real.
+  await page.evaluate(() => { document.querySelector('[data-accion="vista-lista"][data-campo="resultadosMeses"][data-modo="todos"]').click(); });
+  await page.waitForTimeout(100);
+  const filaAperturasTexto = await page.evaluate(() => {
+    const proyectosBloque = Array.from(document.querySelectorAll('#vista .bloque-pilar')).find(b => b.querySelector('h3').textContent === 'Proyectos e Infraestructura');
+    const fila = Array.from(proyectosBloque.querySelectorAll('table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes('Aperturas'));
+    return fila.textContent;
+  });
+  chkF('"Aperturas" ya se ve en la tabla de Proyectos e Infraestructura con su monto real', filaAperturasTexto.includes('$18,000'));
+
+  await page.locator('td.clic-detalle', { hasText: 'Aperturas' }).first().click();
+  await page.waitForTimeout(150);
+  await page.locator('.dp-fila.dp-clic', { hasText: 'IMG-1' }).click();
+  await page.waitForTimeout(200);
+  const trasNavegarProyecto = await page.evaluate(() => ({ vista: estado.vista, proyectoImagenId: estado.proyectoImagenId, modalCerrado: !document.getElementById('telon').classList.contains('abierto') }));
+  chkF('Clic en el registro del modal cierra el modal y navega al proyecto real (entrarProyectoImagen)',
+    trasNavegarProyecto.vista === 'proyecto-imagen' && trasNavegarProyecto.proyectoImagenId === 'pi1' && trasNavegarProyecto.modalCerrado === true);
+
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 
   console.log('Errores capturados:', JSON.stringify(errores));
