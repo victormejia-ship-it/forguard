@@ -12131,11 +12131,25 @@ function detallePolizas(cargoA, campo){
    El costo cae en "Otros costos directos" —confirmado con Victor vía
    AskUserQuestion— y NO en "Refacciones y materiales", que se deja
    exclusivo del costo de Pólizas. */
+/* "Venta / renta de equipos" (ingreso) y "Costo de equipos" (costo), en
+   Proyectos e Infraestructura — pedido de Victor (29-sep-2026): "podemos
+   contemplar la venta de equipo y renta de equipos, derivado de las
+   cotizaciones las podemos tomar". Se identifican por tipoMtto === 'EQUIPO'
+   (ya un valor sugerido del campo "Tipo de mantenimiento" al capturar una
+   cotización, TIPOS_MTTO_SUGERIDOS, desde antes de este pedido — comparación
+   sin distinguir mayúsculas/minúsculas porque el campo es texto libre).
+   Confirmado con ella vía AskUserQuestion: para no contarlas dos veces, se
+   SACAN de "Trabajos correctivos / preventivo" / "Otros costos directos"
+   (Servicios Técnicos) — de ahí en adelante una cotización de equipo cuenta
+   SOLO aquí. */
+function esCotizacionEquipo(q){
+  return String(q.tipoMtto || '').trim().toUpperCase() === 'EQUIPO';
+}
 function montosPorMesCotizacionesRealizadas(campo){
   return (anio) => {
     const totales = Array(12).fill(0);
     datos.cotizaciones
-      .filter(q => q.estatus === 'realizado')
+      .filter(q => q.estatus === 'realizado' && !esCotizacionEquipo(q))
       .forEach(q => {
         const fecha = q.fechaRealizado || q.fecha;
         if(!fecha || fecha.slice(0,4) !== String(anio)) return;
@@ -12152,7 +12166,7 @@ function detalleCotizacionesRealizadas(campo){
   return (anio, mes) => {
     const items = [];
     datos.cotizaciones
-      .filter(q => q.estatus === 'realizado')
+      .filter(q => q.estatus === 'realizado' && !esCotizacionEquipo(q))
       .forEach(q => {
         const fecha = q.fechaRealizado || q.fecha;
         if(!fecha || fecha.slice(0,4) !== String(anio)) return;
@@ -12161,6 +12175,38 @@ function detalleCotizacionesRealizadas(campo){
         const c = calcularCotizacion(q);
         const monto = campo === 'ingreso' ? c.subtotalCliente : c.subtotalCosto;
         if(monto) items.push({ etiqueta: (q.folio || 'Cotización') + ' — ' + fecha, monto, accion:'ir-cotizacion', accionId:q.id });
+      });
+    return items;
+  };
+}
+function montosPorMesCotizacionesEquipo(campo){
+  return (anio) => {
+    const totales = Array(12).fill(0);
+    datos.cotizaciones
+      .filter(q => q.estatus === 'realizado' && esCotizacionEquipo(q))
+      .forEach(q => {
+        const fecha = q.fechaRealizado || q.fecha;
+        if(!fecha || fecha.slice(0,4) !== String(anio)) return;
+        const mes = Number(fecha.slice(5,7)) - 1;
+        const c = calcularCotizacion(q);
+        totales[mes] += campo === 'ingreso' ? c.subtotalCliente : c.subtotalCosto;
+      });
+    return totales;
+  };
+}
+function detalleCotizacionesEquipo(campo){
+  return (anio, mes) => {
+    const items = [];
+    datos.cotizaciones
+      .filter(q => q.estatus === 'realizado' && esCotizacionEquipo(q))
+      .forEach(q => {
+        const fecha = q.fechaRealizado || q.fecha;
+        if(!fecha || fecha.slice(0,4) !== String(anio)) return;
+        const m = Number(fecha.slice(5,7)) - 1;
+        if(mes != null && m !== mes) return;
+        const c = calcularCotizacion(q);
+        const monto = campo === 'ingreso' ? c.subtotalCliente : c.subtotalCosto;
+        if(monto) items.push({ etiqueta: (q.folio || 'Cotización') + (q.equipoNombre ? ' — ' + q.equipoNombre : ' — ' + fecha), monto, accion:'ir-cotizacion', accionId:q.id });
       });
     return items;
   };
@@ -12383,14 +12429,14 @@ const PILARES_PROFORMA = [
     ingresos: [
       { id:'aperturas', label:'Aperturas', montosPorMes: montosPorMesIngresoProyectoImagen(['apertura']), detalle: detalleIngresoProyectoImagen(['apertura']) },
       { id:'remodelaciones', label:'Remodelaciones', montosPorMes: montosPorMesIngresoProyectoImagen(['remodelacion']), detalle: detalleIngresoProyectoImagen(['remodelacion']) },
-      { id:'venta-renta-equipos', label:'Venta / renta de equipos', montosPorMes: sinDatosTodavia() },
+      { id:'venta-renta-equipos', label:'Venta / renta de equipos', montosPorMes: montosPorMesCotizacionesEquipo('ingreso'), detalle: detalleCotizacionesEquipo('ingreso') },
       { id:'otros-proyectos', label:'Otros proyectos', montosPorMes: montosPorMesIngresoProyectoImagen(['cambio_imagen']), detalle: detalleIngresoProyectoImagen(['cambio_imagen']) }
     ],
     costos: [
       { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('proyectos'), detalle: detalleNominaPorPilar('proyectos') },
       { id:'materiales', label:'Materiales', montosPorMes: montosPorMesCostoProyectoImagen('materiales'), detalle: detalleCostoProyectoImagen('materiales') },
       { id:'contratistas-proveedores', label:'Contratistas / proveedores', montosPorMes: montosPorMesCostoProyectoImagen('manoObra'), detalle: detalleCostoProyectoImagen('manoObra') },
-      { id:'costo-equipos', label:'Costo de equipos', montosPorMes: sinDatosTodavia() },
+      { id:'costo-equipos', label:'Costo de equipos', montosPorMes: montosPorMesCotizacionesEquipo('costo'), detalle: detalleCotizacionesEquipo('costo') },
       { id:'otros-costos', label:'Otros costos directos', montosPorMes: sinDatosTodavia() }
     ] },
   { id:'tecnologia', nombre:'Tecnología y Control',
@@ -13140,12 +13186,13 @@ const TEMAS_AYUDA = [
           '<b>Pólizas de mantenimiento</b> (Servicios Técnicos): pólizas con Cargo a Cliente, Activas — el ingreso cuenta en el mes que le toca por su calendario de facturación (mensual o anual), sin esperar a que se marque como cobrada.',
           '<b>Pólizas de mantenimiento incluidas en precio</b> (Servicios Técnicos): pólizas con Cargo a Interno, Activas —las que se absorben, facturadas aparte (p.ej. a Plato Express)— mismo criterio de calendario.',
           '<b>Refacciones y materiales</b> (Servicios Técnicos, costo): el costo anual de CUALQUIER póliza activa (cliente o interno) repartido parejo entre sus 12 meses, sin esperar a que el técnico marque el servicio como hecho.',
-          '<b>Trabajos correctivos / preventivo</b> (Servicios Técnicos): cotizaciones con estatus <b>Realizado</b> (sin importar cargo a cliente o comedor) — cuenta en el mes de la fecha de servicio realizado, por su monto al cliente sin IVA.',
-          '<b>Otros costos directos</b> (Servicios Técnicos, costo): el costo de esas mismas cotizaciones "Realizado", sin IVA.',
+          '<b>Trabajos correctivos / preventivo</b> (Servicios Técnicos): cotizaciones con estatus <b>Realizado</b> (sin importar cargo a cliente o comedor) — cuenta en el mes de la fecha de servicio realizado, por su monto al cliente sin IVA. Una cotización marcada como <b>Tipo de mantenimiento: EQUIPO</b> NO entra aquí (29-sep-2026): cuenta solo en Proyectos e Infraestructura → "Venta / renta de equipos", para no duplicarla.',
+          '<b>Otros costos directos</b> (Servicios Técnicos, costo): el costo de esas mismas cotizaciones "Realizado", sin IVA — mismo criterio de arriba, una de tipo EQUIPO tampoco entra aquí.',
           '<b>Nómina directa del pilar</b> (Servicios Técnicos, Servicios Operativos y Proyectos e Infraestructura — Tecnología y Control no la trae, calcado del Excel): la suma del sueldo mensual de todo el personal <b>Activo</b> asignado a ESE pilar en el Organigrama, parejo en los 12 meses. Se asigna el pilar y el sueldo de cada persona desde su ficha en Organigrama —no se vuelve a capturar nada aquí—; el sueldo es dato sensible, así que <b>solo Owner/Admin</b> lo ven, para cualquier otro rol el renglón se queda en $0.',
           '<b>Proveedores / servicios subcontratados</b> (Servicios Técnicos, costo): dos fuentes juntas — (1) gastos de Proveedores capturados a mano con estatus <b>Por pagar</b> o <b>Pagado</b> y el campo <b>Pilar</b> puesto en "Servicios Técnicos" (una simple "Cotización" sin aceptar, o uno "Cancelado", no cuentan); y (2) <b>Órdenes de Compra</b> Confirmadas/Enviadas/Recibidas (Borrador o Cancelada no) — como una Orden de Compra no tiene campo Pilar propio, TODAS se suman aquí por ahora. Ambas cuentan en el mes de su fecha, sin IVA, se hayan pagado o no todavía.',
-          '<b>Aperturas / Remodelaciones / Otros proyectos</b> (Proyectos e Infraestructura, ingreso): proyectos de <b>Imagen/Aperturas</b> según su tipo (Apertura nueva → "Aperturas", Remodelación → "Remodelaciones", Cambio de imagen → "Otros proyectos") — cuentan SOLO desde que el cliente aprobó el presupuesto (estatus <b>Aprobado</b>/<b>En obra</b>/<b>Terminado</b>: Diseño y Cotización todavía pueden cambiar o no concretarse), por el precio de venta total del proyecto. "Venta / renta de equipos" sigue sin conectar.',
-          '<b>Materiales / Contratistas y proveedores</b> (Proyectos e Infraestructura, costo): el mismo desglose de costo que ya usa el módulo de Imagen/Aperturas (materiales comprados vs. mano de obra, según el proveedor de cada concepto venga marcado como "Servicios") — con el MISMO candado que el ingreso, solo de proyectos Aprobados/En obra/Terminado (29-sep-2026: antes el costo contaba desde que se capturaba y el ingreso no, y con proyectos acumulados en Diseño/Cotización eso pintaba pérdida en Resultados aunque cada proyecto tuviera margen positivo — ahora los dos usan el mismo estatus, simetría total). "Costo de equipos" y "Otros costos directos" siguen sin conectar.',
+          '<b>Aperturas / Remodelaciones / Otros proyectos</b> (Proyectos e Infraestructura, ingreso): proyectos de <b>Imagen/Aperturas</b> según su tipo (Apertura nueva → "Aperturas", Remodelación → "Remodelaciones", Cambio de imagen → "Otros proyectos") — cuentan SOLO desde que el cliente aprobó el presupuesto (estatus <b>Aprobado</b>/<b>En obra</b>/<b>Terminado</b>: Diseño y Cotización todavía pueden cambiar o no concretarse), por el precio de venta total del proyecto.',
+          '<b>Materiales / Contratistas y proveedores</b> (Proyectos e Infraestructura, costo): el mismo desglose de costo que ya usa el módulo de Imagen/Aperturas (materiales comprados vs. mano de obra, según el proveedor de cada concepto venga marcado como "Servicios") — con el MISMO candado que el ingreso, solo de proyectos Aprobados/En obra/Terminado (29-sep-2026: antes el costo contaba desde que se capturaba y el ingreso no, y con proyectos acumulados en Diseño/Cotización eso pintaba pérdida en Resultados aunque cada proyecto tuviera margen positivo — ahora los dos usan el mismo estatus, simetría total).',
+          '<b>Venta / renta de equipos</b> (Proyectos e Infraestructura, ingreso) y <b>Costo de equipos</b> (costo) (29-sep-2026, pedido de Victor: "podemos contemplar la venta de equipo y renta de equipos, derivado de las cotizaciones las podemos tomar"): cotizaciones con estatus <b>Realizado</b> Y <b>Tipo de mantenimiento: EQUIPO</b> — mismo criterio de fecha/monto sin IVA que "Trabajos correctivos / preventivo", de donde se sacaron para no contarlas dos veces. "Otros costos directos" (Proyectos e Infraestructura) sigue sin conectar.',
           'El <b>mes</b> en el que cae cualquiera de los dos renglones de Proyectos (ingreso o costo) es el de la <b>fecha de salida del sitio</b> (fin de obra) — si el trabajo cruza de un mes a otro, cuenta en el que se terminó, no en el que arrancó. Sin fecha de salida capturada todavía (obra en curso), se usa la de entrada; sin ninguna de las dos, la fecha de alta del proyecto.'
         ])
       + guiaTip('Cómo leer cada bloque (25-sep-2026)', [

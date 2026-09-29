@@ -622,7 +622,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('"Aperturas": la que sigue en Diseño NO cuenta como ingreso todavía', proyectos.aperturas.filter((_,i) => i !== 5).every(m => m === 0));
   chkF('"Remodelaciones": entrada 28-ago/salida 3-sep cuenta en SEPTIEMBRE (fecha de salida), no en agosto', proyectos.remodelaciones[7] === 0 && proyectos.remodelaciones[8] === 9000);
   chkF('"Otros proyectos": el "Cambio de imagen" terminado cuenta ahí, en octubre', proyectos.otrosProyectos[9] === 5000);
-  chkF('"Venta / renta de equipos" sigue sin fuente conectada, en $0', proyectos.ventaRentaEquipos.every(m => m === 0));
+  chkF('"Venta / renta de equipos" en $0 aquí (ninguna cotización de este fixture es tipoMtto EQUIPO — se prueba a fondo en la sección 16)', proyectos.ventaRentaEquipos.every(m => m === 0));
   chkF('"Materiales": mismo candado que el ingreso (Aprobado/En obra/Terminado) — junio (pi1, $10,000) + octubre (pi4, $3,000); pi2 (en Diseño) NO cuenta todavía',
     proyectos.materiales[5] === 10000 && proyectos.materiales[6] === 0 && proyectos.materiales[9] === 3000);
   chkF('"Contratistas / proveedores" (mano de obra, proveedor "Servicios"): junio (pi1, $2,000) + septiembre (pi3, $5,000)',
@@ -649,6 +649,58 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   const trasNavegarProyecto = await page.evaluate(() => ({ vista: estado.vista, proyectoImagenId: estado.proyectoImagenId, modalCerrado: !document.getElementById('telon').classList.contains('abierto') }));
   chkF('Clic en el registro del modal cierra el modal y navega al proyecto real (entrarProyectoImagen)',
     trasNavegarProyecto.vista === 'proyecto-imagen' && trasNavegarProyecto.proyectoImagenId === 'pi1' && trasNavegarProyecto.modalCerrado === true);
+
+  // --------- 16) "Venta / renta de equipos" (ingreso) y "Costo de equipos" (costo), desde Cotizaciones tipoMtto EQUIPO (29-sep-2026) ---------
+  // Pedido de Victor: "podemos contemplar la venta de equipo y renta de
+  // equipos, derivado de las cotizaciones las podemos tomar" — se
+  // identifican por tipoMtto === 'EQUIPO' (comparación sin distinguir
+  // mayúsculas/minúsculas) y, para no contarlas dos veces, se sacan de
+  // "Trabajos correctivos / preventivo" / "Otros costos directos"
+  // (Servicios Técnicos), confirmado con ella vía AskUserQuestion.
+  await page.evaluate((anio) => {
+    datos.cotizaciones = [
+      // tipoMtto EQUIPO, realizado: cuenta en Proyectos, NO en Servicios Técnicos.
+      normalizarCotizacion({ id:'qe1', clienteId:'c1', sitioId:'s1', folio:'COT-E1', cargoA:'cliente',
+        estatus:'realizado', tipoMtto:'EQUIPO', fecha: anio+'-04-01', fechaRealizado: anio+'-04-12',
+        partidas: [{ concepto:'Renta de horno industrial', cantidad:1, precioCosto:2000 }] }),
+      // tipoMtto en minúsculas: el criterio no distingue mayúsculas/minúsculas.
+      normalizarCotizacion({ id:'qe2', clienteId:'c1', sitioId:'s1', folio:'COT-E2', cargoA:'cliente',
+        estatus:'realizado', tipoMtto:'equipo', fecha: anio+'-04-01', fechaRealizado: anio+'-04-20',
+        partidas: [{ concepto:'Venta de campana de extracción', cantidad:1, precioCosto:4000 }] }),
+      // tipoMtto EQUIPO pero SIN estatus 'realizado': no debe contar en ningún lado.
+      normalizarCotizacion({ id:'qe3', clienteId:'c1', sitioId:'s1', folio:'COT-E3', cargoA:'cliente',
+        estatus:'aprobada', tipoMtto:'EQUIPO', fecha: anio+'-04-01', fechaRealizado: anio+'-04-01',
+        partidas: [{ concepto:'Cotización de equipo solo aprobada', cantidad:1, precioCosto:99999 }] }),
+      // Un trabajo normal (tipoMtto vacío), realizado: sigue contando SOLO en Servicios Técnicos, como siempre.
+      normalizarCotizacion({ id:'qe4', clienteId:'c1', sitioId:'s1', folio:'COT-E4', cargoA:'cliente',
+        estatus:'realizado', fecha: anio+'-04-01', fechaRealizado: anio+'-04-05',
+        partidas: [{ concepto:'Reparación normal, no es equipo', cantidad:1, precioCosto:1000 }] })
+    ];
+    render();
+  }, anioActual);
+  await page.waitForTimeout(150);
+
+  const equipo = await page.evaluate(() => {
+    const anio = hoyISO().slice(0,4);
+    const tecnicos = PILARES_PROFORMA.find(p => p.id === 'tecnicos');
+    const proyectos = PILARES_PROFORMA.find(p => p.id === 'proyectos');
+    return {
+      ventaRenta: proyectos.ingresos.find(c => c.id === 'venta-renta-equipos').montosPorMes(anio),
+      costoEquipos: proyectos.costos.find(c => c.id === 'costo-equipos').montosPorMes(anio),
+      detalleVentaRentaAbril: proyectos.ingresos.find(c => c.id === 'venta-renta-equipos').detalle(anio, 3),
+      correctivoPreventivo: tecnicos.ingresos.find(c => c.id === 'correctivo-preventivo').montosPorMes(anio),
+      otrosCostos: tecnicos.costos.find(c => c.id === 'otros-costos').montosPorMes(anio)
+    };
+  });
+  chkF('"Venta / renta de equipos": abril = $2,300 (qe1) + $4,600 (qe2) = $6,900 (costo × 1.15 de margen; la "aprobada" qe3 NO se cuela)',
+    Math.round(equipo.ventaRenta[3]) === 6900);
+  chkF('"Venta / renta de equipos": el resto de los meses en $0', equipo.ventaRenta.filter((_,i) => i !== 3).every(m => m === 0));
+  chkF('"Costo de equipos": abril = $2,000 (qe1) + $4,000 (qe2) = $6,000, sin IVA', equipo.costoEquipos[3] === 6000);
+  chkF('Detalle de "Venta / renta de equipos" en abril trae las 2 cotizaciones de equipo, ligadas a su cotización real', equipo.detalleVentaRentaAbril.length === 2
+    && equipo.detalleVentaRentaAbril.every(it => it.accion === 'ir-cotizacion'));
+  chkF('"Trabajos correctivos / preventivo" (Servicios Técnicos): abril SOLO trae qe4 ($1,150) — qe1/qe2 (EQUIPO) NO se cuelan aquí',
+    Math.round(equipo.correctivoPreventivo[3]) === 1150);
+  chkF('"Otros costos directos" (Servicios Técnicos): abril SOLO trae el costo de qe4 ($1,000) — sin el de qe1/qe2', equipo.otrosCostos[3] === 1000);
 
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 
