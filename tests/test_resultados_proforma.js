@@ -550,12 +550,16 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   // registro del modal) — hay que volver a Resultados antes de seguir.
   await page.evaluate(() => { irAModulo('resultados'); });
   await page.waitForTimeout(100);
-  // Confirmado con Victor: el INGRESO cuenta solo desde Aprobado/En obra/
-  // Terminado (Diseño/Cotización no); el COSTO cuenta siempre, desde que se
-  // captura. El MES de cualquiera de los dos es el de la fecha de SALIDA
-  // del sitio — si la obra cruza de un mes a otro, cuenta en el que
-  // terminó, no en el que arrancó. Sin fecha de salida capturada, se usa la
-  // de entrada. "Cambio de imagen" cuenta en "Otros proyectos".
+  // Confirmado con Victor: el INGRESO y el COSTO cuentan los dos por igual
+  // solo desde Aprobado/En obra/Terminado (Diseño/Cotización no) — 29-sep-
+  // 2026, veredicto de Victor con datos reales: contar el costo desde que
+  // se capturaba (sin esperar aprobación) pintaba "pérdida" en Resultados
+  // con proyectos acumulados en Diseño, aunque cada uno tuviera margen
+  // positivo; ahora los dos usan el mismo candado, simetría total. El MES
+  // de cualquiera de los dos es el de la fecha de SALIDA del sitio — si la
+  // obra cruza de un mes a otro, cuenta en el que terminó, no en el que
+  // arrancó. Sin fecha de salida capturada, se usa la de entrada. "Cambio
+  // de imagen" cuenta en "Otros proyectos".
   await page.evaluate((anio) => {
     datos.proyectosImagen = [
       // Apertura YA aprobada, entrada y salida en el MISMO mes (junio): su
@@ -569,9 +573,10 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
           { proveedor:'Servicios', concepto:'Instalación', cantidad:1, costoUnitario:2000, precioVenta:3000 }
         ]
       }),
-      // Apertura TODAVÍA en diseño: su ingreso NO cuenta (puede cambiar o no
-      // concretarse) pero su COSTO sí, igual en junio... julio, para no
-      // mezclarse con pi1 en las sumas de costo.
+      // Apertura TODAVÍA en diseño: NI su ingreso NI su costo cuentan
+      // todavía (29-sep-2026: antes el costo sí contaba desde que se
+      // capturaba, pero eso pintaba pérdida en Resultados con proyectos
+      // acumulados en Diseño — ahora los dos esperan la misma aprobación).
       normalizarProyectoImagen({
         id:'pi2', folio:'IMG-2', nombreProyecto:'Sucursal Norte (en diseño)', clienteId:'c1', sitioId:'s1',
         tipo:'apertura', estatus:'diseno', fecha: anio+'-06-01',
@@ -618,14 +623,14 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('"Remodelaciones": entrada 28-ago/salida 3-sep cuenta en SEPTIEMBRE (fecha de salida), no en agosto', proyectos.remodelaciones[7] === 0 && proyectos.remodelaciones[8] === 9000);
   chkF('"Otros proyectos": el "Cambio de imagen" terminado cuenta ahí, en octubre', proyectos.otrosProyectos[9] === 5000);
   chkF('"Venta / renta de equipos" sigue sin fuente conectada, en $0', proyectos.ventaRentaEquipos.every(m => m === 0));
-  chkF('"Materiales": cuenta SIEMPRE, sin esperar estatus — junio (pi1, $10,000) + julio (pi2 en diseño, $4,000) + octubre (pi4, $3,000)',
-    proyectos.materiales[5] === 10000 && proyectos.materiales[6] === 4000 && proyectos.materiales[9] === 3000);
+  chkF('"Materiales": mismo candado que el ingreso (Aprobado/En obra/Terminado) — junio (pi1, $10,000) + octubre (pi4, $3,000); pi2 (en Diseño) NO cuenta todavía',
+    proyectos.materiales[5] === 10000 && proyectos.materiales[6] === 0 && proyectos.materiales[9] === 3000);
   chkF('"Contratistas / proveedores" (mano de obra, proveedor "Servicios"): junio (pi1, $2,000) + septiembre (pi3, $5,000)',
     proyectos.contratistas[5] === 2000 && proyectos.contratistas[8] === 5000);
   chkF('Detalle de "Aperturas" en junio: solo IMG-1, con enlace al proyecto', proyectos.detalleAperturasJunio.length === 1
     && proyectos.detalleAperturasJunio[0].accion === 'ir-proyecto-imagen' && proyectos.detalleAperturasJunio[0].accionId === 'pi1' && proyectos.detalleAperturasJunio[0].monto === 18000);
-  chkF('Detalle de "Materiales" en el año: IMG-1/IMG-2/IMG-4 (la remodelación de IMG-3 fue mano de obra, no aporta aquí)',
-    proyectos.detalleMaterialesAnio.length === 3 && proyectos.detalleMaterialesAnio.every(it => it.accion === 'ir-proyecto-imagen'));
+  chkF('Detalle de "Materiales" en el año: IMG-1/IMG-4 (IMG-2 en Diseño no cuenta; la remodelación de IMG-3 fue mano de obra, no aporta aquí)',
+    proyectos.detalleMaterialesAnio.length === 2 && proyectos.detalleMaterialesAnio.every(it => it.accion === 'ir-proyecto-imagen'));
 
   // De verdad en pantalla: clic en el renglón navega al proyecto real.
   await page.evaluate(() => { document.querySelector('[data-accion="vista-lista"][data-campo="resultadosMeses"][data-modo="todos"]').click(); });

@@ -12268,12 +12268,17 @@ function detalleGastosProveedorPorPilar(pilarId){
 }
 /* ---- Proyectos e Infraestructura → Proyectos de Imagen/Aperturas ----
    Confirmado con Victor (25/29-sep-2026):
-   - El INGRESO de un proyecto solo cuenta desde que el cliente aprobó el
-     presupuesto (estatus Aprobado/En obra/Terminado — Diseño y Cotización
-     todavía pueden cambiar o no concretarse). El COSTO cuenta siempre,
-     desde que se captura, sin esperar ningún estatus — mismo criterio que
-     ya usa este módulo desde el 23-sep-2026 (ver
-     ESTATUS_PROYECTO_IMAGEN_INGRESO, más arriba).
+   - El INGRESO y el COSTO de un proyecto cuentan los dos por igual desde
+     que el cliente aprobó el presupuesto (estatus Aprobado/En obra/
+     Terminado — Diseño y Cotización todavía pueden cambiar o no
+     concretarse). Antes contaban distinto (costo desde que se capturaba,
+     ingreso solo desde Aprobado): con proyectos reales acumulados en
+     Diseño/Cotización, ese desfase pintaba "pérdida" en Resultados mes
+     tras mes aunque cada proyecto, individualmente, tuviera margen
+     positivo — veredicto de Victor con datos reales: "porque en esta
+     sección estoy teniendo pérdidas si todos tienen un porcentaje a
+     favor". Ahora los dos usan el MISMO candado
+     (ESTATUS_PROYECTO_IMAGEN_INGRESO, más arriba) — simetría total.
    - El MES en el que cae cualquiera de los dos es el de la fecha de SALIDA
      del sitio (fin de obra): si el trabajo cruza de un mes a otro, cuenta
      en el que se terminó, no en el que arrancó. Antes de que haya fecha de
@@ -12284,10 +12289,11 @@ function detalleGastosProveedorPorPilar(pilarId){
      una remodelación completa, así que su ingreso cuenta en "Otros
      proyectos".
    El costo (Materiales/Contratistas) no se separa por tipo de proyecto —
-   TODOS los proyectos de imagen cuentan ahí, reusando el mismo desglose
-   materiales/mano de obra que ya calcula desgloseConceptosProyecto()
-   (mano de obra = proveedor marcado "Servicios"/"Servicios / IT", ver
-   esConceptoManoDeObra) en vez de inventar una segunda clasificación. */
+   TODOS los proyectos de imagen aprobados cuentan ahí, reusando el mismo
+   desglose materiales/mano de obra que ya calcula
+   desgloseConceptosProyecto() (mano de obra = proveedor marcado
+   "Servicios"/"Servicios / IT", ver esConceptoManoDeObra) en vez de
+   inventar una segunda clasificación. */
 function fechaResultadosProyectoImagen(p){
   return p.fechaSalida || p.fechaEntrada || p.fecha;
 }
@@ -12318,12 +12324,15 @@ function detalleIngresoProyectoImagen(tipos){
 function montosPorMesCostoProyectoImagen(campo){
   return (anio) => {
     const totales = Array(12).fill(0);
-    proyectosImagenEnAnio(anio).forEach(p => { totales[Number(fechaResultadosProyectoImagen(p).slice(5,7)) - 1] += desgloseConceptosProyecto(p)[campo]; });
+    proyectosImagenEnAnio(anio)
+      .filter(p => ESTATUS_PROYECTO_IMAGEN_INGRESO.includes(p.estatus))
+      .forEach(p => { totales[Number(fechaResultadosProyectoImagen(p).slice(5,7)) - 1] += desgloseConceptosProyecto(p)[campo]; });
     return totales;
   };
 }
 function detalleCostoProyectoImagen(campo){
   return (anio, mes) => proyectosImagenEnAnio(anio)
+    .filter(p => ESTATUS_PROYECTO_IMAGEN_INGRESO.includes(p.estatus))
     .filter(p => mes == null || Number(fechaResultadosProyectoImagen(p).slice(5,7)) - 1 === mes)
     .map(p => ({ etiqueta: (p.folio || 'Proyecto') + (p.nombreProyecto ? ' — ' + p.nombreProyecto : ''), monto: desgloseConceptosProyecto(p)[campo], accion:'ir-proyecto-imagen', accionId:p.id }))
     .filter(it => it.monto);
@@ -13120,8 +13129,8 @@ const TEMAS_AYUDA = [
           '<b>Otros costos directos</b> (Servicios Técnicos, costo): el costo de esas mismas cotizaciones "Realizado", sin IVA.',
           '<b>Nómina directa del pilar</b> (Servicios Técnicos, Servicios Operativos y Proyectos e Infraestructura — Tecnología y Control no la trae, calcado del Excel): la suma del sueldo mensual de todo el personal <b>Activo</b> asignado a ESE pilar en el Organigrama, parejo en los 12 meses. Se asigna el pilar y el sueldo de cada persona desde su ficha en Organigrama —no se vuelve a capturar nada aquí—; el sueldo es dato sensible, así que <b>solo Owner/Admin</b> lo ven, para cualquier otro rol el renglón se queda en $0.',
           '<b>Proveedores / servicios subcontratados</b> (Servicios Técnicos, costo): dos fuentes juntas — (1) gastos de Proveedores capturados a mano con estatus <b>Por pagar</b> o <b>Pagado</b> y el campo <b>Pilar</b> puesto en "Servicios Técnicos" (una simple "Cotización" sin aceptar, o uno "Cancelado", no cuentan); y (2) <b>Órdenes de Compra</b> Confirmadas/Enviadas/Recibidas (Borrador o Cancelada no) — como una Orden de Compra no tiene campo Pilar propio, TODAS se suman aquí por ahora. Ambas cuentan en el mes de su fecha, sin IVA, se hayan pagado o no todavía.',
-          '<b>Aperturas / Remodelaciones / Otros proyectos</b> (Proyectos e Infraestructura, ingreso): proyectos de <b>Imagen/Aperturas</b> según su tipo (Apertura nueva → "Aperturas", Remodelación → "Remodelaciones", Cambio de imagen → "Otros proyectos") — el ingreso cuenta SOLO desde que el cliente aprobó el presupuesto (estatus <b>Aprobado</b>/<b>En obra</b>/<b>Terminado</b>: Diseño y Cotización todavía pueden cambiar o no concretarse), por el precio de venta total del proyecto. "Venta / renta de equipos" sigue sin conectar.',
-          '<b>Materiales / Contratistas y proveedores</b> (Proyectos e Infraestructura, costo): el mismo desglose de costo que ya usa el módulo de Imagen/Aperturas (materiales comprados vs. mano de obra, según el proveedor de cada concepto venga marcado como "Servicios") — de TODOS los proyectos, sin importar su estatus: el costo cuenta desde que se captura, nunca espera aprobación. "Costo de equipos" y "Otros costos directos" siguen sin conectar.',
+          '<b>Aperturas / Remodelaciones / Otros proyectos</b> (Proyectos e Infraestructura, ingreso): proyectos de <b>Imagen/Aperturas</b> según su tipo (Apertura nueva → "Aperturas", Remodelación → "Remodelaciones", Cambio de imagen → "Otros proyectos") — cuentan SOLO desde que el cliente aprobó el presupuesto (estatus <b>Aprobado</b>/<b>En obra</b>/<b>Terminado</b>: Diseño y Cotización todavía pueden cambiar o no concretarse), por el precio de venta total del proyecto. "Venta / renta de equipos" sigue sin conectar.',
+          '<b>Materiales / Contratistas y proveedores</b> (Proyectos e Infraestructura, costo): el mismo desglose de costo que ya usa el módulo de Imagen/Aperturas (materiales comprados vs. mano de obra, según el proveedor de cada concepto venga marcado como "Servicios") — con el MISMO candado que el ingreso, solo de proyectos Aprobados/En obra/Terminado (29-sep-2026: antes el costo contaba desde que se capturaba y el ingreso no, y con proyectos acumulados en Diseño/Cotización eso pintaba pérdida en Resultados aunque cada proyecto tuviera margen positivo — ahora los dos usan el mismo estatus, simetría total). "Costo de equipos" y "Otros costos directos" siguen sin conectar.',
           'El <b>mes</b> en el que cae cualquiera de los dos renglones de Proyectos (ingreso o costo) es el de la <b>fecha de salida del sitio</b> (fin de obra) — si el trabajo cruza de un mes a otro, cuenta en el que se terminó, no en el que arrancó. Sin fecha de salida capturada todavía (obra en curso), se usa la de entrada; sin ninguna de las dos, la fecha de alta del proyecto.'
         ])
       + guiaTip('Cómo leer cada bloque (25-sep-2026)', [
