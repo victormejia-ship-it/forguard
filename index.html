@@ -3377,6 +3377,21 @@ function fetchConTimeout(url, opciones, ms){
 function urlAuth(metodo){
   return 'https://identitytoolkit.googleapis.com/v1/accounts:' + metodo + '?key=' + encodeURIComponent(CONFIG_NUBE.apiKey);
 }
+/* A dónde manda Firebase el enlace de "poner contraseña nueva" (26-sep-2026,
+   reporte de Victor: a Rubén Olvera "no le permite entrar" y el correo de
+   reenvío dice "el link está expirado"). Sin continueUrl/canHandleCodeInApp,
+   ese correo llevaba a la página genérica de Firebase (en inglés,
+   *.firebaseapp.com/__/auth/action) — ahí no hay forma de controlar cuándo
+   se valida el oobCode, y cualquier cosa que visite el link antes que la
+   persona (un antivirus de correo tipo Outlook Safe Links, o un segundo
+   correo pedido encima del primero) lo deja "usado" antes de que lo abran.
+   Con esto, el correo lleva derecho a docs/accion_cuenta.html: una pantalla
+   propia, en español, que NO llama a Firebase hasta que la persona ya
+   escribió su contraseña nueva y le dio "Guardar" — visitar el link solo no
+   gasta nada. */
+function urlAccionCuenta(){
+  return location.origin + location.pathname.replace(/[^/]*$/, '') + 'docs/accion_cuenta.html';
+}
 async function pedirAuth(metodo, cuerpo){
   const r = await fetchConTimeout(urlAuth(metodo), {
     method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(cuerpo)
@@ -13552,6 +13567,11 @@ const TEMAS_AYUDA = [
             'Solo un Owner puede cambiar el permiso de otro Owner, bloquearlo o eliminarlo — un Admin no puede tocarlo.',
             'Ni Admin ni nadie más que un Owner puede asignarle el rol Owner a alguien más.'
           ])
+        + guiaTip('Si a alguien "no le permite entrar" y el correo de recuperación dice que el enlace expiró', [
+            '"Mandarle correo para poner una contraseña nueva" (en Editar cuenta) ya no manda a la persona a la pantalla genérica de Firebase en inglés — la lleva a una pantalla propia de Forguard en español (docs/accion_cuenta.html), que solo llama a Firebase hasta que la persona ya escribió su contraseña nueva y le dio "Guardar" (29-sep-2026, reporte de Victor: a Rubén Olvera "no le permite entrar" y el reenvío también decía "link expirado").',
+            'Aun así, el enlace puede seguir marcándose como usado/vencido por dos motivos que no son un error de la app: pedir el correo más de una vez (cada envío nuevo invalida el anterior — dile a la persona que use SIEMPRE el más reciente) o que el antivirus de correo de su empresa (Outlook/Office 365 con Safe Links, por ejemplo) visite el enlace automáticamente antes de que ella lo abra.',
+            'Para desbloquear a alguien: mándale un solo correo nuevo y que lo abra de inmediato, ignorando cualquier correo anterior con el mismo asunto.'
+          ])
         + guiaTip('Qué incluye exactamente cada respaldo', [
             'El "Respaldo JSON" que descargas incluye clientes, sitios, pólizas, catálogo, segmentos, parámetros, cotizaciones, reportes y levantamientos — NO incluye Activos, Organigrama, Proveedores/Refacciones, ni las cuentas del equipo ni el historial de cambios.',
             'Restaurar un archivo SÍ puede traer de vuelta Activos/Organigrama/Proveedores/Refacciones si el archivo los trae — no son operaciones perfectamente simétricas.',
@@ -23247,7 +23267,7 @@ function modalEditarUsuario(id){
     const btnClave = $('btnResetearClave');
     btnClave.disabled = true; btnClave.textContent = 'Mandando…';
     try{
-      await pedirAuth('sendOobCode', { requestType:'PASSWORD_RESET', email: u.correo });
+      await pedirAuth('sendOobCode', { requestType:'PASSWORD_RESET', email: u.correo, continueUrl: urlAccionCuenta(), canHandleCodeInApp: true });
       aviso('Le mandamos un correo a ' + u.correo + ' para que ponga una contraseña nueva.');
     }catch(e){
       aviso(e.message, true);
@@ -27682,7 +27702,7 @@ function modalPerfil(){
 
   $('pfPorCorreo').addEventListener('click', async ()=>{
     try{
-      await pedirAuth('sendOobCode', { requestType:'PASSWORD_RESET', email: sesion.correo });
+      await pedirAuth('sendOobCode', { requestType:'PASSWORD_RESET', email: sesion.correo, continueUrl: urlAccionCuenta(), canHandleCodeInApp: true });
       cerrarModal();
       aviso('Te mandamos un correo a ' + sesion.correo + ' para poner una contraseña nueva.');
     }catch(e){ aviso(e.message, true); }
@@ -30437,7 +30457,7 @@ $('aOlvide').addEventListener('click', async ()=>{
   if(!correo){ errorAcceso('Escribe primero tu correo y vuelve a darle.'); $('aCorreo').focus(); return; }
   const avisoGenerico = 'Si existe una cuenta con ese correo, te llegará un correo para poner una contraseña nueva.';
   try{
-    await pedirAuth('sendOobCode', { requestType:'PASSWORD_RESET', email:correo });
+    await pedirAuth('sendOobCode', { requestType:'PASSWORD_RESET', email:correo, continueUrl: urlAccionCuenta(), canHandleCodeInApp: true });
     errorAcceso('');
     aviso(avisoGenerico);
   }catch(e){

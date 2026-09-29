@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forguard — Nueva contraseña</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy-oscuro:#00143D; --navy:#002369; --navy-2:#103580;
+  --accent:#54C682; --accent-hover:#43B471;
+  --ink:#00143D; --gray:#5D5D5D; --gray-claro:#AAAAAA; --line:#E4E7EC; --bg:#F6F7F9;
+  --error:#c0392b; --error-suave:#fdecea;
+  --sombra:0 18px 50px rgba(0,20,61,.18);
+  --sombra-suave:0 1px 2px rgba(0,20,61,.04), 0 2px 8px rgba(0,20,61,.06);
+}
+*{box-sizing:border-box;}
+body{
+  margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+  padding:24px 16px; background:var(--bg); color:var(--ink);
+  font-family:'Manrope',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+}
+.caja{
+  background:#fff; border:1px solid var(--line); border-radius:18px; padding:34px 30px 28px;
+  width:100%; max-width:392px; box-shadow:var(--sombra); position:relative; overflow:hidden;
+}
+.caja::before{content:""; position:absolute; inset:0 0 auto 0; height:4px; background:linear-gradient(90deg,var(--navy),var(--accent));}
+.marca{display:flex; align-items:center; gap:9px; margin-bottom:20px;}
+.marca .bar{width:4px; height:22px; border-radius:2px; background:linear-gradient(180deg,var(--navy),var(--accent));}
+.marca span{font-size:16px; font-weight:800; color:var(--navy); letter-spacing:-.01em;}
+h1{font-size:18px; font-weight:700; color:var(--navy); margin:0 0 7px;}
+p.intro{font-size:12.5px; color:var(--gray); line-height:1.55; margin:0 0 20px;}
+.campo{margin-bottom:13px;}
+.campo label{display:block; font-size:12px; font-weight:500; color:#3a4256; margin-bottom:5px;}
+.campo input{
+  width:100%; padding:11px 12px; border:1.5px solid var(--line); border-radius:10px;
+  font-family:inherit; font-size:13.5px; background:var(--bg); color:var(--ink); transition:border-color .15s, background .15s;
+}
+.campo input:focus{outline:none; border-color:var(--accent); background:#fff;}
+.campo input[aria-invalid="true"]{border-color:var(--error); background:#fffafa;}
+.pista{font-size:11.5px; color:var(--gray-claro); margin-top:5px; line-height:1.45;}
+.error-caja{
+  display:none; font-size:12px; color:#a5322e; background:var(--error-suave); border:1px solid #f0cbc9;
+  border-radius:9px; padding:9px 11px; margin:2px 0 14px; line-height:1.5;
+}
+.error-caja.visible{display:block;}
+.btn{
+  width:100%; padding:13px; border:none; border-radius:11px; font-family:inherit; font-size:13.5px;
+  font-weight:700; cursor:pointer; background:var(--navy); color:#fff; box-shadow:0 4px 14px rgba(10,27,77,.22);
+  transition:background .15s;
+}
+.btn:hover{background:var(--navy-2);}
+.btn:disabled{opacity:.6; cursor:default;}
+.pie{font-size:11.5px; color:var(--gray); text-align:center; margin-top:16px; line-height:1.55;}
+.pie a{color:var(--accent); font-weight:600; text-decoration:none;}
+.pie a:hover{text-decoration:underline;}
+.estado{text-align:center;}
+.estado .icono{
+  width:52px; height:52px; border-radius:50%; margin:0 auto 16px; display:flex; align-items:center; justify-content:center;
+  font-size:26px;
+}
+.estado.ok .icono{background:#e8f8ee; color:var(--accent-hover);}
+.estado.mal .icono{background:var(--error-suave); color:var(--error);}
+.estado h1{text-align:center;}
+.estado p.intro{text-align:center;}
+</style>
+</head>
+<body>
+<div class="caja" id="caja">
+  <div class="marca"><div class="bar"></div><span>Forguard</span></div>
+  <div id="contenido">Cargando…</div>
+</div>
+
+<script>
+/* Pantalla propia (no la genérica de Firebase) para el enlace de "poner
+   contraseña nueva" — ver el comentario junto a urlAccionCuenta() en
+   index.html para el porqué. A propósito, esta página NUNCA llama a
+   Firebase con el oobCode hasta que la persona ya escribió su contraseña
+   nueva y le dio "Guardar": así, con solo ABRIR el enlace (algo que hace
+   cualquier antivirus de correo o previsualizador antes de que la persona
+   lo vea) no se gasta ni se invalida nada. La única llamada que hace esta
+   página es la que de verdad completa el cambio. */
+const API_KEY = 'AIzaSyDtF90I-scvrJprYYMT_Z9qr5ItqxSuZSo';
+const MIN_CLAVE = 12;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+const params = new URLSearchParams(location.search);
+const modo = params.get('mode');
+const oobCode = params.get('oobCode');
+const apiKey = params.get('apiKey') || API_KEY;
+
+const urlApp = location.pathname.replace(/docs\/[^/]*$/, '');
+
+function pantallaError(titulo, texto){
+  $('contenido').innerHTML =
+      '<div class="estado mal"><div class="icono">✕</div>'
+    + '<h1>' + esc(titulo) + '</h1>'
+    + '<p class="intro">' + texto + '</p></div>'
+    + '<a class="btn" style="display:block; text-align:center; text-decoration:none; box-sizing:border-box" href="' + esc(urlApp) + '">Volver a Forguard</a>';
+}
+
+function pantallaExito(){
+  $('contenido').innerHTML =
+      '<div class="estado ok"><div class="icono">✓</div>'
+    + '<h1>Contraseña actualizada</h1>'
+    + '<p class="intro">Ya puedes entrar a Forguard con tu contraseña nueva.</p></div>'
+    + '<a class="btn" style="display:block; text-align:center; text-decoration:none; box-sizing:border-box" href="' + esc(urlApp) + '">Ir a Forguard</a>';
+}
+
+function traducirError(codigo){
+  const c = String(codigo || '');
+  if(/EXPIRED_OOB_CODE/.test(c)) return 'Este enlace ya venció. Pide a un administrador (o usa «¿Olvidaste tu contraseña?» en la pantalla de entrada) que te mande uno nuevo, y usa ese — no uno que ya tengas abierto de antes.';
+  if(/INVALID_OOB_CODE/.test(c)) return 'Este enlace ya se usó o ya no es válido — puede ser porque después se pidió otro correo (el más nuevo invalida al anterior) o porque el filtro de correo de tu empresa lo abrió antes que tú. Pide uno nuevo y ábrelo directo, sin dejarlo esperando en el correo.';
+  if(/WEAK_PASSWORD/.test(c)) return 'Esa contraseña es demasiado corta o débil para Firebase.';
+  if(/USER_DISABLED/.test(c)) return 'Esta cuenta está deshabilitada. Pide a un administrador que la reactive.';
+  return c ? 'No se pudo completar el cambio (' + c + ').' : 'No se pudo conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.';
+}
+
+function pintarFormulario(){
+  $('contenido').innerHTML =
+      '<h1>Pon tu contraseña nueva</h1>'
+    + '<p class="intro">Escríbela dos veces para confirmarla. Mínimo ' + MIN_CLAVE + ' caracteres.</p>'
+    + '<div class="error-caja" id="errCaja" role="alert"></div>'
+    + '<div class="campo"><label for="clave1">Contraseña nueva</label>'
+    +   '<input type="password" id="clave1" autocomplete="new-password" placeholder="••••••••"></div>'
+    + '<div class="campo"><label for="clave2">Repítela</label>'
+    +   '<input type="password" id="clave2" autocomplete="new-password" placeholder="••••••••"></div>'
+    + '<button type="button" class="btn" id="btnGuardar">Guardar nueva contraseña</button>'
+    + '<p class="pie"><a href="' + esc(urlApp) + '">Volver a Forguard sin cambiar nada</a></p>';
+
+  const marcarError = (m)=>{ const e = $('errCaja'); e.textContent = m; e.classList.toggle('visible', !!m); };
+
+  $('btnGuardar').addEventListener('click', async ()=>{
+    const c1 = $('clave1').value, c2 = $('clave2').value;
+    marcarError('');
+    $('clave1').removeAttribute('aria-invalid'); $('clave2').removeAttribute('aria-invalid');
+    if(c1.length < MIN_CLAVE){ $('clave1').setAttribute('aria-invalid','true'); marcarError('Necesita al menos ' + MIN_CLAVE + ' caracteres.'); return; }
+    if(c1 !== c2){ $('clave2').setAttribute('aria-invalid','true'); marcarError('Las dos contraseñas no coinciden.'); return; }
+
+    const btn = $('btnGuardar');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try{
+      const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=' + encodeURIComponent(apiKey), {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ oobCode, newPassword: c1 })
+      });
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(traducirError(d && d.error && d.error.message));
+      pantallaExito();
+    }catch(e){
+      marcarError(e.message || 'No se pudo conectar con el servidor.');
+      btn.disabled = false; btn.textContent = 'Guardar nueva contraseña';
+    }
+  });
+
+  $('clave1').focus();
+}
+
+if(modo !== 'resetPassword' || !oobCode){
+  pantallaError('Enlace no reconocido', 'Este enlace no trae los datos que se necesitan. Pide que te manden uno nuevo desde Forguard.');
+}else{
+  pintarFormulario();
+}
+</script>
+</body>
+</html>
