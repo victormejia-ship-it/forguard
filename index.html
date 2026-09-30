@@ -13396,6 +13396,10 @@ const TEMAS_AYUDA = [
             'Escribir una Zona que ya existe en otro sitio copia su color automáticamente — a menos que ya hayas tocado la paleta de colores tú mismo en ese formulario.',
             'Eliminar un sitio o un cliente, y las dos fusiones, son exclusivas de Admin/Owner porque destruyen historial de pagos de forma irreversible; asignar un encargado también es solo Admin, aunque no borra nada, porque es una decisión de gente, no de captura diaria.'
           ])
+        + guiaTip('"Eliminar sitio" es de verdad definitivo (30-sep-2026)', [
+            'Solo borra el sitio y su calendario de pagos — pólizas, cotizaciones, reportes y levantamientos capturados en ese sitio NO se borran, se quedan huérfanos (sin sitio al que pertenecer). La ventana de confirmación te dice si tiene algo de eso antes de que confirmes.',
+            'Igual que "Eliminar cliente", hay que escribir el nombre EXACTO del sitio para que el botón de confirmar se habilite — no hay forma de aceptarlo de un solo clic ni por accidente (mismo arreglo, mismo motivo: un incidente real donde varios clientes se perdieron sin respaldo por confirmar de reflejo tarjeta por tarjeta).'
+          ])
         + guiaTip('Forpass como línea de negocio (29/30-sep-2026, pedido de Victor)', [
             'Cada sitio ahora trae <b>Tipo de cargo</b>: <b>Renta</b> o <b>Licencia</b> (recurrentes — la Mensualidad se cobra según la Facturación) o <b>Venta</b> (pago único o a meses — el campo de siempre se etiqueta "Precio de venta" y no lleva Facturación con sentido de renta). Renta y Licencia alimentan el mismo renglón de Resultados ("FORPASS – renta / licenciamiento": a nivel de negocio son la misma mecánica de cobro, solo cambia si lo rentado es hardware o una licencia de software); Venta alimenta "FORPASS – venta de equipos".',
             '<b>Facturación</b> (Mensual/Semestral/Anual) dice cada cuántas mensualidades del contrato hay un cobro real — mismo mecanismo que ya usa Pólizas (mensual/anual), aquí con Semestral de más. Con Anual y un contrato de 12 mensualidades, se cobra UNA sola vez por el total del periodo, no doce veces — así se captura también una orden de compra global.',
@@ -29037,8 +29041,25 @@ $('vista').addEventListener('click', ev=>{
   if(boS){
     if(!exigirAdmin('eliminar un sitio')) return;
     const s = sitioPorId(boS.dataset.borrarSitio);
-    confirmar('Eliminar sitio', 'Se va a eliminar el sitio <b>' + esc(s.nombre) + '</b> y su historial de pagos. Esta acción no se puede deshacer.',
-      'Sí, eliminar', ()=>{
+    /* Mismo aviso de alcance real que "Eliminar cliente" (30-sep-2026):
+       borrar un sitio NUNCA ha tocado sus pólizas, cotizaciones, reportes
+       ni levantamientos — se quedan huérfanos (con un sitioId que ya no
+       existe) en vez de desaparecer también. */
+    const nPol = datos.polizas.filter(p => p.sitioId === s.id).length;
+    const nCot = cotizacionesDeSitio(s.id).length;
+    const nRep = reportesDeSitio(s.id).length;
+    const nLev = levantamientosDeSitio(s.id).length;
+    const otros = [
+      nPol ? nPol + ' ' + plural(nPol,'póliza','pólizas') : '',
+      nCot ? nCot + ' ' + plural(nCot,'cotización','cotizaciones') : '',
+      nRep ? nRep + ' ' + plural(nRep,'reporte','reportes') : '',
+      nLev ? nLev + ' ' + plural(nLev,'levantamiento','levantamientos') : ''
+    ].filter(Boolean);
+    confirmarEscribiendoNombre('Eliminar sitio',
+      'Se va a eliminar el sitio <b>' + esc(s.nombre) + '</b> y su historial de pagos. '
+      + (otros.length ? 'Además tiene <b>' + otros.join(', ') + '</b> — eso NO se borra, pero se queda huérfano (sin sitio al que pertenecer). ' : '')
+      + '<b>Esta acción no se puede deshacer.</b>',
+      s.nombre, 'Sí, eliminar', ()=>{
         datos.sitios = datos.sitios.filter(x => x.id !== s.id);
         borrarRegistro('sitios', s.id);
         anotar('eliminó', 'sitio', s.nombre);

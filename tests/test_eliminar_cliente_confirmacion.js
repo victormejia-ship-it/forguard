@@ -14,7 +14,12 @@
    repositorio). De paso, la ventana ahora también avisa si el cliente
    tiene pólizas/cotizaciones/reportes/levantamientos — eliminar un cliente
    NUNCA los ha borrado (solo borra sus sitios), así que sin este aviso se
-   quedaban huérfanos sin que quien borra se enterara del alcance real. */
+   quedaban huérfanos sin que quien borra se enterara del alcance real.
+
+   Mismo día, pedido explícito de Victor ("ponle lo mismo a Eliminar
+   sitio"): "Eliminar sitio" recibe idéntico tratamiento — nombre exacto
+   para confirmar, y aviso si el sitio tiene cotizaciones/pólizas/reportes/
+   levantamientos que quedarían huérfanos (sección 5, abajo). */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -90,6 +95,38 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('El cliente JD-TRACTORES sí se eliminó', estadoFinal.clienteExiste === false);
   chkF('Su sitio también se eliminó (como siempre)', estadoFinal.sitioExiste === false);
   chkF('Su póliza NO se borra (nunca lo ha hecho) — queda huérfana, tal como avisó la ventana', estadoFinal.polizaSigueViva === true);
+
+  // --------- 5) "Eliminar sitio" trae el MISMO arreglo (30-sep-2026, mismo pedido: "ponle lo mismo a Eliminar sitio") ---------
+  await page.evaluate(() => {
+    datos.clientes = [normalizarCliente({ id:'c3', nombre:'NGK' })];
+    datos.sitios = [normalizarSitio({ id:'s2', clienteId:'c3', nombre:'Planta Norte', modulos:1, mensualidad:1000, fechaInicio:hoyISO(), meses:12 })];
+    datos.cotizaciones = [normalizarCotizacion({ id:'q1', clienteId:'c3', sitioId:'s2', folio:'COT-1' })];
+    irAModulo('forpass');
+    entrarCliente('c3');
+  });
+  await page.waitForTimeout(150);
+
+  await page.click('[data-borrar-sitio="s2"]');
+  await page.waitForTimeout(150);
+  chkF('"Eliminar sitio" también trae el campo para escribir el nombre', await page.locator('#confirmaEscritoInput').count() === 1);
+  chkF('Su botón "Sí, eliminar" también nace deshabilitado', await page.locator('#btnConfirmaEscrito').isDisabled());
+  const textoAvisoSitio = await page.locator('#modalCuerpo').textContent();
+  chkF('Avisa que el sitio tiene 1 cotización que quedará huérfana', /1 cotización/.test(textoAvisoSitio) && /huérfan/i.test(textoAvisoSitio));
+
+  await page.fill('#confirmaEscritoInput', 'Planta Nort');
+  await page.waitForTimeout(50);
+  chkF('Con el nombre a medias, el botón de "Eliminar sitio" sigue deshabilitado', await page.locator('#btnConfirmaEscrito').isDisabled());
+  await page.fill('#confirmaEscritoInput', 'Planta Norte');
+  await page.waitForTimeout(50);
+  chkF('Con el nombre exacto, el botón de "Eliminar sitio" se habilita', !(await page.locator('#btnConfirmaEscrito').isDisabled()));
+  await page.click('#btnConfirmaEscrito');
+  await page.waitForTimeout(150);
+  const trasBorrarSitio = await page.evaluate(() => ({
+    sitioExiste: datos.sitios.some(s => s.id === 's2'),
+    cotizacionSigueViva: datos.cotizaciones.some(q => q.id === 'q1')
+  }));
+  chkF('El sitio se eliminó de verdad con el nombre exacto confirmado', trasBorrarSitio.sitioExiste === false);
+  chkF('Su cotización NO se borra (nunca lo ha hecho) — queda huérfana, tal como avisó la ventana', trasBorrarSitio.cotizacionSigueViva === true);
 
   chkF('No hubo errores de página en todo el escenario', errores.filter(e => e.startsWith('PAGEERROR')).length === 0);
 
