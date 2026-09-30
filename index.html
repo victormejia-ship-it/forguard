@@ -13344,7 +13344,7 @@ const TEMAS_AYUDA = [
         'Usa <b>Agregar cliente</b>: Logo (opcional, con recorte y zoom), Nombre*, Contacto, Notas, casilla "Incluye Forpass", más cualquier campo personalizado que haya definido Administración.',
         'Busca con <b>Buscar cliente…</b> por nombre.',
         'Haz clic en un cliente para abrir su <b>resumen 360°</b>: 4 KPIs (Sitios Forpass, Pólizas, Cotizaciones, Reportes) y, debajo, un bloque por módulo con hasta 8 renglones y un enlace "ver todas/todos" si tiene más — cada renglón te lleva directo a su módulo.',
-        'Usa el lápiz para <b>Editar cliente</b>; eliminarlo es exclusivo de Admin/Owner y también borra todos sus sitios.'
+        'Usa el lápiz para <b>Editar cliente</b>; eliminarlo es exclusivo de Admin/Owner y también borra todos sus sitios — desde el 30-sep-2026 pide escribir el nombre EXACTO del cliente para confirmar (no basta con darle "Sí, eliminar"), tras un incidente real donde se perdieron varios clientes sin respaldo por confirmar de reflejo tarjeta por tarjeta.'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
         'Un Admin puede definir <b>Precios de grupo</b> por cliente: precio y costo especiales para equipos puntuales del catálogo, que se aplican solos al agregarlos a una póliza nueva de ese cliente.',
@@ -13358,8 +13358,13 @@ const TEMAS_AYUDA = [
         ])
         + guiaTip('Detalles que casi nadie nota', [
             'La casilla "Incluye Forpass" tiene un tercer estado interno para clientes viejos capturados antes de que existiera — se "gradúa" solo la primera vez que alguien abre y guarda su formulario.',
-            'Un cliente con sitios capturados solo aparece en Forpass si AL MENOS uno de ellos sigue activo — si los pausas todos, el cliente sigue existiendo (lo sigues viendo en Clientes) pero desaparece de la lista de Forpass hasta que reactives alguno.',
+            'Un cliente con sitios capturados solo aparece en Forpass si AL MENOS uno de ellos sigue activo — si los pausas todos, el cliente sigue existiendo (lo sigues viendo en Clientes) pero desaparece de la lista de Forpass hasta que reactives alguno. <b>Ojo:</b> "desaparece de la lista" no es lo mismo que "se eliminó" — si un cliente no aparece en Forpass, revisa primero si tiene sitios activos antes de darle a Eliminar pensando que ya no existe.',
             'El logo se reduce y comprime solo al subirlo (máximo ~120 KB guardado) para no inflar la base de datos.'
+          ])
+        + guiaTip('"Eliminar cliente" es de verdad definitivo (30-sep-2026)', [
+            'Solo borra el cliente y SUS SITIOS — pólizas, cotizaciones, reportes y levantamientos de ese cliente NO se borran, se quedan huérfanos (sin cliente al que pertenecer). La ventana de confirmación te dice si tiene algo de eso antes de que confirmes.',
+            'Hay que escribir el nombre EXACTO del cliente para que el botón de confirmar se habilite — no hay forma de aceptarlo de un solo clic ni por accidente.',
+            'No hay Deshacer ni papelera: si no tienes un Respaldo JSON de antes de borrar, el cliente se recaptura a mano desde cero.'
           ])) },
 
   { id:'forpass', titulo:'Forpass (kioscos)',
@@ -28325,6 +28330,29 @@ function confirmar(titulo, texto, textoBoton, alAceptar){
     + '<button type="button" class="btn btn-peligro" data-modal="guardar">' + esc(textoBoton) + '</button>');
   cerrarModalActual = ()=>{ alAceptar(); cerrarModal(); };
 }
+/* Confirmación reforzada para lo verdaderamente irreversible y de alcance
+   grande — como "Eliminar cliente" (30-sep-2026, incidente real: Victor
+   fue dándole al icono de basura en varios clientes seguidos "pensando que
+   era más seguro" —creía que solo los quitaba de la vista de Forpass— y
+   confirmó cada ventana sin darse cuenta de que cada clic ya era
+   definitivo; BANORTE, JD-CUTTERS, JD-TRACTORES y otros más se perdieron
+   de verdad, sin respaldo). Un botón que dice "Sí, eliminar" se vuelve
+   costumbre de un vistazo; escribir el nombre exacto obliga a parar y leer
+   qué se está borrando. El botón nace deshabilitado y solo se activa
+   cuando el texto calza con `nombreEsperado` letra por letra. */
+function confirmarEscribiendoNombre(titulo, texto, nombreEsperado, textoBoton, alAceptar){
+  abrirModal(titulo,
+      '<p style="font-size:13.5px; color:#3a4256; line-height:1.65">' + texto + '</p>'
+    + '<div class="campo"><label>Escribe <b>' + esc(nombreEsperado) + '</b> para confirmar</label>'
+    +   '<input type="text" id="confirmaEscritoInput" autocomplete="off"></div>',
+      '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+    + '<button type="button" class="btn btn-peligro" id="btnConfirmaEscrito" disabled>' + esc(textoBoton) + '</button>');
+  $('confirmaEscritoInput').addEventListener('input', ()=>{
+    $('btnConfirmaEscrito').disabled = $('confirmaEscritoInput').value !== nombreEsperado;
+  });
+  $('btnConfirmaEscrito').addEventListener('click', ()=>{ alAceptar(); cerrarModal(); });
+  setTimeout(()=> $('confirmaEscritoInput').focus(), 60);
+}
 
 $('modalPie').addEventListener('click', ev=>{
   const b = ev.target.closest('[data-modal]');
@@ -28967,9 +28995,27 @@ $('vista').addEventListener('click', ev=>{
     if(!exigirAdmin('eliminar un cliente')) return;
     const c = clientePorId(boC.dataset.borrarCliente);
     const n = sitiosDe(c.id).length;
-    confirmar('Eliminar cliente',
-      'Se va a eliminar <b>' + esc(c.nombre) + '</b>' + (n ? ' junto con sus <b>' + n + ' ' + plural(n,'sitio','sitios') + '</b>' : '') + '. Esta acción no se puede deshacer.',
-      'Sí, eliminar', ()=>{
+    /* 30-sep-2026: eliminar un cliente NUNCA ha borrado sus pólizas,
+       cotizaciones, reportes ni levantamientos —solo sus sitios— así que
+       si tenía algo de eso, se queda huérfano (con un clienteId que ya no
+       existe) en vez de desaparecer también. Se avisa aparte para que
+       quien borra sepa el alcance real antes de confirmar, en vez de
+       enterarse después por una pantalla rota en otro módulo. */
+    const nPol = polizasDeCliente(c.id).length;
+    const nCot = datos.cotizaciones.filter(q => q.clienteId === c.id).length;
+    const nRep = reportesDeCliente(c.id).length;
+    const nLev = levantamientosDeCliente(c.id).length;
+    const otros = [
+      nPol ? nPol + ' ' + plural(nPol,'póliza','pólizas') : '',
+      nCot ? nCot + ' ' + plural(nCot,'cotización','cotizaciones') : '',
+      nRep ? nRep + ' ' + plural(nRep,'reporte','reportes') : '',
+      nLev ? nLev + ' ' + plural(nLev,'levantamiento','levantamientos') : ''
+    ].filter(Boolean);
+    confirmarEscribiendoNombre('Eliminar cliente',
+      'Se va a eliminar <b>' + esc(c.nombre) + '</b>' + (n ? ' junto con sus <b>' + n + ' ' + plural(n,'sitio','sitios') + '</b>' : '') + '. '
+      + (otros.length ? 'Además tiene <b>' + otros.join(', ') + '</b> — eso NO se borra, pero se queda huérfano (sin cliente al que pertenecer). ' : '')
+      + '<b>Esta acción no se puede deshacer.</b>',
+      c.nombre, 'Sí, eliminar', ()=>{
         sitiosDe(c.id).forEach(s => borrarRegistro('sitios', s.id));
         datos.sitios = datos.sitios.filter(s => s.clienteId !== c.id);
         datos.clientes = datos.clientes.filter(x => x.id !== c.id);
