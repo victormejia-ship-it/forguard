@@ -14330,9 +14330,14 @@ function tarjetaSitio(s, i){
           mensualidad, costo, historial de pagos) pero el sitio SIGUE
           existiendo, con sus pólizas/cotizaciones/reportes intactos. Borrar
           el sitio por completo ahora es una acción aparte, solo desde
-          Clientes. */
+          Clientes. Sin texto, solo icono —como el viejo botón de "Eliminar"
+          que reemplaza— porque con la etiqueta completa el pie de la
+          tarjeta ya no cabía en una sola línea en una cuadrícula angosta
+          (varias tarjetas por fila) y "Marcar pagada"/"Fusionar"/este botón
+          se brincaban a una segunda línea (30-sep-2026, reporte de Victor:
+          "se ve hacia abajo"). */
        +     (esAdmin()
-              ? '<button type="button" class="btn btn-suave btn-mini" data-quitar-forpass="' + esc(s.id) + '" title="Apaga la configuración de Forpass de este sitio; el sitio en sí no se borra">' + ICONO.alerta + 'Quitar Forpass</button>'
+              ? '<button type="button" class="btn btn-suave btn-mini" data-quitar-forpass="' + esc(s.id) + '" title="Quitar Forpass de este sitio: apaga su configuración de Forpass, el sitio en sí no se borra">' + ICONO.alerta + '</button>'
               : '')
        +   '</div>'
        + '</div>';
