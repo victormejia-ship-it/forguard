@@ -10164,18 +10164,19 @@ function armarPayloadPoliza(p, soloCalendario){
     meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
     vistaDocumento: soloCalendario ? 'calendario' : 'completo',
 
-    /* Resuelto aquí, no en la plantilla: solo una póliza VIVA se imprime como
-       póliza; todo lo demás —incluidas perdida y cancelada— es una cotización.
-       La póliza activa escribe el título completo (pedido de Victor: "coloca
-       la leyenda completa 'Póliza de mantenimiento preventivo'"), lo que a su
-       vez deja sin sentido el campo "Proyecto" del cv-meta (ver pageCover en
-       la plantilla) porque ahí ya no dice nada que el título no diga. La
-       cotización/borrador se queda con la versión abreviada de las cuatro
-       cotizaciones de referencia («Cotización / Póliza de / Mtto Prev.»): un
-       cuarto renglón («Preventivo») ahí sí choca con el cv-meta — se midió. */
-    titulo: { lineas: p.estatus === 'activa'
-                ? ['Póliza de', 'Mantenimiento', 'Preventivo']
-                : ['Cotización', 'Póliza de', 'Mtto Prev.'] },
+    /* Homologado (30-sep-2026, pedido de Victor: "la de lado izquierdo fue
+       la inicial pero ahorita ya podemos homologarlo todo a la de la
+       izquierda"): la portada de cotización usaba el título abreviado de
+       las cuatro cotizaciones de referencia («Cotización / Póliza de /
+       Mtto Prev.») más un campo "Proyecto" aparte en el cv-meta; la de
+       póliza activa, el título completo («Póliza de / Mantenimiento /
+       Preventivo», pedido anterior de Victor: "coloca la leyenda completa
+       'Póliza de mantenimiento preventivo'"), sin ese campo porque ya no
+       decía nada que el título no dijera. Ahora TODO documento —activo o
+       cotización— usa el título completo y solo Cliente/Fecha en la
+       portada (ver pageCover en la plantilla): una sola portada, sin
+       importar el estatus. */
+    titulo: { lineas: ['Póliza de', 'Mantenimiento', 'Preventivo'] },
     /* Los textos de las hojas INTERIORES también cambian con el estatus: la
        portada ya decía «Póliza de Mtto Prev.» pero adentro cada hoja seguía
        diciendo «Cotización de Servicios Extras» y «Concepto Cotizado:» — un
