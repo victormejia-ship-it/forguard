@@ -6154,10 +6154,19 @@ function autoMigrarFotosReporteSiHaceFalta(r){
    Módulo de control de activos: junta en un solo catálogo el equipo
    instalado en casa del cliente (freidoras, refrigeradores — lo que antes
    solo aparecía suelto en una póliza o un reporte) Y el activo propio de
-   Forguard (herramienta, vehículo, laptop). Un solo folio, un solo
-   historial, sin importar de quién es el activo — `tipo` es el único
-   punto donde se bifurca: 'cliente' pide clienteId+sitioId (como un
-   reporte), 'interno' pide ubicación y a quién está asignado.
+   la empresa (herramienta, vehículo, laptop) — de Forguard o de Plato
+   Express. Un solo folio, un solo historial, sin importar de quién es el
+   activo — `tipo` dice DE QUIÉN ES (cliente / Forguard / Plato Express),
+   nunca DÓNDE ESTÁ: Cliente+Sitio (30-sep-2026, pedido de Victor: "si
+   seleccionamos que es activo de forguard o de plato express no lo muevas
+   a un rubro por aparte... identificado como activo de forguard o plato")
+   son ahora capturables para CUALQUIER tipo —obligatorios solo para
+   'cliente', opcionales para 'forguard'/'plato' (una herramienta nuestra
+   puede estar instalada o en uso en el sitio de un cliente sin ser SUYA)—,
+   y solo un activo sin ningún clienteId cae en el directorio aparte de
+   "Activos internos". `asignadoA`/`asignadoAId` (a qué persona se le
+   entregó) sigue siendo exclusivo de 'forguard'/'plato': el equipo de un
+   cliente no se le "asigna" a nadie de nuestro lado.
 
    Folio: AC-DDMMAA-NNNN, mismo molde que reportes/cotizaciones.
 
@@ -6168,8 +6177,12 @@ function autoMigrarFotosReporteSiHaceFalta(r){
        en "registrar servicio" de Pólizas: es quien de verdad está
        frente al activo.
      · Borrar un activo → solo Admin, igual que todo lo demás. */
-const TIPO_ACTIVO = ['cliente', 'interno'];
-const ETIQUETA_TIPO_ACTIVO = { cliente:'Equipo en cliente', interno:'Activo interno (Forguard)' };
+/* 'interno' existió como único tipo interno hasta el 30-sep-2026 —se
+   reemplaza por 'forguard'/'plato' para elegir de cuál de las dos empresas
+   es—; normalizarActivo() sigue aceptando 'interno' en datos viejos y lo
+   convierte a 'forguard' (esa era su única etiqueta hasta ahora). */
+const TIPO_ACTIVO = ['cliente', 'forguard', 'plato'];
+const ETIQUETA_TIPO_ACTIVO = { cliente:'Equipo en cliente', forguard:'Activo interno — Forguard', plato:'Activo interno — Plato Express' };
 /* 'borrador' es igual que 'cotizacion' en pólizas: un activo que se quedó a
    medio capturar porque se cerró el modal sin terminar (ver
    guardarBorradorAlSalir en modalActivo) — sigue sin confirmarse, así que
@@ -6244,7 +6257,12 @@ function normalizarAsignacionActivo(x){
 }
 
 function normalizarActivo(a){
-  const tipo = TIPO_ACTIVO.includes(a && a.tipo) ? a.tipo : 'cliente';
+  const tipoBruto = a && a.tipo;
+  /* 'interno' es el valor viejo (hasta 30-sep-2026, cuando solo existía un
+     tipo de activo propio, etiquetado siempre "Forguard") — se traduce a
+     'forguard' en vez de caer al default 'cliente', para no reclasificar
+     por accidente equipo propio ya capturado como si fuera del cliente. */
+  const tipo = TIPO_ACTIVO.includes(tipoBruto) ? tipoBruto : (tipoBruto === 'interno' ? 'forguard' : 'cliente');
   return {
     id: (a && a.id) || nuevoId(),
     folio: (a && a.folio ? String(a.folio) : '').trim(),
@@ -6262,11 +6280,17 @@ function normalizarActivo(a){
     serie: (a && a.serie ? String(a.serie) : '').trim(),
     codigo: (a && a.codigo ? String(a.codigo) : '').trim(),
     tipoCodigo: (a && a.tipoCodigo === 'qr') ? 'qr' : (a && a.tipoCodigo === 'barras') ? 'barras' : '',
-    clienteId: tipo === 'cliente' ? ((a && a.clienteId) || '') : '',
-    sitioId: tipo === 'cliente' ? ((a && a.sitioId) || '') : '',
+    /* Cliente/Sitio ya NO son exclusivos de tipo 'cliente' (30-sep-2026,
+       ver la nota grande al inicio de este bloque): obligatorios ahí
+       (modalActivo lo valida al guardar), opcionales para 'forguard'/
+       'plato' — una herramienta o vehículo propio puede estar en uso en el
+       sitio de un cliente sin ser del cliente. Sin cliente elegido, ambos
+       se quedan vacíos sin importar el tipo. */
+    clienteId: (a && a.clienteId) || '',
+    sitioId: (a && a.sitioId) || '',
     /* Igual que sitioNombre en pólizas/reportes: se copia el texto para que
        el activo siga diciendo dónde está aunque el sitio se borre después. */
-    sitioNombre: tipo === 'cliente' ? (a && a.sitioNombre ? String(a.sitioNombre) : '').trim() : '',
+    sitioNombre: (a && a.sitioNombre ? String(a.sitioNombre) : '').trim(),
     /* Ya no se limita a "interno": un equipo en cliente también tiene un
        "dónde dentro del sitio" (comedor, cocina, servicio…) que el sitio
        solo no dice — justo lo que trae la columna "UBICACIÓN" de un
@@ -6282,8 +6306,8 @@ function normalizarActivo(a){
        última de `asignaciones` sin `hasta`) — se recalculan solos en
        asignarActivo()/devolverActivo(), no se editan sueltos, para que
        nunca queden desincronizados del historial. */
-    asignadoA: tipo === 'interno' ? (a && a.asignadoA ? String(a.asignadoA) : '').trim() : '',
-    asignadoAId: tipo === 'interno' ? ((a && a.asignadoAId) ? String(a.asignadoAId) : '') : '',
+    asignadoA: tipo !== 'cliente' ? (a && a.asignadoA ? String(a.asignadoA) : '').trim() : '',
+    asignadoAId: tipo !== 'cliente' ? ((a && a.asignadoAId) ? String(a.asignadoAId) : '') : '',
     asignaciones: (Array.isArray(a && a.asignaciones) ? a.asignaciones : []).map(normalizarAsignacionActivo),
     estatus: ESTATUS_ACTIVO.includes(a && a.estatus) ? a.estatus : 'activo',
     condicion: CONDICION_ACTIVO.includes(a && a.condicion) ? a.condicion : 'buena',
@@ -8115,7 +8139,7 @@ async function importarCotizacionesDesdeExcel(archivo){
    así que exportar, editar en Excel y volver a importar es un ciclo
    redondo. Los encabezados se reconocen por alias (normalizarTextoEncabezadoXlsx),
    no por posición, para que reordenar columnas a mano no rompa nada. */
-/* 'TIPO DE ACTIVO' se quita de `tipo` (cliente/interno) y se suma a
+/* 'TIPO DE ACTIVO' se quita de `tipo` (cliente/forguard/plato) y se suma a
    `categoria`: en un inventario real (ej. el que compartió Victor,
    17-sep-2026) esa columna no dice "es de cliente o interno" — dice
    "EQUIPO MAYOR X"/"EQUIPO A COMODATO Y", que es justo lo que categoria ya
@@ -8273,24 +8297,31 @@ function filaXlsxAActivo(fila, mapa, cache, clientePorDefecto){
   const nombre = textoDe('nombre');
   if(!nombre) return null;
 
-  const tipo = normalizarTextoEncabezadoXlsx(textoDe('tipo')).includes('INTERNO') ? 'interno' : 'cliente';
+  /* PLATO antes que INTERNO/FORGUARD: un renglón que diga "Interno Plato
+     Express" debe caer en 'plato', no en el default genérico. Sin ninguna
+     de las tres palabras, es equipo del cliente (como siempre). */
+  const textoTipo = normalizarTextoEncabezadoXlsx(textoDe('tipo'));
+  const tipo = textoTipo.includes('PLATO') ? 'plato' : (textoTipo.includes('INTERNO') || textoTipo.includes('FORGUARD')) ? 'forguard' : 'cliente';
 
+  /* Cliente/Sitio ya no son exclusivos del tipo 'cliente' (30-sep-2026): un
+     renglón "interno" con columna Sitio también se liga. Pero SIN esa
+     columna, el cliente por defecto del import solo se aplica a 'cliente'
+     —un renglón interno sin pista de dónde está se queda sin cliente, en
+     vez de heredar uno que nunca mencionó. */
   let clienteId = '', sitioId = '', sitioNombre = '';
-  if(tipo === 'cliente'){
-    const nombreSitio = textoDe('sitio');
-    let ligado;
-    if(nombreSitio){
-      /* Trae algo con qué distinguir de quién es (columna "Cliente", o a
-         falta de ella la propia columna "Sitio") — se liga o crea por ese
-         nombre, sin importar el cliente elegido al cargar el archivo. */
-      ligado = vincularOCrearSitioActivoXlsx(textoDe('cliente'), nombreSitio, cache);
-    }else if(clientePorDefecto){
-      /* Sin ninguna pista de cliente/sitio en el renglón: se usa el
-         elegido de antemano, para que el renglón no quede huérfano. */
-      ligado = clientePorDefecto;
-    }
-    if(ligado){ clienteId = ligado.clienteId; sitioId = ligado.sitioId; sitioNombre = ligado.sitioNombre; }
+  const nombreSitio = textoDe('sitio');
+  let ligado;
+  if(nombreSitio){
+    /* Trae algo con qué distinguir de quién es (columna "Cliente", o a
+       falta de ella la propia columna "Sitio") — se liga o crea por ese
+       nombre, sin importar el cliente elegido al cargar el archivo. */
+    ligado = vincularOCrearSitioActivoXlsx(textoDe('cliente'), nombreSitio, cache);
+  }else if(tipo === 'cliente' && clientePorDefecto){
+    /* Sin ninguna pista de cliente/sitio en el renglón: se usa el
+       elegido de antemano, para que el renglón no quede huérfano. */
+    ligado = clientePorDefecto;
   }
+  if(ligado){ clienteId = ligado.clienteId; sitioId = ligado.sitioId; sitioNombre = ligado.sitioNombre; }
 
   /* El número de inventario suelto (columnas "No. Inv"/"Inventario") no es
      un código de control útil por sí mismo —muchas veces es nomás el
@@ -8308,7 +8339,7 @@ function filaXlsxAActivo(fila, mapa, cache, clientePorDefecto){
     marca: textoDe('marca'), modelo: textoDe('modelo'), serie: textoDe('serie'),
     clienteId, sitioId, sitioNombre,
     ubicacion: textoDe('ubicacion'),
-    asignadoA: tipo === 'interno' ? textoDe('asignadoA') : '',
+    asignadoA: tipo !== 'cliente' ? textoDe('asignadoA') : '',
     estatus: estatusDesdeTextoXlsx(textoDe('estatus')),
     condicion: condicionDesdeTextoXlsx(textoDe('condicion')),
     proveedor: textoDe('proveedor'),
@@ -8378,7 +8409,7 @@ function modalClienteImportacionActivos(){
     +     '<button type="button" class="btn btn-primario btn-mini" id="insCrear">Crear y seleccionar</button>'
     +   '</div>'
     + '</div>'
-    + '<p class="pista">Si el archivo trae columna de Cliente y/o Sitio, cada renglón se liga (o da de alta) por ese nombre — este cliente por defecto solo se usa en lo que el archivo no traiga ninguna de las dos. Los renglones marcados "Activo interno" tampoco se ligan a ningún cliente.</p>';
+    + '<p class="pista">Si el archivo trae columna de Cliente y/o Sitio, cada renglón se liga (o da de alta) por ese nombre — también los marcados "Interno"/"Forguard"/"Plato Express" (para equipo propio en uso en el sitio de un cliente). Este cliente por defecto solo se usa en renglones de "Equipo en cliente" que no traigan ninguna de las dos columnas; uno interno sin esa pista se queda sin cliente.</p>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
             + '<button type="button" class="btn btn-primario" data-modal="guardar">Elegir archivo</button>';
@@ -13680,18 +13711,18 @@ const TEMAS_AYUDA = [
           ])) },
 
   { id:'activos', titulo:'Activos',
-    resumen:'El inventario de equipo: tanto el instalado en clientes como las herramientas, vehículos y equipo propio de Forguard.',
+    resumen:'El inventario de equipo: tanto el instalado en clientes como las herramientas, vehículos y equipo propio, de Forguard o de Plato Express.',
     contenido:
       guiaSeccion('Lo básico', guiaPasos([
         '4 KPIs: Total, Valor del inventario, Mantenimiento pendiente (clickeable), Garantías por vencer (clickeable).',
-        'Usa <b>Nuevo activo</b>: Tipo (Equipo en cliente / Activo interno), Cliente+Sitio o Ubicación+Asignado a según el tipo, Categoría, Nombre*, Marca, Modelo, Serie, Estatus, Condición, Proveedor, Fecha y Costo de compra, Garantía hasta, Frecuencia de mantenimiento (días), Próximo mantenimiento, Notas, Código (barras o QR, con botón "Generar"), y hasta 6 fotos.',
-        'Busca por folio/nombre/marca/serie/sitio/cliente; filtra por tipo, por cada estatus, por categoría, o por "Mantenimiento pendiente"/"Garantía por vencer".',
+        'Usa <b>Nuevo activo</b>: Tipo (Equipo en cliente / Activo interno — Forguard / Activo interno — Plato Express), Cliente+Sitio (obligatorio para "Equipo en cliente", opcional para los dos internos — ver el detalle abajo), Ubicación y Asignar a (para los internos), Categoría, Nombre*, Marca, Modelo, Serie, Estatus, Condición, Proveedor, Fecha y Costo de compra, Garantía hasta, Frecuencia de mantenimiento (días), Próximo mantenimiento, Notas, Código (barras o QR, con botón "Generar"), y hasta 6 fotos.',
+        'Busca por folio/nombre/marca/serie/sitio/cliente; filtra por tipo (incluye los dos internos por separado), por cada estatus, por categoría, o por "Mantenimiento pendiente"/"Garantía por vencer".',
         'En el detalle: sube más evidencia, sube la <b>Factura/Orden de compra</b> (imagen o PDF), y cambia el estatus (Enviar a mantenimiento / Regresar a operación / Dar de baja / Marcar perdido-robado).'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
-        'Para activos internos, usa <b>Asignar</b>/<b>Reasignar</b>/<b>Devolver</b> — queda un historial completo de quién lo trae y desde cuándo.',
+        'Para activos internos (Forguard o Plato Express), usa <b>Asignar</b>/<b>Reasignar</b>/<b>Devolver</b> — queda un historial completo de quién lo trae y desde cuándo. Esto es de quién es DUEÑO del activo, no de dónde está: un activo interno con cliente/sitio capturado también se puede asignar a una persona.',
         'Usa <b>Registrar mantenimiento</b> (con costo opcional) o <b>Agregar nota</b> para ir dejando la bitácora del equipo; ambas alimentan el mismo historial.',
-        'Usa <b>Descargar Excel</b> (disponible para cualquiera) o <b>Importar desde Excel</b> (solo gestión) — mismas columnas en los dos sentidos, para poder editar en Excel y reimportar en ciclo redondo; los clientes/sitios que mencione el archivo y no existan se dan de alta solos.'
+        'Usa <b>Descargar Excel</b> (disponible para cualquiera) o <b>Importar desde Excel</b> (solo gestión) — mismas columnas en los dos sentidos, para poder editar en Excel y reimportar en ciclo redondo; los clientes/sitios que mencione el archivo y no existan se dan de alta solos, sea cual sea el tipo del renglón.'
       ]))
       + guiaSeccion('Funciones avanzadas', guiaPasos([
           'El código de barras (Code128) o QR se genera y dibuja completo en tu navegador, sin ninguna librería ni conexión a internet — "Para control interno: no aparece en documentos de cliente".',
@@ -13700,6 +13731,12 @@ const TEMAS_AYUDA = [
         + guiaTip('Umbrales exactos de alerta', [
             'Garantía por vencer: 30 días o menos.',
             'Mantenimiento: alerta si faltan 7 días o menos, error (rojo) si ya venció.'
+          ])
+        + guiaTip('Un activo propio con Cliente/Sitio ya no se va a un rubro aparte (30-sep-2026)', [
+            'Antes, "Tipo de activo" decidía TAMBIÉN dónde vivía en el directorio: "Equipo en cliente" se agrupaba por cliente, "Activo interno" siempre caía en la tarjeta aparte "Activos internos", sin poder tener cliente ni sitio. Pedido de Victor: "si seleccionamos que es activo de forguard o de plato express no lo muevas a un rubro por aparte... identificado como activo de forguard o plato".',
+            'Ahora Cliente/Sitio son capturables para cualquier tipo — obligatorios solo para "Equipo en cliente", opcionales para los dos internos. Una herramienta de Forguard en uso en el sitio de un cliente se queda en la tarjeta de ESE cliente, junto con su equipo, con su propia etiqueta ("Activo interno — Forguard") en la tarjeta y en los chips del detalle — ya no salta a "Activos internos".',
+            'Solo cae en "Activos internos" el activo propio que de verdad no tiene ningún cliente/sitio capturado (una laptop de oficina, una camioneta que no es de un sitio en particular, etc.).',
+            'Datos de antes de este cambio: un activo con el tipo viejo "interno" (una sola etiqueta, siempre "Forguard") se lee ahora como "Activo interno — Forguard" — nada se reclasificó como de Plato Express ni como de cliente por accidente.'
           ])
         + guiaTip('Permisos, un caso especial', [
             'Es el único de estos módulos donde el rol Técnico puede dar de alta, editar, subir evidencia y anotar mantenimiento sin ser Analyst — el resto (Owner/Admin/Analyst) también puede, por supuesto.',
@@ -15424,7 +15461,11 @@ function calcularEstadoResultadosActivos(lista){
     if(a.tipo === 'cliente') invertidoCliente += monto; else invertidoInterno += monto;
     const cat = a.categoria || 'Sin categoría';
     porCategoria.set(cat, (porCategoria.get(cat) || 0) + monto);
-    if(a.tipo === 'cliente'){
+    /* Por cliente ya no es solo tipo 'cliente' (30-sep-2026): un activo
+       propio (Forguard/Plato Express) instalado en el sitio de un cliente
+       también cuenta aquí — el dinero SIGUE en juego en esa cuenta, sin
+       importar de quién sea el activo. */
+    if(a.clienteId){
       const cli = clientePorId(a.clienteId);
       const nombreCli = cli ? cli.nombre : (a.sitioNombre || 'Sin cliente');
       porCliente.set(nombreCli, (porCliente.get(nombreCli) || 0) + monto);
@@ -15462,7 +15503,7 @@ function vistaEstadoResultadosActivos(){
      + tarjetaKpi('Invertido total', dinero(r.totalInvertido), 'Suma de costo de compra × cantidad')
      + tarjetaKpi('Invertido este año', dinero(r.invertidoAnio), 'Activos comprados en ' + hoyISO().slice(0,4))
      + tarjetaKpi('Invertido este mes', dinero(r.invertidoMes), 'Compras del mes en curso')
-     + tarjetaKpi('Cliente vs. interno', dinero(r.invertidoCliente) + ' / ' + dinero(r.invertidoInterno), 'Instalado en cliente / propio de Forguard')
+     + tarjetaKpi('Cliente vs. interno', dinero(r.invertidoCliente) + ' / ' + dinero(r.invertidoInterno), 'Del cliente / propio (Forguard o Plato Express)')
      + '</div>';
 
   if(!r.cantidad){
@@ -15478,7 +15519,7 @@ function vistaEstadoResultadosActivos(){
      + '</div>';
 
   if(r.porCliente.length){
-    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Inversión por cliente</h3><p>Solo equipo instalado en cliente — no cuenta lo interno de Forguard.</p></div></div>'
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Inversión por cliente</h3><p>Cualquier activo con cliente/sitio asignado, sea de quien sea el dueño — solo lo que de verdad no tiene cliente se queda fuera.</p></div></div>'
        +   r.porCliente.map(f => filaRankingInversion(f, maxCliente)).join('')
        + '</div>';
   }
@@ -15508,8 +15549,17 @@ function vistaActivos(){
 }
 
 /* Directorio: una tarjeta por cliente con activos (más "Activos internos"
-   si hay equipo propio de Forguard). Entrar a una tarjeta muestra SU
-   inventario completo — ver entrarActivosGrupo(). */
+   para el equipo propio —Forguard o Plato Express— que no tiene ningún
+   cliente/sitio asignado). Entrar a una tarjeta muestra SU inventario
+   completo — ver entrarActivosGrupo().
+
+   30-sep-2026, pedido de Victor: un activo propio con Cliente/Sitio
+   capturado (ej. una herramienta de Forguard en uso en el sitio de un
+   cliente) ya NO se va al aparte de "Activos internos" — se queda en la
+   tarjeta de ESE cliente, junto con su equipo, identificado con su propia
+   etiqueta ("Activo interno — Forguard"/"— Plato Express") en vez de con
+   un rubro separado. Solo cae en "Activos internos" el que de verdad no
+   tiene cliente asignado. */
 function vistaActivosDirectorio(){
   const r = resumirActivos(datos.activos);
   let h = '';
@@ -15545,7 +15595,10 @@ function vistaActivosDirectorio(){
   const grupos = new Map();
   const internos = [];
   datos.activos.forEach(a=>{
-    if(a.tipo === 'interno'){ internos.push(a); return; }
+    /* Solo cae en "internos" el que NO tiene cliente asignado —sin
+       importar el tipo—; uno propio CON cliente/sitio se agrupa igual que
+       cualquier equipo de ese cliente (ver nota arriba). */
+    if(a.tipo !== 'cliente' && !a.clienteId){ internos.push(a); return; }
     const cli = clientePorId(a.clienteId);
     const id = a.clienteId || '__sin_cliente__';
     if(!grupos.has(id)) grupos.set(id, { id, nombre: cli ? cli.nombre : (a.sitioNombre || 'Sin cliente'), cliente: cli, activos: [] });
@@ -15645,9 +15698,11 @@ function vistaActivosListado(){
   const idsEspeciales = ['__todos__', '__interno__', '__sin_cliente__'];
   const clienteGrupo = idGrupo && !idsEspeciales.includes(idGrupo) ? clientePorId(idGrupo) : null;
   const baseGrupo = idGrupo === '__todos__' ? datos.activos
-    : idGrupo === '__interno__' ? datos.activos.filter(a => a.tipo === 'interno')
+    : idGrupo === '__interno__' ? datos.activos.filter(a => a.tipo !== 'cliente' && !a.clienteId)
     : idGrupo === '__sin_cliente__' ? datos.activos.filter(a => a.tipo === 'cliente' && !a.clienteId)
-    : datos.activos.filter(a => a.tipo === 'cliente' && a.clienteId === idGrupo);
+    /* Ya no se filtra por tipo==='cliente': un activo propio CON este
+       cliente/sitio también pertenece a su tarjeta (ver vistaActivosDirectorio). */
+    : datos.activos.filter(a => a.clienteId === idGrupo);
 
   /* Un cliente puede traer varios sitios subidos (ej. Prolec con 2). Pedido
      de Victor (18-sep-2026): mismo patrón que el directorio de clientes,
@@ -15729,7 +15784,8 @@ function vistaActivosListado(){
      +   '<select id="filtroActivo">'
      +     '<option value="todos">Todos</option>'
      +     '<option value="cliente">Equipo en cliente</option>'
-     +     '<option value="interno">Activo interno</option>'
+     +     '<option value="forguard">' + esc(ETIQUETA_TIPO_ACTIVO.forguard) + '</option>'
+     +     '<option value="plato">' + esc(ETIQUETA_TIPO_ACTIVO.plato) + '</option>'
      +     ESTATUS_ACTIVO.map(e=>'<option value="' + e + '">' + esc(ETIQUETA_ESTATUS_ACTIVO[e]) + '</option>').join('')
      +     '<option value="mantenimiento_pendiente">Mantenimiento pendiente</option>'
      +     '<option value="garantia_por_vencer">Garantía por vencer</option>'
@@ -15763,7 +15819,7 @@ function vistaActivosListado(){
     }
     if(estado.categoriaFiltroActivo && a.categoria !== estado.categoriaFiltroActivo) return false;
     if(estado.sitioFiltroActivo && (a.sitioNombre || '').trim() !== estado.sitioFiltroActivo) return false;
-    if(estado.filtro === 'cliente' || estado.filtro === 'interno') return a.tipo === estado.filtro;
+    if(TIPO_ACTIVO.includes(estado.filtro)) return a.tipo === estado.filtro;
     if(ESTATUS_ACTIVO.includes(estado.filtro)) return a.estatus === estado.filtro;
     if(estado.filtro === 'mantenimiento_pendiente'){
       const mant = estadoMantenimientoActivo(a);
@@ -15786,7 +15842,7 @@ function vistaActivosListado(){
   if(vistaTabla) return h + tablaActivos(ordenados);
 
   h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + ordenados.map((a,i)=>{
-    const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
+    const cli = a.clienteId ? clientePorId(a.clienteId) : null;
     const tono = TONO_ESTATUS_ACTIVO[a.estatus] || 'neutro';
     let chips = '<span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_ACTIVO[a.estatus]) + '</span>'
               + '<span class="insignia i-info">' + esc(ETIQUETA_TIPO_ACTIVO[a.tipo]) + '</span>';
@@ -15808,8 +15864,8 @@ function vistaActivosListado(){
          +   '</div>'
          +   '<div class="t-chips">' + chips + '</div>'
          +   '<div class="t-datos">'
-         +     '<div class="t-dato"><div class="d-label">' + (a.tipo === 'cliente' ? 'Sitio' : 'Ubicación') + '</div><div class="d-valor chico">' + esc(a.tipo === 'cliente' ? (a.sitioNombre || 'Sin sitio') + (a.ubicacion ? ' · ' + a.ubicacion : '') : (a.ubicacion || 'Sin ubicación')) + '</div></div>'
-         +     '<div class="t-dato"><div class="d-label">' + (a.tipo === 'interno' ? 'Asignado a' : 'Condición') + '</div><div class="d-valor chico">' + (a.tipo === 'interno' ? esc(a.asignadoA || 'Sin asignar') : esc(ETIQUETA_CONDICION_ACTIVO[a.condicion])) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">' + (a.clienteId ? 'Sitio' : 'Ubicación') + '</div><div class="d-valor chico">' + esc(a.clienteId ? (a.sitioNombre || 'Sin sitio') + (a.ubicacion ? ' · ' + a.ubicacion : '') : (a.ubicacion || 'Sin ubicación')) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">' + (a.tipo !== 'cliente' ? 'Asignado a' : 'Condición') + '</div><div class="d-valor chico">' + (a.tipo !== 'cliente' ? esc(a.asignadoA || 'Sin asignar') : esc(ETIQUETA_CONDICION_ACTIVO[a.condicion])) + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie"><span class="pista">' + fmtFecha(a.fechaCreacion) + '</span></div>'
          + '</div>';
@@ -15826,7 +15882,7 @@ function tablaActivos(lista){
        +   '<th>Folio</th><th>Nombre</th><th>Tipo</th><th>Cliente / Ubicación</th><th>Asignado a</th><th>Estatus</th><th>Valor</th><th>Fecha</th><th>Código</th>'
        + '</tr></thead><tbody>'
        + lista.map(a=>{
-           const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
+           const cli = a.clienteId ? clientePorId(a.clienteId) : null;
            const tono = TONO_ESTATUS_ACTIVO[a.estatus] || 'neutro';
            /* Miniatura clicable: abre modalCodigoActivo() para verlo en
               grande y descargarlo — pedido explícito de Victor (17-sep-
@@ -15843,8 +15899,8 @@ function tablaActivos(lista){
                 +   '<td>' + esc(a.folio || '—') + '</td>'
                 +   '<td>' + esc(a.nombre || '—') + '</td>'
                 +   '<td>' + esc(ETIQUETA_TIPO_ACTIVO[a.tipo]) + '</td>'
-                +   '<td>' + esc(a.tipo === 'cliente' ? ((cli ? cli.nombre + ' · ' : '') + (a.sitioNombre || 'Sin sitio')) : (a.ubicacion || '—')) + '</td>'
-                +   '<td>' + esc(a.tipo === 'interno' ? (a.asignadoA || '—') : '—') + '</td>'
+                +   '<td>' + esc(a.clienteId ? ((cli ? cli.nombre + ' · ' : '') + (a.sitioNombre || 'Sin sitio')) : (a.ubicacion || '—')) + '</td>'
+                +   '<td>' + esc(a.tipo !== 'cliente' ? (a.asignadoA || '—') : '—') + '</td>'
                 +   '<td><span class="insignia i-' + tono + '"><span class="punto p-' + tono + '"></span>' + esc(ETIQUETA_ESTATUS_ACTIVO[a.estatus]) + '</span></td>'
                 +   '<td>' + dinero(a.costoCompra) + '</td>'
                 +   '<td>' + fmtFecha(a.fechaCreacion) + '</td>'
@@ -15925,12 +15981,12 @@ function descargarSvgComoPng(svgTexto, ancho, alto, nombreArchivo){
 function vistaActivo(){
   const a = activoPorId(estado.activoId);
   if(!a){ estado.vista = 'activos'; return vistaActivos(); }
-  const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
+  const cli = a.clienteId ? clientePorId(a.clienteId) : null;
   const tono = TONO_ESTATUS_ACTIVO[a.estatus] || 'neutro';
   const garantiaVencida = !!(a.garantiaHasta && a.garantiaHasta < hoyISO());
   const diasGarantia = diasParaVencerGarantia(a);
   const mant = estadoMantenimientoActivo(a);
-  const asignacionActiva = a.tipo === 'interno' ? asignacionActivaDe(a) : null;
+  const asignacionActiva = a.tipo !== 'cliente' ? asignacionActivaDe(a) : null;
 
   let h = botonRegresarActivos();
 
@@ -15949,11 +16005,11 @@ function vistaActivo(){
      + '</div>';
 
   h += '<div class="kpis">'
-     + tarjetaKpi(a.tipo === 'cliente' ? 'Sitio' : 'Ubicación',
-         esc(a.tipo === 'cliente' ? (a.sitioNombre || 'Sin sitio') : (a.ubicacion || 'Sin ubicación')),
-         a.tipo === 'cliente'
+     + tarjetaKpi(a.clienteId ? 'Sitio' : 'Ubicación',
+         esc(a.clienteId ? (a.sitioNombre || 'Sin sitio') : (a.ubicacion || 'Sin ubicación')),
+         a.clienteId
            ? [cli ? cli.nombre : '', a.ubicacion].filter(Boolean).map(esc).join(' · ')
-           : (a.asignadoA ? 'Asignado a ' + esc(a.asignadoA) : 'Sin asignar'))
+           : (a.tipo !== 'cliente' && a.asignadoA ? 'Asignado a ' + esc(a.asignadoA) : ''))
      + tarjetaKpi('Marca / Modelo', esc([a.marca, a.modelo].filter(Boolean).join(' / ') || 'Sin especificar'), a.serie ? 'Serie ' + esc(a.serie) : '')
      + tarjetaKpi('Costo de compra', dinero(a.costoCompra), (a.cantidad > 1 ? numero(a.cantidad) + ' unidades · ' : '') + (a.fechaCompra ? fmtFecha(a.fechaCompra) : 'Sin fecha registrada'))
      + tarjetaKpi('Garantía', a.garantiaHasta ? fmtFecha(a.garantiaHasta) : 'Sin garantía', a.garantiaHasta ? (garantiaVencida ? 'Vencida' : 'Vigente') : '')
@@ -15966,10 +16022,12 @@ function vistaActivo(){
        + '</div>';
   }
 
-  /* Asignación formal: solo aplica a activos internos —el equipo de
-     cliente vive en un sitio, no lo trae una persona—. Muestra quién lo
-     tiene ahorita y, debajo, el historial completo de quién lo ha tenido. */
-  if(a.tipo === 'interno'){
+  /* Asignación formal: es cosa de DUEÑO, no de dónde está —solo aplica a
+     activos propios (Forguard/Plato Express); el equipo del cliente no se
+     le "asigna" a nadie de nuestro lado, aunque también tenga cliente/sitio
+     capturado—. Muestra quién lo tiene ahorita y, debajo, el historial
+     completo de quién lo ha tenido. */
+  if(a.tipo !== 'cliente'){
     h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Asignación</h3>'
        +   '<p>' + (asignacionActiva ? 'Lo tiene ' + esc(asignacionActiva.personaNombre || 'alguien sin nombre') + ' desde ' + fmtFecha(asignacionActiva.desde) : 'Sin asignar a nadie.') + '</p></div>'
        +   (puedeGestionarActivos()
@@ -16097,12 +16155,18 @@ function modalActivo(id){
   const cuerpo =
       '<div class="campo"><label>Tipo de activo *</label><select id="actTipo">'
     +   '<option value="cliente"' + (tipo === 'cliente' ? ' selected' : '') + '>' + esc(ETIQUETA_TIPO_ACTIVO.cliente) + '</option>'
-    +   '<option value="interno"' + (tipo === 'interno' ? ' selected' : '') + '>' + esc(ETIQUETA_TIPO_ACTIVO.interno) + '</option>'
+    +   '<option value="forguard"' + (tipo === 'forguard' ? ' selected' : '') + '>' + esc(ETIQUETA_TIPO_ACTIVO.forguard) + '</option>'
+    +   '<option value="plato"' + (tipo === 'plato' ? ' selected' : '') + '>' + esc(ETIQUETA_TIPO_ACTIVO.plato) + '</option>'
     + '</select></div>'
+    /* Cliente/Sitio ya NO se ocultan para un activo interno (30-sep-2026,
+       pedido de Victor: "no lo muevas a un rubro por aparte") — una
+       herramienta o vehículo propio puede estar en uso en el sitio de un
+       cliente sin ser del cliente. Solo cambian de "obligatorio" a
+       "opcional" (ver pintarTipo) y ganan la opción "— Sin cliente —". */
     + '<div id="actZonaCliente">'
-    +   '<div class="campo"><label>Cliente *</label>'
+    +   '<div class="campo"><label id="labelClienteAct">Cliente *</label>'
     +     '<div class="cliente-zona">'
-    +       '<select id="actCliente">' + opc(clientesOrd, a ? a.clienteId : '', c=>c.nombre, c=>c.id) + '</select>'
+    +       '<select id="actCliente"><option value="">— Sin cliente / ubicación general —</option>' + opc(clientesOrd, a ? a.clienteId : '', c=>c.nombre, c=>c.id) + '</select>'
     +       '<button type="button" class="btn btn-suave btn-mini" id="btnClienteNuevoAct" '
     +         'title="Dar de alta un cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
     +     '</div>'
@@ -16115,7 +16179,7 @@ function modalActivo(id){
     +       '<button type="button" class="btn btn-primario btn-mini" id="ancCrear">Crear y seleccionar</button>'
     +     '</div>'
     +   '</div>'
-    +   '<div class="campo"><label>Sitio *</label>'
+    +   '<div class="campo"><label id="labelSitioAct">Sitio *</label>'
     +     '<div class="cliente-zona">'
     +       '<select id="actSitio"></select>'
     +       '<button type="button" class="btn btn-suave btn-mini" id="btnSitioNuevoAct" '
@@ -16230,8 +16294,13 @@ function modalActivo(id){
 
   function pintarSitios(){
     const clienteId = $('actCliente').value;
+    if(!clienteId){
+      $('actSitio').innerHTML = '<option value="">— Ninguno —</option>';
+      $('pistaSitioAct').textContent = '';
+      return;
+    }
     const sitios = sitiosDe(clienteId).slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'));
-    $('actSitio').innerHTML = opc(sitios, a ? a.sitioId : '', s=>s.nombre, s=>s.id);
+    $('actSitio').innerHTML = '<option value="">— Ninguno —</option>' + opc(sitios, a ? a.sitioId : '', s=>s.nombre, s=>s.id);
     $('pistaSitioAct').textContent = sitios.length
       ? ''
       : 'Este cliente no tiene sitios todavía — dale a "Nuevo" para agregar uno sin salir de aquí.';
@@ -16239,12 +16308,16 @@ function modalActivo(id){
 
   function pintarTipo(){
     const esCliente = $('actTipo').value === 'cliente';
-    $('actZonaCliente').hidden = !esCliente;
+    /* Cliente/Sitio ya no se ocultan para un activo interno — se quedan
+       siempre visibles, solo cambian de obligatorios a opcionales (la
+       validación real vive en cerrarModalActual, abajo). */
+    $('labelClienteAct').textContent = esCliente ? 'Cliente *' : 'Cliente (opcional)';
+    $('labelSitioAct').textContent = esCliente ? 'Sitio *' : 'Sitio (opcional)';
     $('actZonaInterno').hidden = esCliente;
     /* Mismo campo para las dos, con distinto sentido: dentro de un sitio
        (comedor, cocina…) o en general (bodega, camioneta…) cuando es
        interno — ver el comentario de `ubicacion` en normalizarActivo. */
-    $('labelUbicacionAct').textContent = esCliente ? 'Ubicación dentro del sitio (opcional)' : 'Ubicación';
+    $('labelUbicacionAct').textContent = esCliente ? 'Ubicación dentro del sitio (opcional)' : 'Ubicación (opcional)';
     $('actUbicacion').placeholder = esCliente ? 'Ej. Comedor, cocina, bodega…' : 'Ej. Bodega Monterrey, Camioneta 3…';
   }
   pintarTipo();
@@ -16366,15 +16439,16 @@ function modalActivo(id){
     const nombre = $('actNombre').value.trim();
     if(!nombre){ $('actNombre').setAttribute('aria-invalid','true'); $('actNombre').focus(); aviso('El activo necesita un nombre.', true); return; }
 
-    let clienteId = '', sitioId = '', sitioNombre = '';
+    /* Cliente/Sitio se leen SIEMPRE, sin importar el tipo (30-sep-2026):
+       un activo propio puede tener cliente/sitio igual que uno de cliente,
+       nada más que para 'cliente' es obligatorio y para 'forguard'/'plato'
+       es opcional (el checkeo de abajo). */
     const ubicacion = $('actUbicacion').value.trim();
-    if(tipoSel === 'cliente'){
-      sitioId = $('actSitio').value;
-      if(!sitioId){ aviso('Elige un sitio: el activo necesita saber dónde está instalado.', true); return; }
-      clienteId = $('actCliente').value;
-      const sitio = sitioPorId(sitioId);
-      sitioNombre = sitio ? sitio.nombre : '';
-    }
+    const clienteId = $('actCliente').value;
+    const sitioId = clienteId ? $('actSitio').value : '';
+    const sitio = sitioId ? sitioPorId(sitioId) : null;
+    const sitioNombre = sitio ? sitio.nombre : '';
+    if(tipoSel === 'cliente' && !sitioId){ aviso('Elige un sitio: el activo necesita saber dónde está instalado.', true); return; }
 
     /* asignadoA/asignadoAId/asignaciones se dejan FUERA de datosComunes a
        propósito: al editar, Object.assign(a, datosComunes) no debe tocar
@@ -16405,7 +16479,7 @@ function modalActivo(id){
       const creacion = Object.assign({ id:nuevoId(), folio: folioSugerido,
         registradoPor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || 'Alguien del equipo' } }, datosComunes);
       if(!creacion.codigo){ creacion.codigo = creacion.folio; creacion.tipoCodigo = 'qr'; }
-      if(tipoSel === 'interno' && $('actAsignadoAId')){
+      if(tipoSel !== 'cliente' && $('actAsignadoAId')){
         const selPersona = $('actAsignadoAId').value;
         let personaId = '', personaNombre = '';
         if(selPersona === '__otro__') personaNombre = $('actAsignadoATexto').value.trim();
@@ -16447,13 +16521,10 @@ function modalActivo(id){
 
       const tipoSel = $('actTipo').value;
       const ubicacion = $('actUbicacion').value.trim();
-      let clienteId = '', sitioId = '', sitioNombre = '';
-      if(tipoSel === 'cliente'){
-        sitioId = $('actSitio').value;
-        clienteId = $('actCliente').value;
-        const sitio = sitioId ? sitioPorId(sitioId) : null;
-        sitioNombre = sitio ? sitio.nombre : '';
-      }
+      const clienteId = $('actCliente').value;
+      const sitioId = clienteId ? $('actSitio').value : '';
+      const sitio = sitioId ? sitioPorId(sitioId) : null;
+      const sitioNombre = sitio ? sitio.nombre : '';
 
       const creacion = {
         id: nuevoId(), folio: folioSugerido,
@@ -16549,7 +16620,7 @@ function modalMantenimientoActivo(id){
    salida para quien todavía no está capturado ahí. */
 function modalAsignarActivo(id){
   const a = activoPorId(id);
-  if(!a || a.tipo !== 'interno') return;
+  if(!a || a.tipo === 'cliente') return;
   if(!exigirGestionActivos()) return;
 
   const personalOrd = datos.personal.slice().sort((x,y)=> x.nombre.localeCompare(y.nombre,'es'));
@@ -30373,14 +30444,18 @@ function construirHojaActivos(lista){
 
   lista.forEach((a, k)=>{
     const n = 2 + k;
-    const cli = a.tipo === 'cliente' ? clientePorId(a.clienteId) : null;
+    const cli = a.clienteId ? clientePorId(a.clienteId) : null;
     xml += filaXml(n, [
       cT(a.folio, 4), cT(ETIQUETA_TIPO_ACTIVO[a.tipo], 4), cT(a.categoria, 4), cT(a.nombre, 4),
       cT(a.marca, 4), cT(a.modelo, 4), cT(a.serie, 4),
-      cT(a.tipo === 'cliente' ? (cli ? cli.nombre : '') : '', 4),
-      cT(a.tipo === 'cliente' ? a.sitioNombre : '', 4),
-      cT(a.tipo === 'interno' ? a.ubicacion : '', 4),
-      cT(a.tipo === 'interno' ? a.asignadoA : '', 4),
+      /* Cliente/Sitio ya no son exclusivos de tipo 'cliente' (30-sep-2026):
+         un activo propio con cliente/sitio capturado también los exporta.
+         Ubicación, en cambio, ahora es de CUALQUIER activo (dentro del
+         sitio, o en general si no tiene uno) — ya no se oculta según tipo. */
+      cT(a.clienteId ? (cli ? cli.nombre : '') : '', 4),
+      cT(a.clienteId ? a.sitioNombre : '', 4),
+      cT(a.ubicacion, 4),
+      cT(a.tipo !== 'cliente' ? a.asignadoA : '', 4),
       cT(ETIQUETA_ESTATUS_ACTIVO[a.estatus], 4), cT(ETIQUETA_CONDICION_ACTIVO[a.condicion], 4),
       cT(a.proveedor, 4),
       a.fechaCompra ? cF(a.fechaCompra, 6) : cT('', 4),
