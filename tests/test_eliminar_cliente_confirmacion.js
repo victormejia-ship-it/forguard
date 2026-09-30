@@ -19,7 +19,15 @@
    Mismo día, pedido explícito de Victor ("ponle lo mismo a Eliminar
    sitio"): "Eliminar sitio" recibe idéntico tratamiento — nombre exacto
    para confirmar, y aviso si el sitio tiene cotizaciones/pólizas/reportes/
-   levantamientos que quedarían huérfanos (sección 5, abajo). */
+   levantamientos que quedarían huérfanos (sección 5, abajo).
+
+   Sección 5 se probaba originalmente desde Forpass, pero el mismo día
+   Victor pidió además que "Eliminar sitio" dejara de ser alcanzable ahí
+   ("si elimino un sitio de forpass se elimina el registro y requiero que
+   no sea así") — ahora solo existe desde Clientes (Forpass tiene "Quitar
+   Forpass" en su lugar, que no borra nada; ver
+   test_sitio_alta_en_clientes.js), así que la sección 5 navega por
+   Clientes para seguir probando el mismo arreglo en su ubicación actual. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -97,12 +105,18 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Su póliza NO se borra (nunca lo ha hecho) — queda huérfana, tal como avisó la ventana', estadoFinal.polizaSigueViva === true);
 
   // --------- 5) "Eliminar sitio" trae el MISMO arreglo (30-sep-2026, mismo pedido: "ponle lo mismo a Eliminar sitio") ---------
+  /* Mismo día, pedido aparte de Victor ("si elimino un sitio de forpass se
+     elimina el registro y requiero que no sea así"): "Eliminar sitio" ya NO
+     es alcanzable desde Forpass —ahí el botón de basura se volvió "Quitar
+     Forpass", que no borra el registro (ver test_sitio_alta_en_clientes.js)—
+     así que este escenario se mueve a Clientes, que es de donde ahora sí se
+     puede borrar un sitio por completo. */
   await page.evaluate(() => {
     datos.clientes = [normalizarCliente({ id:'c3', nombre:'NGK' })];
     datos.sitios = [normalizarSitio({ id:'s2', clienteId:'c3', nombre:'Planta Norte', modulos:1, mensualidad:1000, fechaInicio:hoyISO(), meses:12 })];
     datos.cotizaciones = [normalizarCotizacion({ id:'q1', clienteId:'c3', sitioId:'s2', folio:'COT-1' })];
-    irAModulo('forpass');
-    entrarCliente('c3');
+    irAModulo('clientes');
+    entrarResumenCliente('c3');
   });
   await page.waitForTimeout(150);
 
