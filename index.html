@@ -11938,6 +11938,16 @@ function vistaResumenCliente(){
                pinta a un Admin, aunque un Analyst sí pueda editar el cliente. */
             + (esAdmin()
                 ? '<button type="button" class="btn btn-suave btn-mini" data-fusionar-cliente="' + esc(c.id) + '" title="Unir este cliente con un duplicado">' + ICONO.respaldo + 'Fusionar con otro cliente</button>'
+                /* "Eliminar cliente" vive aquí, no en Forpass (30-sep-2026,
+                   pedido de Victor: "el modulo que debe regir es el de
+                   cliente, forpass es un anexo" — tras el mismo pedido se le
+                   quitó el botón de basura a la lista de clientes de
+                   Forpass). Se agrega justo aquí porque, al quitarlo de
+                   Forpass, el botón se quedó sin ningún lugar en la UI desde
+                   donde llamarlo —el manejador (confirmarEscribiendoNombre,
+                   el aviso de pólizas/cotizaciones huérfanas) seguía
+                   completo, solo le faltaba de dónde picarle—. */
+                + '<button type="button" class="btn btn-peligro btn-mini" data-borrar-cliente="' + esc(c.id) + '" title="Eliminar cliente">' + ICONO.basura + 'Eliminar cliente</button>'
                 : '')
           : '')
        + '</div>'
@@ -13920,12 +13930,11 @@ function vistaClientes(){
      /* Respaldo/Restaurar/Excel general se movieron a la pestaña Clientes: son
         acciones de TODA la base (los cuatro módulos), no solo de Forpass, y
         vivir aquí duplicado con el módulo Clientes solo confundía. */
-     /* A un Viewer no se le ofrece nada de captura: el módulo de pólizas ya
-        seguía esta regla (botón si puede editar, texto si no) y Forpass se había
-        quedado atrás — ofrecía lápices y «Agregar» que al picarlos contestaban
-        «Tu cuenta es Viewer: no puede hacer cambios». Un callejón sin salida
-        cada vez. Ver la regla de oro en CLAUDE.md. */
-     +   (puedeEditar() ? '<button type="button" class="btn btn-primario" data-accion="nuevo-cliente">' + ICONO.mas + 'Agregar cliente</button>' : '')
+     /* "Agregar cliente" también se fue de aquí (30-sep-2026, pedido de
+        Victor: "el modulo que debe regir es el de cliente, forpass es un
+        anexo") — dar de alta un cliente es del módulo Clientes, Forpass ya
+        no captura nada de identidad del cliente, solo consulta/cobranza de
+        los sitios de los que ya existen. */
      + '</div></div>';
 
   h += '<div class="kpis">'
@@ -13945,7 +13954,7 @@ function vistaClientes(){
 
   if(!mios.length){
     h += puedeEditar()
-      ? vistaVacia('edificio','Todavía no hay clientes','Agrega tu primer cliente y después registra los sitios con sus Forpass, mensualidad y vigencia.','nuevo-cliente','Agregar cliente')
+      ? vistaVacia('edificio','Todavía no hay clientes','Los clientes se dan de alta desde Clientes, no desde aquí — ahí mismo puedes registrar sus sitios y activarles Forpass.','ir-modulo-clientes','Ir a Clientes')
       : vistaVacia('edificio','Todavía no hay clientes','Cuando alguien del equipo dé de alta el primer cliente, va a aparecer aquí.','','');
     return h;
   }
@@ -14014,20 +14023,13 @@ function vistaClientes(){
          +     '<div class="t-dato"><div class="d-label">Mensualidad</div><div class="d-valor">' + dinero(rr.mrr) + '</div></div>'
          +     '<div class="t-dato"><div class="d-label">Sitios activos</div><div class="d-valor">' + numero(rr.sitiosActivos) + ' de ' + numero(rr.sitios) + '</div></div>'
          +   '</div>'
+         /* Editar/Eliminar el CLIENTE (nombre, contacto, logo, o borrarlo por
+            completo) ya no viven aquí (30-sep-2026, pedido de Victor: "el
+            modulo que debe regir es el de cliente, forpass es un anexo") —
+            se hacen desde Clientes. Esta tarjeta queda solo para consultar
+            la salud de Forpass de ese cliente y saltar a sus sitios. */
          +   '<div class="t-pie">'
          +     '<button type="button" class="btn btn-suave btn-mini" data-ver="' + esc(c.id) + '">Ver sitios →</button>'
-         +     '<span class="espacio"></span>'
-         +     (puedeEditar()
-                ? '<button type="button" class="btn btn-suave btn-mini" data-editar-cliente="' + esc(c.id) + '" title="Editar cliente">' + ICONO.lapiz + '</button>'
-                : '')
-         /* Borrar del tablero es de Admin para arriba, decidido por Santiago el
-            19-ago-2026: capturar y corregir es el trabajo del día —cualquiera con
-            permiso de editar lo hace— pero eliminar un registro ya creado se lleva
-            de golpe su historial y no hay deshacer. Un cliente arrastra además sus
-            sitios, y con la colección compartida, su póliza de mantenimiento. */
-         +     (esAdmin()
-                ? '<button type="button" class="btn btn-peligro btn-mini" data-borrar-cliente="' + esc(c.id) + '" title="Eliminar cliente">' + ICONO.basura + '</button>'
-                : '')
          +   '</div>'
          + '</div>';
   }).join('') + '</div>';
@@ -28458,6 +28460,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-resumen-clientes') irAResumenClientes();
     else if(a === 'ir-cliente-forpass') irAlClienteEnForpass(estado.clienteId);
     else if(a === 'ir-cliente-en-clientes') irAlClienteEnClientes(estado.clienteId);
+    else if(a === 'ir-modulo-clientes') irAModulo('clientes');
     else if(a === 'ir-polizas-cliente'){ const c = clientePorId(estado.clienteId); if(c) irAPolizasDe(c.nombre); }
     else if(a === 'ver-cotizaciones-cliente'){ const c = clientePorId(estado.clienteId); if(c) verCotizacionesDe(c.nombre); }
     else if(a === 'ver-cotizaciones-sitio') verCotizacionesDe(acc.dataset.sitioNombre || '');

@@ -23,7 +23,27 @@
    (data-quitar-forpass): apaga la configuración de Forpass del sitio
    (módulos, tipo de cargo, facturación, mensualidad, costo, pagos) pero el
    sitio EN SÍ sigue existiendo, con sus pólizas/cotizaciones/reportes
-   intactos — no hay "Eliminar sitio" alcanzable desde Forpass. */
+   intactos — no hay "Eliminar sitio" alcanzable desde Forpass.
+
+   Segunda vuelta el mismo día (Victor, tras probar en el navegador): la
+   LISTA de clientes de Forpass (vistaClientes(), la pantalla "Clientes" que
+   se ve al entrar al módulo Forpass) todavía traía "Agregar cliente" en el
+   encabezado y, en cada tarjeta, el lápiz de "Editar cliente" y la basura
+   de "Eliminar cliente" — exactamente las mismas acciones sobre la
+   IDENTIDAD del cliente que ya se habían quitado del módulo Forpass en
+   todo lo demás. "el modulo que debe regir es el de cliente, forpass es un
+   anexo": esos tres botones se quitan de aquí también — la tarjeta de
+   Forpass queda solo para consultar salud de Forpass y saltar a "Ver
+   sitios", y el estado vacío ("Todavía no hay clientes") manda a Clientes
+   en vez de ofrecer un alta que ya no vive aquí.
+
+   Al quitar la basura de "Eliminar cliente" de la lista de Forpass salió a
+   la luz que NUNCA había existido en ningún otro lado de Clientes —
+   vistaResumenCliente() (la ficha 360° de un cliente) solo tenía "Editar
+   cliente" y "Fusionar con otro cliente"—, así que el botón se quedó sin
+   ningún lugar en la UI desde donde llamarlo (el manejador seguía
+   completo: confirmarEscribiendoNombre(), el aviso de huérfanos, todo).
+   Se agregó ahí mismo, junto a Fusionar (sección 0c, abajo). */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -55,9 +75,37 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     datos.cotizaciones = [ normalizarCotizacion({ id:'q1', clienteId:'c1', sitioId:'s1', folio:'COT-1' }) ];
   });
 
-  // --------- 1) "Agregar sitio" es alcanzable desde Clientes (resumen 360°) ---------
+  // --------- 0) La LISTA de clientes de Forpass ya no trae alta ni edición/eliminación del cliente ---------
+  await page.evaluate(() => { irAModulo('forpass'); render(); });
+  await page.waitForTimeout(150);
+  chkF('El encabezado de la lista de Forpass ya NO trae "Agregar cliente"', await page.locator('[data-accion="nuevo-cliente"]').count() === 0);
+  chkF('La tarjeta de NGK en Forpass ya NO trae el lápiz de "Editar cliente"', await page.locator('[data-editar-cliente="c1"]').count() === 0);
+  chkF('La tarjeta de NGK en Forpass ya NO trae la basura de "Eliminar cliente"', await page.locator('[data-borrar-cliente="c1"]').count() === 0);
+  chkF('La tarjeta de NGK en Forpass sí conserva "Ver sitios →"', await page.locator('[data-ver="c1"]').count() === 1);
+
+  // --------- 0b) El estado vacío de la lista de Forpass manda a Clientes, no ofrece alta aquí ---------
+  await page.evaluate(() => {
+    window.__clientesGuardados = datos.clientes; window.__sitiosGuardados = datos.sitios;
+    datos.clientes = []; datos.sitios = [];
+    render();
+  });
+  await page.waitForTimeout(150);
+  chkF('Sin ningún cliente, Forpass ya no ofrece "Agregar cliente" en su estado vacío', await page.locator('[data-accion="nuevo-cliente"]').count() === 0);
+  chkF('En cambio ofrece un botón para ir a Clientes', await page.locator('[data-accion="ir-modulo-clientes"]').count() === 1);
+  await page.click('[data-accion="ir-modulo-clientes"]');
+  await page.waitForTimeout(150);
+  chkF('"Ir a Clientes" desde el estado vacío de Forpass sí cambia al módulo clientes', await page.evaluate(() => estado.modulo === 'clientes'));
+  await page.evaluate(() => {
+    datos.clientes = window.__clientesGuardados; datos.sitios = window.__sitiosGuardados;
+  });
+
+  // --------- 0c) "Editar cliente"/"Eliminar cliente" sí siguen alcanzables, pero desde Clientes ---------
   await page.evaluate(() => { irAModulo('clientes'); entrarResumenCliente('c1'); render(); });
   await page.waitForTimeout(150);
+  chkF('La ficha 360° de Clientes trae "Editar cliente"', await page.locator('[data-editar-cliente="c1"]').count() === 1);
+  chkF('La ficha 360° de Clientes trae "Eliminar cliente" para Admin/Owner', await page.locator('[data-borrar-cliente="c1"]').count() === 1);
+
+  // --------- 1) "Agregar sitio" es alcanzable desde Clientes (resumen 360°) ---------
   chkF('El bloque "Sitios" del resumen 360° trae "Agregar sitio"', await page.locator('[data-accion="nuevo-sitio"]').count() === 1);
   chkF('También trae "Editar" para el sitio existente', await page.locator('[data-editar-sitio="s1"]').count() === 1);
   chkF('También trae "Eliminar sitio" (destructivo, de verdad) para Admin/Owner', await page.locator('[data-borrar-sitio="s1"]').count() === 1);

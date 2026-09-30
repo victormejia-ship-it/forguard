@@ -27,7 +27,16 @@
    no sea así") — ahora solo existe desde Clientes (Forpass tiene "Quitar
    Forpass" en su lugar, que no borra nada; ver
    test_sitio_alta_en_clientes.js), así que la sección 5 navega por
-   Clientes para seguir probando el mismo arreglo en su ubicación actual. */
+   Clientes para seguir probando el mismo arreglo en su ubicación actual.
+
+   Todo el archivo (no solo la sección 5) navega por Clientes, no por
+   Forpass: mismo día, segunda vuelta, Victor probó en el navegador y vio
+   que la LISTA de clientes de Forpass todavía traía el lápiz de "Editar
+   cliente" y la basura de "Eliminar cliente" en cada tarjeta ("en modulo
+   forpass sigue apareciendo con mayor información en lugar de clientes, el
+   modulo que debe regir es el de cliente, forpass es un anexo") — se
+   quitaron también de ahí (ver test_sitio_alta_en_clientes.js), así que
+   "Eliminar cliente" dejó de ser alcanzable desde Forpass por completo. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -56,8 +65,8 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     ];
     datos.sitios = [ normalizarSitio({ id:'s1', clienteId:'c2', nombre:'Sitio JD', modulos:1, mensualidad:1000, fechaInicio:hoyISO(), meses:12 }) ];
     datos.polizas = [ normalizarPoliza({ id:'p1', clienteId:'c2', sitioId:'s1', estatus:'activa' }) ];
-    irAModulo('forpass');
-    render();
+    irAModulo('clientes');
+    entrarResumenCliente('c1');
   });
   await page.waitForTimeout(150);
 
@@ -86,6 +95,8 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Con el nombre exacto confirmado, el cliente SÍ se elimina de verdad', trasBorrarC1 === false);
 
   // --------- 4) Si el cliente tiene pólizas/cotizaciones/etc., la ventana avisa el alcance real ---------
+  await page.evaluate(() => entrarResumenCliente('c2'));
+  await page.waitForTimeout(150);
   await page.click('[data-borrar-cliente="c2"]');
   await page.waitForTimeout(150);
   const textoAviso = await page.locator('#modalCuerpo').textContent();
