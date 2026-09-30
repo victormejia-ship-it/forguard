@@ -2687,6 +2687,7 @@ async function restaurarSnapshotIndexedDB(){
    calla el aviso repetido. */
 let avisoEspacioLocalUltimo = 0;
 let avisoEspacioGrandeUltimo = 0;
+let avisoConsolaLivianaUltimo = 0;
 const PAUSA_AVISO_ESPACIO_MS = 5 * 60 * 1000;
 function guardarLocal(){
   try{
@@ -2713,7 +2714,17 @@ function guardarLocal(){
     localStorage.setItem(LLAVE, JSON.stringify(quitarDataUrlsPesados(datos)));
   }catch(e2){
     livianaCupo = false;
-    console.warn('guardarLocal(): sin espacio ni para la copia liviana en localStorage; se intenta igual el respaldo grande en IndexedDB.', e2);
+    /* Este aviso, a diferencia de los dos de aviso() más abajo, no traía
+       throttle (veredicto de Victor, 30-sep-2026, con la consola real
+       mostrando 45 seguidos en la misma sesión): con la base ya crecida,
+       hasta la copia SIN fotos deja de caber en localStorage en cada
+       guardado — no es un problema nuevo cada vez, es el mismo, una y otra
+       vez. IndexedDB (más abajo) sigue guardando la copia completa sin
+       problema; esto es solo ruido de consola, no pérdida de nada. */
+    if(Date.now() - avisoConsolaLivianaUltimo > PAUSA_AVISO_ESPACIO_MS){
+      avisoConsolaLivianaUltimo = Date.now();
+      console.warn('guardarLocal(): sin espacio ni para la copia liviana en localStorage; se intenta igual el respaldo grande en IndexedDB.', e2);
+    }
   }
   guardarSnapshotIndexedDB(datos).catch((e3)=>{
     /* Esto es solo la copia de respaldo sin internet DE ESTE APARATO — el
