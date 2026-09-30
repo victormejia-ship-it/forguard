@@ -8935,6 +8935,34 @@ function normalizarSitio(s){
     viaticos: Math.max(0, Number(s.viaticos) || 0),
     incOnboarding: !!s.incOnboarding,
     onboarding: Math.max(0, Number(s.onboarding) || 0),
+    /* Forpass como línea de negocio propia (29-sep-2026, pedido de Victor:
+       "necesito que sigas el mismo modelo... este debe de generar un
+       costo, un precio de venta, puede no generar un precio de venta,
+       debemos seleccionarlo de diferentes maneras") — se agrega a la MISMA
+       ficha del sitio (nunca una entidad aparte: "que esté anclado a un
+       cliente a un sitio"), reusando `mensualidad`/`meses`/`pagos` de
+       siempre en vez de inventar una colección nueva.
+       - forpassTipoCargo: distingue cómo se factura. Con 'venta', el
+         monto de `mensualidad` es en realidad el precio de venta (única
+         vez o a meses, según cómo se capture); con 'renta'/'licencia' es
+         la renta/licencia recurrente de siempre — ambas alimentan el
+         mismo renglón "FORPASS – renta / licenciamiento" en Resultados,
+         'venta' alimenta "FORPASS – venta de equipos".
+       - forpassFacturacion: mismo mecanismo que `facturacion` en Pólizas
+         (mensual = doce cobros; aquí generalizado con 'semestral' además
+         de 'anual' — un cobro cada 6 o cada 12 mensualidades del
+         contrato, el resto del calendario en $0), para "facturable por
+         mes... o con una orden de compra global anual, semestral".
+       - forpassCosto: nuestro costo (no lo que se le cobra al cliente) de
+         los Forpass instalados en este sitio — dato que Victor ya tiene
+         pero el módulo nunca había capturado. Se reconoce una sola vez,
+         en el mes de `fechaInicio`, sin importar la facturación al
+         cliente (es capex: se paga una vez al instalar). Default 0: un
+         sitio sin este dato capturado no rompe nada, solo no aporta costo
+         todavía. */
+    forpassTipoCargo: ['renta','venta','licencia'].includes(s.forpassTipoCargo) ? s.forpassTipoCargo : 'renta',
+    forpassFacturacion: ['mensual','semestral','anual'].includes(s.forpassFacturacion) ? s.forpassFacturacion : 'mensual',
+    forpassCosto: Math.max(0, Number(s.forpassCosto) || 0),
     fechaInicio: /^\d{4}-\d{2}-\d{2}$/.test(s.fechaInicio||'') ? s.fechaInicio : hoyISO(),
     meses, pagos,
     notas: s.notas || '',
@@ -9357,9 +9385,18 @@ function calcular(s){
   /* Los viáticos y el onboarding se cobran UNA sola vez, en el pago 1.
      De la mensualidad 2 en adelante es la renta normal. */
   const extras = (s.incViaticos ? s.viaticos : 0) + (s.incOnboarding ? s.onboarding : 0);
-  const montos = Array.from({length:s.meses}, (_,i)=> s.mensualidad + (i === 0 ? extras : 0));
+  /* forpassFacturacion (29-sep-2026, pedido de Victor: "pueden ser
+     facturables por mes... o como sea") — mismo mecanismo que ya usa
+     `facturacion` en Pólizas (mensual = un cobro cada mes; anual = uno
+     solo, por el total del periodo), generalizado a 3 niveles para
+     Forpass. `periodoMeses` dice cada cuántas mensualidades hay un cobro
+     real; el resto del calendario se queda en $0 — así una facturación
+     anual con 12 mensualidades de contrato cobra UNA sola vez (mes 1, por
+     el total anual que ya trae `mensualidad`), no doce veces. */
+  const periodoMeses = { mensual:1, semestral:6, anual:12 }[s.forpassFacturacion] || 1;
+  const montos = Array.from({length:s.meses}, (_,i)=> (i % periodoMeses === 0 ? s.mensualidad : 0) + (i === 0 ? extras : 0));
   const primerPago = montos[0];
-  const valorContrato = s.mensualidad * s.meses + extras;
+  const valorContrato = montos.reduce((t,m)=> t + m, 0);
   const cobrado = s.pagos.reduce((t,p,i)=> t + (p ? montos[i] : 0), 0);
 
   /* Dinero vencido: solo las mensualidades que ya debieron pagarse y no están pagadas. */
@@ -11251,8 +11288,15 @@ function irAlSitioEnForpass(sitioId){
   if(!s){ aviso('Ese sitio ya no existe en Forpass.', true); return; }
   estado.modulo = 'forpass'; guardarModulo();
   estado.busca = ''; estado.filtro = 'todos';
-  estado.sitioFiltro = sitioId; estado.encargadoFiltro = '';
+  /* entrarCliente() resetea sitioFiltro a '' ("cada cliente arranca viendo
+     todos sus sitios") — hay que ponerlo DESPUÉS de llamarla, no antes, o
+     se pisa solo y esta función deja de filtrar a un sitio en específico
+     (hallazgo propio, 30-sep-2026, al cablear el clic real de Resultados
+     hacia Forpass: entrarCliente() SÍ dejaba el clienteId correcto, pero
+     mostraba TODOS los sitios del cliente en vez de solo el pedido). */
   entrarCliente(s.clienteId);
+  estado.sitioFiltro = sitioId; estado.encargadoFiltro = '';
+  render();
 }
 function irAPolizasDe(texto){
   estado.modulo = 'polizas'; guardarModulo();
@@ -12402,6 +12446,79 @@ function detalleCostoProyectoImagen(campo){
     .filter(it => it.monto);
 }
 
+/* ---- Forpass (Tecnología y Control) ----
+   Pedido de Victor (29-sep-2026): "necesito que sigas el mismo modelo o la
+   misma estructura que actualmente tiene, solo que el Forpass no sea quien
+   rija toda la página sino esté anclado a un cliente a un sitio" — los 3
+   campos nuevos (forpassTipoCargo/forpassFacturacion/forpassCosto, ver
+   normalizarSitio) viven en la MISMA ficha de sitio de siempre, nunca en
+   una colección aparte.
+
+   Solo cuentan sitios con `modulos > 0` (todavía ninguno real lo tiene,
+   confirmado por ella: "cada sitio pudiera tener un Forpass pero
+   inicialmente ninguno lo tiene") y estado 'activo' — mismo candado que
+   Pólizas (p.estatus==='activa') para ingreso Y costo por igual.
+
+   Ingreso: se reparte con el mismo mecanismo que ya usa `facturacion` en
+   Pólizas (mensual/anual), generalizado con 'semestral' — ver el
+   `periodoMeses` de calcular(). 'renta' y 'licencia' alimentan el MISMO
+   renglón de Resultados ("FORPASS – renta / licenciamiento"): a nivel de
+   negocio son la misma mecánica de cobro recurrente, la única diferencia
+   es si lo que se renta es hardware o una licencia de software. 'venta'
+   alimenta "FORPASS – venta de equipos".
+
+   Costo ("Hardware / equipos FORPASS"): `forpassCosto` es capex —se paga
+   una sola vez al instalar, sin importar cómo se le cobre después al
+   cliente— así que se reconoce completo en el mes de `fechaInicio`,
+   para cualquier tipo de cargo. */
+function periodosForpassEnAnio(s, anio){
+  const c = calcular(s);
+  const periodos = [];
+  for(let i = 0; i < c.montos.length; i++){
+    if(!c.montos[i]) continue;
+    const fecha = sumarMeses(s.fechaInicio, i);
+    if(fecha.slice(0,4) !== String(anio)) continue;
+    periodos.push({ mes: Number(fecha.slice(5,7)) - 1, monto: c.montos[i] });
+  }
+  return periodos;
+}
+function montosPorMesForpassIngreso(tipos){
+  return (anio) => {
+    const totales = Array(12).fill(0);
+    datos.sitios
+      .filter(s => s.modulos > 0 && s.estado === 'activo' && tipos.includes(s.forpassTipoCargo))
+      .forEach(s => periodosForpassEnAnio(s, anio).forEach(per => { totales[per.mes] += per.monto; }));
+    return totales;
+  };
+}
+function detalleForpassIngreso(tipos){
+  return (anio, mes) => {
+    const items = [];
+    datos.sitios
+      .filter(s => s.modulos > 0 && s.estado === 'activo' && tipos.includes(s.forpassTipoCargo))
+      .forEach(s => {
+        let monto = 0;
+        periodosForpassEnAnio(s, anio).forEach(per => { if(mes == null || per.mes === mes) monto += per.monto; });
+        if(monto) items.push({ etiqueta: (s.nombre || 'Sitio') + ' — ' + ((clientePorId(s.clienteId)||{}).nombre || 'Sin cliente'), monto, accion:'ir-forpass-sitio', accionId:s.id });
+      });
+    return items;
+  };
+}
+function montosPorMesForpassCosto(anio){
+  const totales = Array(12).fill(0);
+  datos.sitios
+    .filter(s => s.modulos > 0 && s.estado === 'activo' && s.forpassCosto && s.fechaInicio.slice(0,4) === String(anio))
+    .forEach(s => { totales[Number(s.fechaInicio.slice(5,7)) - 1] += s.forpassCosto; });
+  return totales;
+}
+function detalleForpassCosto(anio, mes){
+  const m = mes == null ? null : Number(mes);
+  return datos.sitios
+    .filter(s => s.modulos > 0 && s.estado === 'activo' && s.forpassCosto && s.fechaInicio.slice(0,4) === String(anio))
+    .filter(s => m == null || Number(s.fechaInicio.slice(5,7)) - 1 === m)
+    .map(s => ({ etiqueta: (s.nombre || 'Sitio') + ' — ' + ((clientePorId(s.clienteId)||{}).nombre || 'Sin cliente'), monto: s.forpassCosto, accion:'ir-forpass-sitio', accionId:s.id }));
+}
+
 const PILARES_PROFORMA = [
   { id:'tecnicos', nombre:'Servicios Técnicos',
     ingresos: [
@@ -12444,12 +12561,12 @@ const PILARES_PROFORMA = [
     ] },
   { id:'tecnologia', nombre:'Tecnología y Control',
     ingresos: [
-      { id:'forpass-renta', label:'FORPASS – renta / licenciamiento', montosPorMes: sinDatosTodavia() },
-      { id:'forpass-venta-equipos', label:'FORPASS – venta de equipos', montosPorMes: sinDatosTodavia() },
+      { id:'forpass-renta', label:'FORPASS – renta / licenciamiento', montosPorMes: montosPorMesForpassIngreso(['renta','licencia']), detalle: detalleForpassIngreso(['renta','licencia']) },
+      { id:'forpass-venta-equipos', label:'FORPASS – venta de equipos', montosPorMes: montosPorMesForpassIngreso(['venta']), detalle: detalleForpassIngreso(['venta']) },
       { id:'otros-tecnologia', label:'Otros ingresos de tecnología', montosPorMes: sinDatosTodavia() }
     ],
     costos: [
-      { id:'hardware-forpass', label:'Hardware / equipos FORPASS', montosPorMes: sinDatosTodavia() },
+      { id:'hardware-forpass', label:'Hardware / equipos FORPASS', montosPorMes: montosPorMesForpassCosto, detalle: detalleForpassCosto },
       { id:'licencias-software', label:'Licencias y software directo', montosPorMes: sinDatosTodavia() },
       { id:'instalacion-soporte', label:'Instalación / soporte directo', montosPorMes: sinDatosTodavia() },
       { id:'otros-costos', label:'Otros costos directos', montosPorMes: sinDatosTodavia() }
@@ -12817,7 +12934,8 @@ const IR_DETALLE_PROFORMA = {
   'ir-persona': irAEditarPersona,
   'ir-gasto-proveedor': entrarGastoProveedor,
   'ir-orden-compra': entrarOrdenCompra,
-  'ir-proyecto-imagen': entrarProyectoImagen
+  'ir-proyecto-imagen': entrarProyectoImagen,
+  'ir-forpass-sitio': irAlSitioEnForpass
 };
 function modalDetalleProforma(pilarId, conceptoId, mes){
   const pilar = PILARES_PROFORMA.find(p => p.id === pilarId);
@@ -13197,7 +13315,8 @@ const TEMAS_AYUDA = [
           '<b>Materiales / Contratistas y proveedores</b> (Proyectos e Infraestructura, costo): el mismo desglose de costo que ya usa el módulo de Imagen/Aperturas (materiales comprados vs. mano de obra, según el proveedor de cada concepto venga marcado como "Servicios") — con el MISMO candado que el ingreso, solo de proyectos Aprobados/En obra/Terminado (29-sep-2026: antes el costo contaba desde que se capturaba y el ingreso no, y con proyectos acumulados en Diseño/Cotización eso pintaba pérdida en Resultados aunque cada proyecto tuviera margen positivo — ahora los dos usan el mismo estatus, simetría total).',
           '<b>Venta / renta de equipos</b> (Proyectos e Infraestructura, ingreso) y <b>Costo de equipos</b> (costo) (29-sep-2026, pedido de Victor: "podemos contemplar la venta de equipo y renta de equipos, derivado de las cotizaciones las podemos tomar"): cotizaciones con estatus <b>Realizado</b> Y <b>Tipo de mantenimiento: EQUIPO</b> — mismo criterio de fecha/monto sin IVA que "Trabajos correctivos / preventivo", de donde se sacaron para no contarlas dos veces.',
           '<b>Otros costos directos</b> (Proyectos e Infraestructura, costo) (29-sep-2026, mismo día): gastos de <b>Proveedores</b> capturados a mano con estatus <b>Por pagar</b> o <b>Pagado</b> y el campo <b>Pilar</b> puesto en "Proyectos e Infraestructura" — mismo mecanismo que "Proveedores / servicios subcontratados" en Servicios Técnicos, pero SIN las Órdenes de Compra (esas, al no tener campo Pilar propio, se siguen sumando completas a Servicios Técnicos por ahora, como ya se documentó ahí).',
-          'El <b>mes</b> en el que cae cualquiera de los dos renglones de Proyectos (ingreso o costo) es el de la <b>fecha de salida del sitio</b> (fin de obra) — si el trabajo cruza de un mes a otro, cuenta en el que se terminó, no en el que arrancó. Sin fecha de salida capturada todavía (obra en curso), se usa la de entrada; sin ninguna de las dos, la fecha de alta del proyecto.'
+          'El <b>mes</b> en el que cae cualquiera de los dos renglones de Proyectos (ingreso o costo) es el de la <b>fecha de salida del sitio</b> (fin de obra) — si el trabajo cruza de un mes a otro, cuenta en el que se terminó, no en el que arrancó. Sin fecha de salida capturada todavía (obra en curso), se usa la de entrada; sin ninguna de las dos, la fecha de alta del proyecto.',
+          '<b>FORPASS – renta / licenciamiento</b> y <b>FORPASS – venta de equipos</b> (Tecnología y Control, ingreso) y <b>Hardware / equipos FORPASS</b> (costo) (29/30-sep-2026, pedido de Victor: "cada sitio pudiera tener un Forpass pero inicialmente ninguno lo tiene... el módulo debe de contar con un costo... un precio de venta... venta, renta, licencia... facturables por mes o... semestral o anual"): se agregaron 3 campos a la ficha del sitio en Forpass (ver el tema de Ayuda de Forpass) — Tipo de cargo (Renta/Licencia/Venta), Facturación (Mensual/Semestral/Anual, mismo mecanismo que ya usa Pólizas) y Costo de los Forpass instalados. Renta y Licencia van al mismo renglón de ingreso; Venta al de "venta de equipos"; el costo se reconoce una sola vez, en la fecha de inicio del sitio. Solo cuentan sitios con módulos instalados (mayor a 0) y estado Activo — mismo candado que Pólizas. "Otros ingresos de tecnología", "Licencias y software directo", "Instalación / soporte directo" y "Otros costos directos" (Tecnología y Control) siguen sin conectar.'
         ])
       + guiaTip('Cómo leer cada bloque (25-sep-2026)', [
           'Cada pilar —y el Resumen general de arriba— trae el <b>gráfico a la izquierda</b> y la <b>tabla a la derecha</b>: barras de Ingresos/Costos directos con la línea de Utilidad bruta encima, mes a mes. Pasa el mouse sobre cualquier mes para ver el detalle exacto.',
@@ -13250,7 +13369,7 @@ const TEMAS_AYUDA = [
         'La pantalla de <b>Forpass</b> trae 5 KPIs: Forpass activos, Mensualidad total (MRR), Sitios atrasados, Por pagar (7 días) y Vigencias por vencer — los tres últimos son clickeables y filtran la lista. Los mismos 5 se ven también arriba en <b>Clientes</b>, para tener la salud de esta cartera a la vista sin cambiar de pestaña.',
         'Busca por cliente o nombre de sitio; filtra "Solo con atrasos" o "Solo con Forpass activos"; alterna tarjetas/tabla.',
         'Los datos DEL CLIENTE en sí (nombre, contacto, logo, fusionar con otro) se editan solo desde <b>Clientes</b> — Forpass es la pantalla de sus sitios y su cobranza, no un segundo lugar para tocar al cliente. Desde la ficha de un cliente en Clientes puedes saltar directo aquí con <b>"Ver en Forpass"</b>.',
-        'Usa <b>Agregar sitio</b> dentro de un cliente: Nombre*, Cliente, Zona (con sugerencias guardadas y color), Forpass instalados (módulos)*, Estado (Activo/Pausado/Baja), Tipo de contratación* (Software+Hardware o Solo Software), Mensualidad*, si incluyó onboarding y/o viáticos (con su monto), Fecha de inicio*, Meses de contrato* y cuántas mensualidades ya vienen pagadas.',
+        'Usa <b>Agregar sitio</b> dentro de un cliente: Nombre*, Cliente, Zona (con sugerencias guardadas y color), Forpass instalados (módulos)*, Estado (Activo/Pausado/Baja), Tipo de contratación* (Software+Hardware o Solo Software), <b>Tipo de cargo*</b> (Renta/Licencia/Venta, ver más abajo), Mensualidad* (se llama distinto según el tipo de cargo), <b>Facturación</b> (Mensual/Semestral/Anual) y el <b>Costo de los Forpass instalados</b> (nuestro costo, no lo que se cobra), si incluyó onboarding y/o viáticos (con su monto), Fecha de inicio*, Meses de contrato* y cuántas mensualidades ya vienen pagadas.',
         'En la tarjeta de cada sitio, haz clic en el número de un mes para <b>marcarlo como pagado</b> — se abre un formulario con Quién captura, Número de OC* y si ya se facturó.',
         'Abre <b>Plan de pagos</b> para ver el calendario completo de ese sitio, mes por mes, con su estatus (Pagada/Facturada/Vencida/Pendiente).'
       ]))
@@ -13271,6 +13390,13 @@ const TEMAS_AYUDA = [
             'Un sitio marcado "Activo" pero cuya vigencia ya terminó NO cuenta como Forpass activo en los KPIs, aunque siga apareciendo en la lista.',
             'Escribir una Zona que ya existe en otro sitio copia su color automáticamente — a menos que ya hayas tocado la paleta de colores tú mismo en ese formulario.',
             'Eliminar un sitio o un cliente, y las dos fusiones, son exclusivas de Admin/Owner porque destruyen historial de pagos de forma irreversible; asignar un encargado también es solo Admin, aunque no borra nada, porque es una decisión de gente, no de captura diaria.'
+          ])
+        + guiaTip('Forpass como línea de negocio (29/30-sep-2026, pedido de Victor)', [
+            'Cada sitio ahora trae <b>Tipo de cargo</b>: <b>Renta</b> o <b>Licencia</b> (recurrentes — la Mensualidad se cobra según la Facturación) o <b>Venta</b> (pago único o a meses — el campo de siempre se etiqueta "Precio de venta" y no lleva Facturación con sentido de renta). Renta y Licencia alimentan el mismo renglón de Resultados ("FORPASS – renta / licenciamiento": a nivel de negocio son la misma mecánica de cobro, solo cambia si lo rentado es hardware o una licencia de software); Venta alimenta "FORPASS – venta de equipos".',
+            '<b>Facturación</b> (Mensual/Semestral/Anual) dice cada cuántas mensualidades del contrato hay un cobro real — mismo mecanismo que ya usa Pólizas (mensual/anual), aquí con Semestral de más. Con Anual y un contrato de 12 mensualidades, se cobra UNA sola vez por el total del periodo, no doce veces — así se captura también una orden de compra global.',
+            '<b>Costo de los Forpass instalados</b> es nuestro costo (nunca lo que se le cobra al cliente) — se reconoce una sola vez, en la fecha de inicio, sin importar la facturación: es lo que cuesta instalar el hardware, se paga una vez sin importar cómo se le cobre después al cliente.',
+            'Los 3 campos son nuevos y nacen con default Renta/Mensual/$0 en cualquier sitio capturado antes de este cambio — nada se recalcula distinto para lo que ya existía.',
+            'Todavía "inicialmente ningún sitio real tiene Forpass" (palabras de Victor) — los 3 renglones de Resultados solo cuentan sitios con "Forpass instalados" (módulos) mayor a 0 Y estado Activo, mismo candado que usa Pólizas.'
           ])) },
 
   { id:'mi-agenda', titulo:'Mi agenda',
@@ -24301,13 +24427,31 @@ function modalSitio(clienteId, sitioId){
     + '</div>'
 
     + '<div class="seccion"><h4>Cómo se fue</h4>'
-    +   '<div class="campo"><label>Tipo de contratación *</label><select id="sTipo">'
-    +     '<option value="hw"' + (!s || s.tipo==='hw' ? ' selected':'') + '>Software + Hardware</option>'
-    +     '<option value="sw"' + (s && s.tipo==='sw' ? ' selected':'') + '>Solo Software</option>'
-    +   '</select></div>'
-    +   '<div class="campo"><label>Mensualidad del sitio (MX$, sin IVA) *</label>'
-    +     '<input type="text" id="sMensualidad" inputmode="decimal" placeholder="Ej. 1,500" value="' + (s && s.mensualidad ? numero(s.mensualidad) : '') + '">'
-    +     '<div class="pista" id="pistaUnitario">Es el total mensual del sitio, sumando todos sus Forpass.</div></div>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label>Tipo de contratación *</label><select id="sTipo">'
+    +       '<option value="hw"' + (!s || s.tipo==='hw' ? ' selected':'') + '>Software + Hardware</option>'
+    +       '<option value="sw"' + (s && s.tipo==='sw' ? ' selected':'') + '>Solo Software</option>'
+    +     '</select></div>'
+    +     '<div class="campo"><label>Tipo de cargo *</label><select id="sForpassTipoCargo">'
+    +       '<option value="renta"' + (!s || s.forpassTipoCargo==='renta' ? ' selected':'') + '>Renta (recurrente)</option>'
+    +       '<option value="licencia"' + (s && s.forpassTipoCargo==='licencia' ? ' selected':'') + '>Licencia (recurrente)</option>'
+    +       '<option value="venta"' + (s && s.forpassTipoCargo==='venta' ? ' selected':'') + '>Venta (pago único o a meses)</option>'
+    +     '</select>'
+    +     '<div class="pista">Renta/Licencia alimentan "FORPASS – renta / licenciamiento" en Resultados; Venta alimenta "FORPASS – venta de equipos".</div></div>'
+    +   '</div>'
+    +   '<div class="fila2">'
+    +     '<div class="campo"><label id="labelMensualidad">Mensualidad del sitio (MX$, sin IVA) *</label>'
+    +       '<input type="text" id="sMensualidad" inputmode="decimal" placeholder="Ej. 1,500" value="' + (s && s.mensualidad ? numero(s.mensualidad) : '') + '">'
+    +       '<div class="pista" id="pistaUnitario">Es el total mensual del sitio, sumando todos sus Forpass.</div></div>'
+    +     '<div class="campo"><label>Facturación</label><select id="sForpassFacturacion">'
+    +       '<option value="mensual"' + (!s || s.forpassFacturacion==='mensual' ? ' selected':'') + '>Mensual — un cobro cada mes</option>'
+    +       '<option value="semestral"' + (s && s.forpassFacturacion==='semestral' ? ' selected':'') + '>Semestral — un cobro cada 6 meses</option>'
+    +       '<option value="anual"' + (s && s.forpassFacturacion==='anual' ? ' selected':'') + '>Anual — un solo cobro por el periodo</option>'
+    +     '</select></div>'
+    +   '</div>'
+    +   '<div class="campo"><label>Costo de los Forpass instalados (nuestro costo, MX$, sin IVA)</label>'
+    +     '<input type="text" id="sForpassCosto" inputmode="decimal" placeholder="Ej. 8,000" value="' + (s && s.forpassCosto ? numero(s.forpassCosto) : '') + '">'
+    +     '<div class="pista">Lo que a Forguard le cuesta el hardware/instalación de este sitio — no lo que se le cobra al cliente. Se reconoce una sola vez, al inicio. Puede quedar en $0 si no aplica.</div></div>'
 
     +   '<div class="aviso" style="margin:2px 0 14px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-5M12 8h.01"/></svg>'
     +     '<div>El onboarding y los viáticos se cobran <b>una sola vez, en el pago 1</b>. '
@@ -24365,6 +24509,9 @@ function modalSitio(clienteId, sitioId){
       cortesiaCuando: $('sCortesiaCuando').value,
       cortesiaPorque: $('sCortesiaPorque').value.trim(),
       tipo: $('sTipo').value,
+      forpassTipoCargo: $('sForpassTipoCargo').value,
+      forpassFacturacion: $('sForpassFacturacion').value,
+      forpassCosto: aNumero($('sForpassCosto').value),
       mensualidad: aNumero($('sMensualidad').value),
       incOnboarding: $('sIncOnboarding').checked,
       onboarding: aNumero($('sOnboarding').value),
@@ -24377,14 +24524,26 @@ function modalSitio(clienteId, sitioId){
     };
   }
 
+  /* Etiqueta de "Mensualidad" (nombre del campo y de sus renglones en el
+     resumen) según el tipo de cargo — el campo sigue siendo el mismo
+     (`mensualidad`), solo cambia cómo se le llama y se explica. */
+  function etiquetaCargoForpass(tipoCargo, facturacion){
+    if(tipoCargo === 'venta') return 'Precio de venta';
+    if(tipoCargo === 'licencia') return facturacion === 'mensual' ? 'Licencia mensual' : 'Cobro de licencia';
+    return facturacion === 'mensual' ? 'Mensualidad' : 'Cobro periódico';
+  }
+
   function pintarMeses(){
     const f = leerForm();
-    const extras = (f.incOnboarding ? f.onboarding : 0) + (f.incViaticos ? f.viaticos : 0);
     pagosTmp = Array.from({length:f.meses}, (_,i)=> !!pagosTmp[i]);
+    const prov = normalizarSitio(Object.assign({}, f, { pagos:pagosTmp, id:'tmp' }));
+    const c = calcular(prov);
+    const etiqueta = etiquetaCargoForpass(f.forpassTipoCargo, f.forpassFacturacion);
     $('mesesModal').innerHTML = pagosTmp.map((p,i)=>{
-      const monto = f.mensualidad + (i === 0 ? extras : 0);
-      const t = 'Mensualidad ' + (i+1) + ' · ' + fmtFecha(sumarMeses(f.fechaInicio, i)) + ' · ' + dinero(monto)
-              + (i === 0 && extras ? ' (incluye onboarding y viáticos)' : '');
+      const monto = c.montos[i];
+      const t = (monto ? etiqueta + ' ' + (i+1) : 'Mes ' + (i+1) + ' — sin cobro este periodo') + ' · '
+              + fmtFecha(sumarMeses(f.fechaInicio, i)) + ' · ' + dinero(monto)
+              + (i === 0 && c.extras ? ' (incluye onboarding y viáticos)' : '');
       return '<button type="button" class="mes ' + (p ? 'pagado' : '') + '" data-mtmp="' + i + '" '
         + 'title="' + esc(t) + '" aria-pressed="' + (p ? 'true' : 'false') + '">' + (i+1) + '</button>';
     }).join('');
@@ -24394,16 +24553,21 @@ function modalSitio(clienteId, sitioId){
     const f = leerForm();
     const prov = normalizarSitio(Object.assign({}, f, { pagos:pagosTmp, id:'tmp' }));
     const c = calcular(prov);
+    const etiqueta = etiquetaCargoForpass(f.forpassTipoCargo, f.forpassFacturacion);
+    const periodoMeses = { mensual:1, semestral:6, anual:12 }[f.forpassFacturacion] || 1;
+    const nCobrosReales = Array.from({length:f.meses}, (_,i)=> i).filter(i => i % periodoMeses === 0).length;
+
+    $('labelMensualidad').textContent = etiqueta + ' del sitio (MX$, sin IVA) *';
     /* Con cortesía, el precio por módulo se reparte solo entre los que SÍ se
        cobran —c.modulosCobrados—, no entre el total instalado: son los mismos
        pesos de mensualidad entre menos módulos. */
     const unit = c.modulosCobrados > 0 ? f.mensualidad / c.modulosCobrados : 0;
     $('pistaUnitario').textContent = f.modulos === 0
-      ? 'Es el total mensual del sitio, sumando todos sus Forpass.'
+      ? 'Es el total de ' + etiqueta.toLowerCase() + ' del sitio, sumando todos sus Forpass.'
       : c.cortesiaCant
-        ? 'Es el total mensual del sitio: ' + dinero(f.mensualidad) + ' ÷ ' + c.modulosCobrados + ' '
+        ? 'Es el total del sitio: ' + dinero(f.mensualidad) + ' ÷ ' + c.modulosCobrados + ' '
           + plural(c.modulosCobrados,'Forpass que sí se cobra','Forpass que sí se cobran') + ' = ' + dinero(unit) + ' cada uno.'
-        : 'Es el total mensual del sitio: ' + dinero(f.mensualidad) + ' ÷ ' + f.modulos + ' Forpass = ' + dinero(unit) + ' por módulo.';
+        : 'Es el total del sitio: ' + dinero(f.mensualidad) + ' ÷ ' + f.modulos + ' Forpass = ' + dinero(unit) + ' por módulo.';
 
     $('pistaCortesiaCant').textContent = c.cortesiaCant
       ? c.cortesiaCant + ' de ' + f.modulos + ' no se ' + plural(c.cortesiaCant,'cobra','cobran') + '. Se sigue cobrando ' + c.modulosCobrados + '.'
@@ -24417,15 +24581,12 @@ function modalSitio(clienteId, sitioId){
 
     $('resumenSitio').innerHTML =
         '<div class="r-fila"><span>Vigencia</span><span>' + fmtFecha(f.fechaInicio) + ' → ' + fmtFecha(c.fin) + '</span></div>'
-      + '<div class="r-fila"><span>Siguiente mensualidad</span><span>' + esc(prox) + '</span></div>'
-      + '<div class="r-fila"><span>Mensualidades pagadas</span><span>' + c.pagados + ' de ' + f.meses + (c.atrasadas ? ' · ' + c.atrasadas + ' vencida' + (c.atrasadas===1?'':'s') : '') + '</span></div>'
+      + '<div class="r-fila"><span>Siguiente cobro</span><span>' + esc(prox) + '</span></div>'
+      + '<div class="r-fila"><span>Periodos pagados</span><span>' + c.pagados + ' de ' + f.meses + (c.atrasadas ? ' · ' + c.atrasadas + ' vencido' + (c.atrasadas===1?'':'s') : '') + '</span></div>'
       + (c.extras
-          ? '<div class="r-fila"><span>Pago 1 — mensualidad + extras</span><span>' + dinero(c.primerPago) + '</span></div>'
-            + (f.meses > 1
-                ? '<div class="r-fila"><span>Pagos 2 al ' + f.meses + ' — cada uno</span><span>' + dinero(f.mensualidad) + '</span></div>'
-                : '')
-          : '<div class="r-fila"><span>Cada mensualidad</span><span>' + dinero(f.mensualidad) + '</span></div>')
-      + '<div class="r-fila"><span>Renta ' + f.meses + ' ' + plural(f.meses,'mes','meses') + '</span><span>' + dinero(f.mensualidad * f.meses) + '</span></div>'
+          ? '<div class="r-fila"><span>Pago 1 — ' + etiqueta.toLowerCase() + ' + extras</span><span>' + dinero(c.primerPago) + '</span></div>'
+          : '<div class="r-fila"><span>Cada ' + etiqueta.toLowerCase() + '</span><span>' + dinero(f.mensualidad) + '</span></div>')
+      + '<div class="r-fila"><span>' + nCobrosReales + ' ' + plural(nCobrosReales,'cobro','cobros') + ' en ' + f.meses + ' ' + plural(f.meses,'mes','meses') + '</span><span>' + dinero(f.mensualidad * nCobrosReales) + '</span></div>'
       + (c.extras ? '<div class="r-fila"><span>Onboarding y viáticos (una vez)</span><span>' + dinero(c.extras) + '</span></div>' : '')
       + '<div class="r-fila r-total"><span>Valor total del contrato</span><span>' + dinero(c.valorContrato) + '</span></div>';
 
@@ -24435,10 +24596,10 @@ function modalSitio(clienteId, sitioId){
 
   function refrescar(){ pintarMeses(); pintarResumen(); }
 
-  ['sNombre','sCliente','sModulos','sEstado','sTipo','sMensualidad',
+  ['sNombre','sCliente','sModulos','sEstado','sTipo','sForpassTipoCargo','sForpassFacturacion','sForpassCosto','sMensualidad',
    'sTieneCortesia','sCortesiaCant','sCortesiaAbsorbe','sCortesiaAutorizo','sCortesiaCuando','sCortesiaPorque',
    'sIncOnboarding','sOnboarding','sIncViaticos','sViaticos','sInicio','sNotas']
-    .forEach(id => $(id).addEventListener('input', pintarResumen));
+    .forEach(id => $(id).addEventListener('input', refrescar));
   /* Paleta de color de la etiqueta. Si el usuario no ha tocado el color y
      escribe una zona que ya existe en otro sitio, se hereda ese color para que
      la misma plaza no acabe con tres colores distintos. */
@@ -24465,7 +24626,7 @@ function modalSitio(clienteId, sitioId){
 
   $('sMeses').addEventListener('input', refrescar);
   $('sInicio').addEventListener('change', refrescar);
-  ['sMensualidad','sOnboarding','sViaticos'].forEach(id=>{
+  ['sMensualidad','sOnboarding','sViaticos','sForpassCosto'].forEach(id=>{
     $(id).addEventListener('input', ()=> formatearMiles($(id)));
   });
   $('mesesModal').addEventListener('click', ev=>{
