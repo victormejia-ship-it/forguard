@@ -43,7 +43,21 @@
    cliente" y "Fusionar con otro cliente"—, así que el botón se quedó sin
    ningún lugar en la UI desde donde llamarlo (el manejador seguía
    completo: confirmarEscribiendoNombre(), el aviso de huérfanos, todo).
-   Se agregó ahí mismo, junto a Fusionar (sección 0c, abajo). */
+   Se agregó ahí mismo, junto a Fusionar (sección 0c, abajo).
+
+   Tercera vuelta el mismo día (Victor probó "Quitar Forpass" en un sitio
+   real, BAT MADERO: "ya le di quitar y sigue apareciendo"): vistaCliente()
+   listaba TODOS los sitios del cliente en Forpass, tuvieran o no Forpass
+   instalado — así que "Quitar Forpass" apagaba la configuración pero la
+   tarjeta se seguía viendo exactamente igual, solo con módulos/mensualidad
+   en $0. Confirmado con Victor que lo que esperaba era que el sitio
+   desapareciera de Forpass (el registro sigue vivo, solo deja de listarse
+   ahí). Arreglo: vistaCliente() y clientesDeForpass() ahora filtran por
+   `s.modulos > 0` — mismo criterio que ya usaba "tieneForpass" en el
+   bloque "Sitios" de Clientes — en vez de por `s.estado`, así un sitio sin
+   módulos (nunca tuvo Forpass, o se lo quitaron) no aparece ni en la lista
+   de sitios de su cliente ni hace que el cliente cuente para la portada de
+   Forpass (sección 4b, abajo). */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -161,6 +175,13 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Su mensualidad quedó en 0', trasQuitar.mensualidad === 0);
   chkF('Su póliza sigue existiendo, intacta', trasQuitar.polizaSigueViva === true);
   chkF('Su cotización sigue existiendo, intacta', trasQuitar.cotizacionSigueViva === true);
+
+  // --------- 4b) Tras "Quitar Forpass", el sitio desaparece de la pantalla de Forpass (30-sep-2026, reporte de Victor: "ya le di quitar y sigue apareciendo") ---------
+  await page.evaluate(() => render());
+  await page.waitForTimeout(150);
+  chkF('El sitio ya sin Forpass ya NO se ve en la lista de sitios de Forpass de su cliente', await page.locator('.grid-sitios .tarjeta').count() === 0);
+  chkF('En su lugar, Forpass muestra el estado vacío de este cliente', /aún no tiene sitios/i.test(await page.locator('body').textContent()));
+  chkF('Como c1 se quedó sin ningún sitio con Forpass real, tampoco aparece ya en la lista de clientes de Forpass', await page.evaluate(() => !clientesDeForpass().some(c => c.id === 'c1')));
 
   // --------- 5) Un cliente sin sitios en Forpass: la vista vacía manda de vuelta a Clientes ---------
   await page.evaluate(() => { irAModulo('forpass'); entrarCliente('c2'); render(); });

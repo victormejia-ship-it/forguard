@@ -9436,14 +9436,22 @@ function polizasDeCliente(id){ return datos.polizas.filter(q => q.clienteId === 
 function clientesDeForpass(){
   return datos.clientes.filter(c => {
     /* Con sitios capturados, esta lista solo enseña al cliente si AL MENOS
-       uno está activo de verdad — no basta con que exista el registro. Un
-       cliente con todos sus sitios en pausa (ej. importados desde un listado
-       maestro, sin Forpass instalado aún) no pertenece a la portada de
-       Forpass; sigue accesible desde la pestaña Clientes con su botón
-       "Ver en Forpass", así que no queda inalcanzable, solo deja de
-       aparecer aquí hasta que de verdad tenga un módulo activo. */
+       uno tiene Forpass de verdad instalado — no basta con que exista el
+       registro. Un cliente con todos sus sitios sin módulos (ej. importados
+       desde un listado maestro, sin Forpass instalado aún, o a los que se
+       les quitó con "Quitar Forpass") no pertenece a la portada de Forpass;
+       sigue accesible desde la pestaña Clientes con su botón "Ver en
+       Forpass", así que no queda inalcanzable, solo deja de aparecer aquí
+       hasta que de verdad tenga un módulo instalado.
+       (30-sep-2026: el candado era s.estado === 'activo', pero un sitio
+       puede estar "Activo" y aun así tener 0 módulos —el estado del sitio
+       y si de verdad tiene Forpass son cosas distintas—, así que un
+       cliente entraba aquí aunque ninguno de sus sitios tuviera Forpass
+       real. Mismo criterio que ya usa "tieneForpass" en Clientes y el
+       filtro de vistaCliente(): s.modulos > 0, sin importar el estado —un
+       sitio Pausado que sigue teniendo módulos instalados también cuenta.) */
     const sitios = sitiosDe(c.id);
-    if(sitios.length) return sitios.some(s => s.estado === 'activo');
+    if(sitios.length) return sitios.some(s => s.modulos > 0);
     /* Un cliente que NO TIENE NADA —ni kioscos ni pólizas— también entra
        siempre, apagada la casilla o no. Ya estaba escrito en POLIZAS.md («ahí es
        donde se crean») y la primera versión de la casilla lo rompió: un cliente
@@ -13409,7 +13417,7 @@ const TEMAS_AYUDA = [
         ])
         + guiaTip('Detalles que casi nadie nota', [
             'La casilla "Incluye Forpass" tiene un tercer estado interno para clientes viejos capturados antes de que existiera — se "gradúa" solo la primera vez que alguien abre y guarda su formulario.',
-            'Un cliente con sitios capturados solo aparece en Forpass si AL MENOS uno de ellos sigue activo — si los pausas todos, el cliente sigue existiendo (lo sigues viendo en Clientes) pero desaparece de la lista de Forpass hasta que reactives alguno. <b>Ojo:</b> "desaparece de la lista" no es lo mismo que "se eliminó" — si un cliente no aparece en Forpass, revisa primero si tiene sitios activos antes de darle a Eliminar pensando que ya no existe.',
+            'Un cliente con sitios capturados solo aparece en Forpass si AL MENOS uno de ellos de verdad tiene Forpass instalado (módulos mayor a 0, sin importar si está Activo o Pausado) — 30-sep-2026: antes bastaba con que un sitio estuviera "Activo" aunque tuviera 0 módulos, así que un cliente sin ningún Forpass real podía seguir apareciendo aquí. Si todos los sitios de un cliente se quedan en 0 módulos (nunca tuvieron Forpass, o se lo quitaron con "Quitar Forpass" en Forpass), el cliente sigue existiendo (lo sigues viendo en Clientes) pero desaparece de la lista de Forpass hasta que alguno vuelva a tener módulos. <b>Ojo:</b> "desaparece de la lista" no es lo mismo que "se eliminó" — si un cliente no aparece en Forpass, revisa primero si alguno de sus sitios tiene Forpass instalado antes de darle a Eliminar pensando que ya no existe.',
             'El logo se reduce y comprime solo al subirlo (máximo ~120 KB guardado) para no inflar la base de datos.'
           ])
         + guiaTip('"Eliminar cliente" es de verdad definitivo (30-sep-2026)', [
@@ -13450,6 +13458,7 @@ const TEMAS_AYUDA = [
         + guiaTip('"Quitar Forpass" NO elimina el sitio (30-sep-2026)', [
             'Antes, el botón de basura en un sitio de Forpass lo eliminaba por completo — Victor pidió el cambio tras un incidente real donde, creyendo que solo lo quitaba de esta vista, terminó borrando el registro para siempre. Ahora ese botón se llama <b>"Quitar Forpass de este sitio"</b> y solo apaga su configuración de Forpass: pone en 0 los módulos instalados y borra tipo de cargo, facturación, mensualidad, costo, cortesía e historial de pagos.',
             'El sitio en sí <b>no se borra</b> — sigue existiendo tal cual, con sus pólizas, cotizaciones y reportes intactos; simplemente deja de tener Forpass activo hasta que alguien vuelva a capturar sus módulos desde Clientes.',
+            'Con 0 módulos, el sitio <b>desaparece de la pantalla de Forpass</b> de ese cliente (y, si era su único sitio con Forpass, el cliente completo desaparece de la portada de Forpass) — no es que se haya borrado, es que Forpass solo muestra sitios que de verdad tienen Forpass instalado. Se sigue viendo y editando normal desde <b>Clientes</b>.',
             'Por ser reversible y no borrar ningún registro, usa una confirmación normal (no la de escribir el nombre) — pero sigue siendo exclusivo de Admin/Owner.',
             'Para eliminar el sitio por completo (con su calendario de pagos, dejando huérfanas sus pólizas/cotizaciones/reportes si las tiene) hay que ir a <b>Clientes</b>, ficha del cliente, bloque "Sitios" — ahí sí pide escribir el nombre EXACTO del sitio para confirmar, igual que "Eliminar cliente".'
           ])
@@ -14041,7 +14050,16 @@ function vistaClientes(){
 function vistaCliente(){
   const c = clientePorId(estado.clienteId);
   if(!c){ estado.vista = 'clientes'; return vistaClientes(); }
-  const todos = sitiosDe(c.id);
+  /* Solo los sitios que de verdad tienen Forpass (30-sep-2026, pedido de
+     Victor tras probar "Quitar Forpass" en BAT MADERO: "ya le di quitar y
+     sigue apareciendo") — antes se listaban TODOS los sitios del cliente
+     aquí, tuvieran o no Forpass instalado, así que "Quitar Forpass" dejaba
+     el sitio con 0 módulos pero seguía viéndose exactamente igual en esta
+     pantalla. Mismo criterio que ya usa "tieneForpass" en el bloque
+     "Sitios" de Clientes (s.modulos > 0): un sitio sin módulos no es un
+     sitio de Forpass, así que no pertenece a esta lista — el registro
+     sigue intacto y se ve/edita desde Clientes. */
+  const todos = sitiosDe(c.id).filter(s => s.modulos > 0);
 
   /* Los filtros deciden qué sitios entran a los indicadores y a la lista.
      Si lo elegido ya no existe, se regresa a "todos". */
