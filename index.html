@@ -2640,13 +2640,31 @@ function borrarSnapshotIndexedDB(llave){
 }
 /* Al abrir sin internet (modo local, o la nube que no contesta): si
    guardarLocal() tuvo que recortar imágenes de la copia rápida la última
-   vez, aquí se recupera la copia COMPLETA desde IndexedDB y se repinta. Si
-   hay sesión de nube y sí se pudo conectar, bajarDeLaNube() ya trajo todo
-   fresco del servidor y esto ni se llama —ver los dos puntos donde se
-   invoca, ambos solo en caminos sin conexión real. */
+   vez, aquí se recupera la copia COMPLETA desde IndexedDB y se repinta.
+
+   30-sep-2026 (reporte real de Victor: los números de Resultados "se
+   mueven" al refrescar, de un total incompleto a uno completo unos 20
+   segundos después): esta función también se llama ahora justo después
+   del primer render() en el arranque CON nube (ver ARRANQUE, más abajo) —
+   antes solo corría en los dos caminos sin conexión real. La razón: si
+   guardarLocal() tuvo que recortar la copia rápida de localStorage la
+   última vez que se guardó algo, SIEMPRE manda además la copia completa a
+   IndexedDB (ver guardarLocal) — así que, cuando existe un respaldo aquí,
+   es garantía de que es más completo que lo que haya quedado en
+   localStorage, sin importar si hay internet o no. Leerlo aquí, que tarda
+   milisegundos (disco local, no red), corrige ese hueco mucho antes de que
+   termine la bajada completa de bajarDeLaNube() (que sí puede tardar
+   ~20 segundos con una base grande).
+
+   El candado `sincronizado` evita la carrera contraria: si para cuando
+   esto termina de leer ya se completó la primera bajada real de la nube,
+   NO se pisa esa copia fresca con la de IndexedDB (que podría ser más
+   vieja que la nube, aunque más nueva que localStorage). */
 async function restaurarSnapshotIndexedDB(){
+  if(sincronizado) return;
   try{
     const d = await leerSnapshotIndexedDB();
+    if(sincronizado) return;
     if(!d || !Array.isArray(d.clientes) || !Array.isArray(d.sitios)) return;
     datos = { v:1,
       clientes: d.clientes.map(normalizarCliente),
@@ -8878,6 +8896,21 @@ function pintarEstadoNube(){
       : 'Subiendo cambios al servidor.';
     return;
   }
+  /* Todavía no se logró ni la primera bajada de la nube en este arranque
+     (30-sep-2026, reporte real de Victor: los números de Resultados "se
+     mueven" al refrescar, de un total incompleto a uno completo unos 20
+     segundos después) — antes esta pastilla ya decía "Guardado en la nube"
+     desde el primer render, con la copia local (posiblemente vieja de
+     varios días, ver guardarLocal()) todavía en pantalla, sin ningún aviso
+     de que faltaba terminar de bajar lo real. `sincronizado` (declarado
+     más abajo, ver ARRANQUE) se pone en true justo cuando bajarDeLaNube()
+     termina por primera vez. */
+  if(!sincronizado){
+    p.className = 'pastilla n-trabajo';
+    p.innerHTML = '<span class="punto p-alerta"></span><span class="txt">Actualizando…</span>';
+    p.title = 'Se están bajando los datos más recientes del servidor. Lo que ves ahorita puede ser una copia local, no necesariamente la más reciente.';
+    return;
+  }
   p.className = 'pastilla n-ok';
   p.innerHTML = '<span class="punto p-ok"></span><span class="txt">Guardado en la nube</span>';
   p.title = 'Todo está guardado en el servidor.';
@@ -13348,7 +13381,7 @@ const TEMAS_AYUDA = [
     contenido: function(){
       return '<p style="font-size:13.5px; line-height:1.6">Esta guía no sustituye preguntar cuando algo no te quede claro, pero te ahorra tener que pedir que te enseñen otra vez lo mismo. Cada tema de la lista es un módulo (o una parte de la administración) con su paso a paso y sus atajos menos obvios.</p>'
         + '<div class="bloque"><div class="bloque-cabeza"><div><h3>Trabaja sin internet</h3></div></div>'
-        +   '<p style="font-size:13.5px; line-height:1.6; margin:0">Todo lo que capturas se guarda primero en tu propio dispositivo. Si en ese momento no hay internet (o el servidor tarda), el cambio se queda esperando en una "cola" y se sube solo en cuanto vuelve la señal — no hace falta que hagas nada ni que te quedes en la pantalla. El indicador de "Guardado en la nube" / "Cambios pendientes", arriba, te dice si ya subió todo.</p>'
+        +   '<p style="font-size:13.5px; line-height:1.6; margin:0">Todo lo que capturas se guarda primero en tu propio dispositivo. Si en ese momento no hay internet (o el servidor tarda), el cambio se queda esperando en una "cola" y se sube solo en cuanto vuelve la señal — no hace falta que hagas nada ni que te quedes en la pantalla. El indicador de "Guardado en la nube" / "Cambios pendientes" / "Actualizando…", arriba, te dice si ya subió todo. "Actualizando…" (30-sep-2026) sale nada más al abrir o refrescar, mientras todavía se está bajando lo más reciente del servidor — si ves un número que no cuadra justo en ese momento, espera a que la pastilla cambie a "Guardado en la nube" antes de tomarlo como definitivo.</p>'
         + '</div>'
         + guiaTip('Por qué importa esto', [
             'Un técnico en campo con mala señal puede seguir levantando reportes o registrando servicios sin perder nada.',
@@ -31977,6 +32010,12 @@ if(!HAY_NUBE){
   }else if(haySesion()){
     marcarActividad();              /* reinicia el reloj: se está usando de nuevo */
     render();                       /* pinta ya con la copia local, sin esperar la red */
+    /* Corrige ese primer render si la copia de localStorage se había
+       quedado vieja (ver el comentario grande junto a restaurarSnapshotIndexedDB):
+       no se espera, así que si no hay nada que corregir esto no retrasa
+       nada — y si sí lo hay, gana los ~20 segundos de diferencia contra
+       bajarDeLaNube() de abajo. */
+    restaurarSnapshotIndexedDB();
     cargarPerfil()
       .then(arrancarNube)
       .then(revisarObligatoriedadMfa)
