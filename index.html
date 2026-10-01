@@ -12457,22 +12457,17 @@ function montosPorMesNominaPorPilar(pilarId){
     return Array(12).fill(total);
   };
 }
-/* Detalle por persona — igual que arriba, solo Owner/Admin lo ven (mismo
-   candado que puedeVerNomina()). `mes` null = el año completo (12 sueldos),
-   un mes concreto = 1 sueldo, ya que es parejo todo el año. */
-function detalleNominaPorPilar(pilarId){
-  return (anio, mes) => {
-    if(!puedeVerNomina()) return [];
-    return datos.personal
-      .filter(p => p.estatus === 'activo' && p.pilarId === pilarId)
-      .map(p => {
-        const n = nominaDePersona(p.id);
-        const sueldo = n ? n.sueldoMensual : 0;
-        return { etiqueta: p.nombre + (p.puesto ? ' — ' + p.puesto : ''), monto: mes == null ? sueldo * 12 : sueldo, accion:'ir-persona', accionId:p.id };
-      })
-      .filter(it => it.monto);
-  };
-}
+/* Antes había un detalleNominaPorPilar() que abría, por persona, nombre +
+   puesto + sueldo exacto en el modal de consulta del dashboard (pedido de
+   Victor, 01-oct-2026, con captura real del modal abierto: "el modal de
+   consulta de nomina no pueda activarse ya que es un dato sumamente
+   delicado que nadie deberia de observar"). El candado de puedeVerNomina()
+   ya limitaba ESE desglose a Owner/Admin, pero ver el total del renglón
+   (ya limitado igual) es muy distinto a tener a un clic la lista de quién
+   gana cuánto — así que se quitó el `detalle` de "Nómina directa del
+   pilar" en las 3 definiciones de PILARES_PROFORMA de abajo: el renglón
+   sigue sumando y mostrando el total (en $0 para quien no sea Owner/Admin,
+   igual que siempre), pero ya no es clicable, para nadie. */
 
 /* ---- Proveedores → "Proveedores / servicios subcontratados" ----
    Definido con Victor (25-sep-2026), punto por punto:
@@ -12699,7 +12694,7 @@ const PILARES_PROFORMA = [
       { id:'correctivo-preventivo', label:'Trabajos correctivos / preventivo', montosPorMes: montosPorMesCotizacionesRealizadas('ingreso'), detalle: detalleCotizacionesRealizadas('ingreso') }
     ],
     costos: [
-      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('tecnicos'), detalle: detalleNominaPorPilar('tecnicos') },
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('tecnicos') },
       { id:'refacciones-materiales', label:'Refacciones y materiales', montosPorMes: montosPorMesPolizas(null, 'costo'), detalle: detallePolizas(null, 'costo') },
       { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: montosPorMesGastosProveedorPorPilar('tecnicos'), detalle: detalleGastosProveedorPorPilar('tecnicos') },
       { id:'otros-costos', label:'Otros costos directos', montosPorMes: montosPorMesCotizacionesRealizadas('costo'), detalle: detalleCotizacionesRealizadas('costo') }
@@ -12712,7 +12707,7 @@ const PILARES_PROFORMA = [
       { id:'otros-servicios', label:'Otros servicios operativos', montosPorMes: sinDatosTodavia() }
     ],
     costos: [
-      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('operativos'), detalle: detalleNominaPorPilar('operativos') },
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('operativos') },
       { id:'materiales-insumos', label:'Materiales e insumos', montosPorMes: sinDatosTodavia() },
       { id:'proveedores-subcontratados', label:'Proveedores / servicios subcontratados', montosPorMes: sinDatosTodavia() },
       { id:'otros-costos', label:'Otros costos directos', montosPorMes: sinDatosTodavia() }
@@ -12725,7 +12720,7 @@ const PILARES_PROFORMA = [
       { id:'otros-proyectos', label:'Otros proyectos', montosPorMes: montosPorMesIngresoProyectoImagen(['cambio_imagen']), detalle: detalleIngresoProyectoImagen(['cambio_imagen']) }
     ],
     costos: [
-      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('proyectos'), detalle: detalleNominaPorPilar('proyectos') },
+      { id:'nomina-directa', label:'Nómina directa del pilar', montosPorMes: montosPorMesNominaPorPilar('proyectos') },
       { id:'materiales', label:'Materiales', montosPorMes: montosPorMesCostoProyectoImagen('materiales'), detalle: detalleCostoProyectoImagen('materiales') },
       { id:'contratistas-proveedores', label:'Contratistas / proveedores', montosPorMes: montosPorMesCostoProyectoImagen('manoObra'), detalle: detalleCostoProyectoImagen('manoObra') },
       { id:'costo-equipos', label:'Costo de equipos', montosPorMes: montosPorMesCotizacionesEquipo('costo'), detalle: detalleCotizacionesEquipo('costo') },
@@ -13481,7 +13476,7 @@ const TEMAS_AYUDA = [
           '<b>Refacciones y materiales</b> (Servicios Técnicos, costo): el costo anual de CUALQUIER póliza activa (cliente o interno) repartido parejo entre sus 12 meses, sin esperar a que el técnico marque el servicio como hecho.',
           '<b>Trabajos correctivos / preventivo</b> (Servicios Técnicos): cotizaciones con estatus <b>Realizado</b> (sin importar cargo a cliente o comedor) — cuenta en el mes de la fecha de servicio realizado, por su monto al cliente sin IVA. Una cotización marcada como <b>Tipo de mantenimiento: EQUIPO</b> NO entra aquí (29-sep-2026): cuenta solo en Proyectos e Infraestructura → "Venta / renta de equipos", para no duplicarla.',
           '<b>Otros costos directos</b> (Servicios Técnicos, costo): el costo de esas mismas cotizaciones "Realizado", sin IVA — mismo criterio de arriba, una de tipo EQUIPO tampoco entra aquí.',
-          '<b>Nómina directa del pilar</b> (Servicios Técnicos, Servicios Operativos y Proyectos e Infraestructura — Tecnología y Control no la trae, calcado del Excel): la suma del sueldo mensual de todo el personal <b>Activo</b> asignado a ESE pilar en el Organigrama, parejo en los 12 meses. Se asigna el pilar y el sueldo de cada persona desde su ficha en Organigrama —no se vuelve a capturar nada aquí—; el sueldo es dato sensible, así que <b>solo Owner/Admin</b> lo ven, para cualquier otro rol el renglón se queda en $0.',
+          '<b>Nómina directa del pilar</b> (Servicios Técnicos, Servicios Operativos y Proyectos e Infraestructura — Tecnología y Control no la trae, calcado del Excel): la suma del sueldo mensual de todo el personal <b>Activo</b> asignado a ESE pilar en el Organigrama, parejo en los 12 meses. Se asigna el pilar y el sueldo de cada persona desde su ficha en Organigrama —no se vuelve a capturar nada aquí—; el sueldo es dato sensible, así que <b>solo Owner/Admin</b> lo ven, para cualquier otro rol el renglón se queda en $0. A diferencia de los demás renglones conectados, este <b>no es clicable</b> (01-oct-2026, pedido de Victor): el total se sigue viendo, pero el desglose por persona (nombre, puesto y sueldo exacto) ya no se puede abrir desde aquí, ni siquiera siendo Owner/Admin — es demasiado sensible para dejarlo a un clic en un dashboard.',
           '<b>Proveedores / servicios subcontratados</b> (Servicios Técnicos, costo): dos fuentes juntas — (1) gastos de Proveedores capturados a mano con estatus <b>Por pagar</b> o <b>Pagado</b> y el campo <b>Pilar</b> puesto en "Servicios Técnicos" (una simple "Cotización" sin aceptar, o uno "Cancelado", no cuentan); y (2) <b>Órdenes de Compra</b> Confirmadas/Enviadas/Recibidas (Borrador o Cancelada no) — como una Orden de Compra no tiene campo Pilar propio, TODAS se suman aquí por ahora. Ambas cuentan en el mes de su fecha, sin IVA, se hayan pagado o no todavía.',
           '<b>Aperturas / Remodelaciones / Otros proyectos</b> (Proyectos e Infraestructura, ingreso): proyectos de <b>Imagen/Aperturas</b> según su tipo (Apertura nueva → "Aperturas", Remodelación → "Remodelaciones", Cambio de imagen → "Otros proyectos") — cuentan SOLO desde que el cliente aprobó el presupuesto (estatus <b>Aprobado</b>/<b>En obra</b>/<b>Terminado</b>: Diseño y Cotización todavía pueden cambiar o no concretarse), por el precio de venta total del proyecto.',
           '<b>Materiales / Contratistas y proveedores</b> (Proyectos e Infraestructura, costo): el mismo desglose de costo que ya usa el módulo de Imagen/Aperturas (materiales comprados vs. mano de obra, según el proveedor de cada concepto venga marcado como "Servicios") — con el MISMO candado que el ingreso, solo de proyectos Aprobados/En obra/Terminado (29-sep-2026: antes el costo contaba desde que se capturaba y el ingreso no, y con proyectos acumulados en Diseño/Cotización eso pintaba pérdida en Resultados aunque cada proyecto tuviera margen positivo — ahora los dos usan el mismo estatus, simetría total).',
@@ -13496,7 +13491,7 @@ const TEMAS_AYUDA = [
           '<b>Resumen general Forguard</b> es la suma en vivo de los 4 pilares — Ingresos/Costos/Utilidad/Margen de TODA la empresa— más un ranking de qué tanto aporta cada pilar al ingreso del año. No es un renglón nuevo capturado a mano: se recalcula solo de lo que ya está conectado abajo.',
           '<b>Cumplimiento de pólizas</b> (debajo del gráfico de Servicios Técnicos): el mismo % que ya ves en el calendario de cada póliza (de lo que ya le tocaba, cuánto se hizo a tiempo), aquí todas las pólizas Activas juntas en un solo gráfico de dispersión — cada punto es una póliza, su posición horizontal es su % de cumplimiento y la vertical su ingreso anual, y su color es el mismo semáforo de siempre (verde/naranja/rojo/gris). Pasa el mouse sobre un punto para ver de cuál póliza se trata.',
           'Las tablas mensuales arrancan <b>compactas</b> (el mes actual y los 3 anteriores) para no verse amontonadas — el Total del año siempre suma los 12 meses completos, se vean o no. "Ver los 12 meses" (arriba de los 4 pilares) los revela con un clic en las 4 tablas a la vez; nunca se pierde un mes, solo se oculta.',
-          '<b>El dashboard es interactivo</b> (25-sep-2026): en cualquier renglón ya conectado (se ve con el cursor de "mano" al pasar el mouse), clic en el <b>nombre</b> abre el detalle del año completo, clic en <b>cualquier mes</b> (o en el Total) abre el detalle de solo ese mes — la lista exacta de pólizas, cotizaciones, personas o gastos que suman ese número, cada una con un enlace para abrirla directo en su propio módulo. Un renglón todavía en $0 (sin conectar) no tiene nada que mostrar, así que no es clicable.'
+          '<b>El dashboard es interactivo</b> (25-sep-2026): en cualquier renglón ya conectado (se ve con el cursor de "mano" al pasar el mouse), clic en el <b>nombre</b> abre el detalle del año completo, clic en <b>cualquier mes</b> (o en el Total) abre el detalle de solo ese mes — la lista exacta de pólizas, cotizaciones, personas o gastos que suman ese número, cada una con un enlace para abrirla directo en su propio módulo. Un renglón todavía en $0 (sin conectar) no tiene nada que mostrar, así que no es clicable. <b>"Nómina directa del pilar" es la única excepción</b> (01-oct-2026): aunque SÍ está conectado y muestra su total, el detalle por persona se desactivó a propósito por ser demasiado sensible — no tiene el cursor de "mano" ni abre nada al hacerle clic.'
         ])
       + guiaTip('Exportar (25-sep-2026, formato calcado del Excel de Victor)', [
           'Arriba a la derecha: <b>Descargar Excel</b> y <b>Generar PDF</b>.',

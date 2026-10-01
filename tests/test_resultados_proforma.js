@@ -477,15 +477,11 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     const proveedores = tecnicos.costos.find(c => c.id === 'proveedores-subcontratados');
     const limpieza = PILARES_PROFORMA.find(p => p.id === 'operativos').ingresos.find(c => c.id === 'limpieza');
 
-    const anioAnterior = sesion.rol;
-    const nominaAnalyst = (()=>{ sesion.rol = 'analyst'; const r = nomina.detalle(anio, null); sesion.rol = anioAnterior; return r; })();
-
     return {
       polizasClienteAnio: polizasCliente.detalle(anio, null),
       polizasClienteFeb: polizasCliente.detalle(anio, 1),
       correctivoAnio: correctivo.detalle(anio, null).map(it => ({ etiqueta: it.etiqueta, monto: Math.round(it.monto) })),
-      nominaOwner: nomina.detalle(anio, null),
-      nominaAnalyst,
+      nominaTieneDetalle: typeof nomina.detalle === 'function',
       proveedoresAbril: proveedores.detalle(anio, 3),
       proveedoresMayo: proveedores.detalle(anio, 4),
       limpiezaTieneDetalle: typeof limpieza.detalle === 'function'
@@ -504,12 +500,13 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     && detalleDirecto.correctivoAnio.some(it => it.etiqueta.includes('COT-1') && it.monto === 1150)
     && detalleDirecto.correctivoAnio.some(it => it.etiqueta.includes('COT-2') && it.monto === 690)
     && detalleDirecto.correctivoAnio.some(it => it.etiqueta.includes('COT-4') && it.monto === 230));
-  chkF('Detalle de "Nómina directa del pilar" (Owner): Ana y Beto con su sueldo ANUAL (×12), con enlace a Organigrama',
-    detalleDirecto.nominaOwner.length === 2
-    && detalleDirecto.nominaOwner.every(it => it.accion === 'ir-persona')
-    && detalleDirecto.nominaOwner.some(it => it.etiqueta.includes('Ana') && it.monto === 240000)
-    && detalleDirecto.nominaOwner.some(it => it.etiqueta.includes('Beto') && it.monto === 180000));
-  chkF('Detalle de "Nómina directa del pilar" (Analyst): vacío — mismo candado que puedeVerNomina()', detalleDirecto.nominaAnalyst.length === 0);
+  /* "Nómina directa del pilar" YA NO trae `detalle` (01-oct-2026, pedido de
+     Victor con captura real del modal abierto mostrando nombre+puesto+sueldo
+     de cada persona: "el modal de consulta de nomina no pueda activarse ya
+     que es un dato sumamente delicado que nadie deberia de observar") —
+     el total del renglón se sigue viendo (limitado a Owner/Admin, igual que
+     antes), pero ya no es clicable para NADIE, ni siquiera Owner/Admin. */
+  chkF('"Nómina directa del pilar" NO trae función de detalle (modal de consulta desactivado para todos)', detalleDirecto.nominaTieneDetalle === false);
   chkF('Detalle de "Proveedores / servicios subcontratados" (Abril): los 2 gastos reales, con enlace a su ficha',
     detalleDirecto.proveedoresAbril.length === 2 && detalleDirecto.proveedoresAbril.every(it => it.accion === 'ir-gasto-proveedor'));
   chkF('Detalle de "Proveedores / servicios subcontratados" (Mayo): las 2 Órdenes de Compra reales, con enlace a su ficha',
@@ -517,16 +514,23 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Un renglón sin conectar todavía (Limpieza) no trae función de detalle', detalleDirecto.limpiezaTieneDetalle === false);
 
   // De verdad en el DOM: solo lo conectado es clicable, y el clic real abre el modal y navega.
+  // "Nómina directa del pilar" se checa aparte: SÍ tiene datos reales
+  // cargados (Ana + Beto, $35,000) pero debe seguir sin ser clicable.
   const clicabilidad = await page.evaluate(() => {
     const filaLimpieza = Array.from(document.querySelectorAll('#vista table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes('Limpieza'));
     const filaPolizas = Array.from(document.querySelectorAll('#vista table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes('Pólizas de mantenimiento') && !tr.textContent.includes('incluidas'));
+    const filaNomina = Array.from(document.querySelectorAll('#vista table.tabla-proforma tbody tr')).find(tr => tr.textContent.includes('Nómina directa del pilar'));
     return {
       limpiezaClicable: filaLimpieza.querySelector('td.clic-detalle') !== null,
-      polizasClicable: filaPolizas.querySelector('td.clic-detalle') !== null
+      polizasClicable: filaPolizas.querySelector('td.clic-detalle') !== null,
+      nominaClicable: filaNomina.querySelector('td.clic-detalle') !== null,
+      nominaMuestraTotal: filaNomina.textContent.includes('$35,000')
     };
   });
   chkF('"Limpieza" (sin conectar) NO tiene celdas clicables', clicabilidad.limpiezaClicable === false);
   chkF('"Pólizas de mantenimiento" (conectado) SÍ tiene celdas clicables', clicabilidad.polizasClicable === true);
+  chkF('"Nómina directa del pilar" (con datos reales) NO tiene celdas clicables en el DOM', clicabilidad.nominaClicable === false);
+  chkF('"Nómina directa del pilar" sigue mostrando su total normalmente, solo ya no es clicable', clicabilidad.nominaMuestraTotal === true);
 
   await page.locator('td.clic-detalle', { hasText: 'Pólizas de mantenimiento' }).first().click();
   await page.waitForTimeout(150);
