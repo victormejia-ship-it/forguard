@@ -69,8 +69,14 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   const portada = paginas[0];
   chkF('La PRIMERA hoja es la portada azul (fondo navy + marca de agua)',
     await portada.evaluate(el => el.classList.contains('cover')) && await portada.locator('.cv-marca').count() === 1);
-  chkF('La portada trae el logo y los datos de Cliente/Fecha/Proyecto (con el nombre real del proyecto)',
-    await portada.locator('.cv-iso, .cv-logo').count() === 2 && (await portada.locator('.cv-meta').textContent()).includes('Remodelación comedor'));
+  /* El campo "Proyecto" de cv-meta se quitó (01-oct-2026, pedido de Victor:
+     "quita la leyenda del proyecto hasta abajo porque se repite") — el
+     nombre del proyecto ya solo vive en el título (cv-titulo); cv-meta se
+     quedó solo con Cliente y Fecha. */
+  chkF('La portada trae el logo y los datos de Cliente/Fecha (sin "Proyecto" repetido)',
+    await portada.locator('.cv-iso, .cv-logo').count() === 2 && (await portada.locator('.cv-meta .campo').count()) === 2);
+  chkF('El título de la portada muestra el nombre real del proyecto',
+    (await portada.locator('.cv-titulo').textContent()).includes('Remodelación comedor'));
 
   const ultima = paginas[paginas.length - 1];
   chkF('La última hoja SÍ trae el logo (isotipo + wordmark)', await ultima.locator('.pagina-cierre svg').count() === 2);

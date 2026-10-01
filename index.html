@@ -2442,6 +2442,24 @@ function aOracionTolerante(texto){
   return bajo.charAt(0).toUpperCase() + bajo.slice(1);
 }
 
+/* Como aOracionTolerante(), pero capitaliza CADA palabra en vez de solo la
+   primera — para nombres propios (cliente, sitio, nombre de proyecto que
+   incluye el del sitio) donde "daimler santiago" en Tipo oración se ve
+   raro; como nombre propio es "Daimler Santiago" (pedido de Victor,
+   01-oct-2026, con captura real de la portada: "el nombre del comedor o
+   del sitio... que sea como nombre propio, con mayúsculas al inicio" y
+   "en el cliente igual colocalo como nombre propio"). Mismo criterio
+   tolerante de fondo: si el texto no viene mayormente en mayúsculas (90%
+   o más de sus letras), se deja tal cual. */
+function aNombrePropioTolerante(texto){
+  const t = (texto || '').trim().replace(/\s+/g, ' ');
+  const letras = t.match(/[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/g);
+  if(!letras || !letras.length) return t;
+  const mayus = letras.filter(c => c !== c.toLowerCase()).length;
+  if(mayus / letras.length < 0.9) return t;
+  return t.toLowerCase().replace(/(^|[\s\-\/])([a-záéíóúñü])/g, (m, sep, c) => sep + c.toUpperCase());
+}
+
 /* Un renglón de la lista de precios. Mismo tono que los otros normalizadores:
    esta función es el contrato. El precio se limita al peso entero (pedido de
    Victor: ya no se manejan centavos en ningún costo ni precio de venta) por
@@ -10624,15 +10642,15 @@ function armarPayloadProyectoImagen(p, usarCosto){
     contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: (sesion && sesion.correo) || '' },
     folio: p.folio || '',
     fecha: fechaDocumento(p.fecha),
-    cliente: p.clienteNombre || 'Prospecto',
-    sitio: p.sitioNombre || '',
-    /* aOracionTolerante() (30-sep-2026, pedido de Victor: "coloca el nombre
-       del proyecto en escritura 'Tipo oración'", sobre la portada del PDF):
-       el nombre se captura libre y a veces llega TODO en mayúsculas — se
-       formatea aquí, una sola vez, para que tanto la portada como el
-       renglón "Proyecto" de la tabla de metadatos (más abajo en la
-       plantilla) salgan ya parejos, sin tocar el dato tal como se guardó. */
-    nombreProyecto: aOracionTolerante(p.nombreProyecto || ''),
+    /* aNombrePropioTolerante() (01-oct-2026, pedido de Victor sobre la
+       portada: "el nombre del comedor o del sitio... que sea como nombre
+       propio" y "en el cliente igual colocalo como nombre propio"): cliente,
+       sitio y nombre de proyecto se capturan libres y a veces llegan TODO en
+       mayúsculas — se formatean aquí, una sola vez, capitalizando cada
+       palabra (nombre propio), sin tocar el dato tal como se guardó. */
+    cliente: aNombrePropioTolerante(p.clienteNombre || 'Prospecto'),
+    sitio: aNombrePropioTolerante(p.sitioNombre || ''),
+    nombreProyecto: aNombrePropioTolerante(p.nombreProyecto || ''),
     tipoEtiqueta: ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo],
     estatusEtiqueta: ETIQUETA_ESTATUS_PROYECTO_IMAGEN[p.estatus],
     estatusTono: TONO_ESTATUS_PROYECTO_IMAGEN[p.estatus],

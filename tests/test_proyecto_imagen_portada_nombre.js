@@ -1,14 +1,19 @@
 /* La portada del PDF de un Proyecto de Imagen ya no trae la leyenda fija
-   "Imagen / Apertura" como título — trae el NOMBRE del proyecto, en Tipo
-   oración (01-oct-2026, pedido de Victor con captura real: "retira la
-   leyenda 'imagen / apertura' y coloca el nombre del proyecto en
-   escritura 'Tipo oración'").
+   "Imagen / Apertura" como título — trae el NOMBRE del proyecto (01-oct-
+   2026, pedido de Victor con captura real: "retira la leyenda 'imagen /
+   apertura' y coloca el nombre del proyecto en escritura 'Tipo oración'").
 
-   El Tipo oración ya se resolvía para los conceptos (ver
-   test_proyecto_imagen_pdf_sin_proveedor_y_tipo_oracion.js); este pedido
-   es sobre el NOMBRE DEL PROYECTO, un campo aparte, que también se
-   captura libre y a veces llega en mayúsculas — armarPayloadProyectoImagen()
-   ahora le aplica aOracionTolerante() antes de mandarlo a la plantilla.
+   El mismo día, con otra captura real de esta portada ya con el nombre
+   puesto ("Remodelacion comedor daimler santiago"), Victor pidió afinarlo:
+   "el nombre del comedor o del sitio... que sea como nombre propio, con
+   mayúsculas al inicio" — un nombre de sitio como "Daimler Santiago" se ve
+   raro en Tipo oración (solo la primera letra de TODA la frase), se ve
+   bien como nombre propio (cada palabra con mayúscula). Por eso
+   armarPayloadProyectoImagen() le aplica aNombrePropioTolerante() en vez
+   de aOracionTolerante() —mismo criterio tolerante de fondo (90% o más de
+   mayúsculas), pero capitalizando CADA palabra—. El Tipo oración de los
+   CONCEPTOS de costo es un campo aparte y no cambió (ver
+   test_proyecto_imagen_pdf_sin_proveedor_y_tipo_oracion.js).
 
    El título en sí dejó de ser un texto fijo de 2 líneas medido una sola
    vez (como "Mantenimiento Preventivo" en Pólizas) — el nombre de un
@@ -44,17 +49,19 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     datos.clientes = [normalizarCliente({ id:'c1', nombre:'DAIMLER' })];
     datos.sitios = [normalizarSitio({ id:'s1', clienteId:'c1', nombre:'DAIMLER SANTIAGO' })];
     datos.proyectosImagen = [
-      normalizarProyectoImagen({ id:'corto', clienteId:'c1', sitioId:'s1', sitioNombre:'DAIMLER SANTIAGO', folio:'PI-001', nombreProyecto:'Apertura nueva planta', fechaObjetivo:'2026-09-30' }),
-      normalizarProyectoImagen({ id:'mayus', clienteId:'c1', sitioId:'s1', sitioNombre:'DAIMLER SANTIAGO', folio:'PI-002', nombreProyecto:'REMODELACION COMEDOR DAIMLER SANTIAGO', fechaObjetivo:'2026-09-30' }),
-      normalizarProyectoImagen({ id:'largo', clienteId:'c1', sitioId:'s1', sitioNombre:'DAIMLER SANTIAGO', folio:'PI-003',
+      normalizarProyectoImagen({ id:'corto', clienteId:'c1', clienteNombre:'DAIMLER', sitioId:'s1', sitioNombre:'DAIMLER SANTIAGO', folio:'PI-001', nombreProyecto:'Apertura nueva planta', fechaObjetivo:'2026-09-30' }),
+      normalizarProyectoImagen({ id:'mayus', clienteId:'c1', clienteNombre:'DAIMLER', sitioId:'s1', sitioNombre:'DAIMLER SANTIAGO', folio:'PI-002', nombreProyecto:'REMODELACION COMEDOR DAIMLER SANTIAGO', fechaObjetivo:'2026-09-30' }),
+      normalizarProyectoImagen({ id:'largo', clienteId:'c1', clienteNombre:'DAIMLER', sitioId:'s1', sitioNombre:'DAIMLER SANTIAGO', folio:'PI-003',
         nombreProyecto:'REMODELACION INTEGRAL DE TODO EL AREA DE COMEDOR, COCINA, SANITARIOS Y PASILLOS DE ACCESO PRINCIPAL DE LA PLANTA DAIMLER SANTIAGO FASE 2', fechaObjetivo:'2026-09-30' }),
-      normalizarProyectoImagen({ id:'sinnombre', clienteId:'c1', sitioId:'s1', sitioNombre:'DAIMLER SANTIAGO', folio:'PI-004', nombreProyecto:'', tipo:'apertura', fechaObjetivo:'2026-09-30' })
+      normalizarProyectoImagen({ id:'sinnombre', clienteId:'c1', clienteNombre:'DAIMLER', sitioId:'s1', sitioNombre:'DAIMLER SANTIAGO', folio:'PI-004', nombreProyecto:'', tipo:'apertura', fechaObjetivo:'2026-09-30' })
     ];
   });
 
-  // --------- 1) El payload ya manda el nombre en Tipo oración ---------
-  const payload = await page.evaluate(() => armarPayloadProyectoImagen(proyectoImagenPorId('mayus'), false).nombreProyecto);
-  chkF('armarPayloadProyectoImagen() manda el nombre del proyecto ya en Tipo oración', payload === 'Remodelacion comedor daimler santiago');
+  // --------- 1) El payload ya manda el nombre como nombre propio ---------
+  const payload = await page.evaluate(() => armarPayloadProyectoImagen(proyectoImagenPorId('mayus'), false));
+  chkF('armarPayloadProyectoImagen() manda el nombre del proyecto ya como nombre propio', payload.nombreProyecto === 'Remodelacion Comedor Daimler Santiago');
+  chkF('armarPayloadProyectoImagen() manda el cliente ya como nombre propio', payload.cliente === 'Daimler');
+  chkF('armarPayloadProyectoImagen() manda el sitio ya como nombre propio', payload.sitio === 'Daimler Santiago');
 
   async function abrirPortada(id){
     const [docPage] = await Promise.all([
@@ -67,13 +74,15 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     await docPage.waitForLoadState();
     await docPage.waitForTimeout(600);
     const titulo = docPage.locator('.page.cover .cv-titulo').first();
+    const campos = await docPage.locator('.page.cover .cv-meta .campo').allTextContents();
     const resultado = {
       texto: (await titulo.textContent()).trim(),
       fontSize: parseFloat(await titulo.evaluate(el => getComputedStyle(el).fontSize)),
       top: await titulo.evaluate(el => el.getBoundingClientRect().top),
       bottom: await titulo.evaluate(el => el.getBoundingClientRect().bottom),
       metaTop: await docPage.locator('.page.cover .cv-meta').first().evaluate(el => el.getBoundingClientRect().top),
-      yaNoDiceLeyendaFija: !/imagen\s*\/\s*apertura/i.test(await titulo.textContent())
+      yaNoDiceLeyendaFija: !/imagen\s*\/\s*apertura/i.test(await titulo.textContent()),
+      camposMeta: campos.map(c => c.trim())
     };
     await docPage.close();
     return resultado;
@@ -84,10 +93,12 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Título corto: muestra el nombre del proyecto, no "Imagen / Apertura"', corto.texto === 'Apertura nueva planta' && corto.yaNoDiceLeyendaFija);
   chkF('Título corto: usa una letra grande (≥50pt) al no necesitar achicarse', corto.fontSize >= 50);
   chkF('Título corto: no se encima con cv-meta', corto.bottom <= corto.metaTop);
+  chkF('cv-meta solo trae Cliente y Fecha (sin "Proyecto" repetido)', corto.camposMeta.length === 2);
 
-  // --------- 3) Nombre en MAYÚSCULAS: sale en Tipo oración en el PDF real ---------
+  // --------- 3) Nombre en MAYÚSCULAS: sale como nombre propio en el PDF real ---------
   const mayus = await abrirPortada('mayus');
-  chkF('Título con nombre en mayúsculas: sale convertido a Tipo oración en el PDF real', mayus.texto === 'Remodelacion comedor daimler santiago');
+  chkF('Título con nombre en mayúsculas: sale convertido a nombre propio en el PDF real', mayus.texto === 'Remodelacion Comedor Daimler Santiago');
+  chkF('Cliente en la portada sale como nombre propio ("Daimler", no "DAIMLER")', /Daimler(?!\w)/.test(mayus.camposMeta[0]) && !/DAIMLER/.test(mayus.camposMeta[0]));
 
   // --------- 4) Nombre MUY largo: se achica solo y sigue sin encimarse ---------
   const largo = await abrirPortada('largo');
