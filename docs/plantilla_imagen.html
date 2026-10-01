@@ -301,15 +301,49 @@ if(!PI){
      repetirla en cada hoja de imágenes solo le quitaba espacio a las fotos.
      El logo y el título SÍ se quedan: sigue siendo "mismo branding en toda
      la página" y una hoja suelta se sigue reconociendo de dónde salió. */
-  /* Portada azul — ver el comentario del bloque CSS ".cover"/".cv-*" más
-     arriba. Título fijo de 2 líneas (el nombre del módulo, no el tipo del
-     proyecto: "Apertura"/"Cambio de imagen"/etc. varían de largo y
-     romperían el ancho medido de la portada real). El "Proyecto" de la
-     portada SÍ es dinámico —el nombre real del proyecto—, a diferencia
-     de la de pólizas (ahí es un texto fijo): aquí cada proyecto tiene
-     nombre propio, y es justo el dato que distingue una portada de otra. */
+  /* Título de la portada (30-sep-2026, pedido de Victor: "retira la
+     leyenda 'imagen / apertura' y coloca el nombre del proyecto en
+     escritura 'Tipo oración'"): antes era el texto fijo "Imagen / Apertura"
+     —el nombre del MÓDULO, nunca varía—, ahora es el nombre real de CADA
+     proyecto, que no tiene un largo conocido de antemano (a diferencia de
+     "Mantenimiento Preventivo" en Pólizas, que sí se podía medir una sola
+     vez). En vez de adivinar un tamaño de letra, se MIDE de verdad, mismo
+     principio que paginarImagenes()/paginarCostos() más abajo: se prueba
+     una lista de tamaños de mayor a menor sobre el título ya puesto (fuera
+     de la hoja, oculto) hasta encontrar el más grande que cabe en el
+     espacio disponible arriba de cv-meta sin encimarse — así un nombre
+     corto se ve grande y uno largo se achica solo, en vez de desbordarse.
+     El Tipo oración en sí ya viene resuelto desde el payload (ver
+     aOracionTolerante() en armarPayloadProyectoImagen(), index.html). */
+  function tituloPortadaHTML(texto){
+    const TOP = 280, ANCHO = 415.8; /* 612 (ancho de hoja) − 145.6 (left) − 50.6 (right de cv-meta) */
+    const DISPONIBLE = 534 - TOP - 16; /* 534pt es donde arranca cv-meta; 16pt de aire antes */
+    /* Proporción px↔pt medida en vivo (no asumida): evita que un futuro
+       cambio de DPI/zoom del motor de impresión desalinee la medición. */
+    const regla = document.createElement('div');
+    regla.style.cssText = 'position:fixed;left:-9999px;top:0;height:792pt;width:1px;';
+    document.body.appendChild(regla);
+    const pxPorPt = regla.getBoundingClientRect().height / 792;
+    document.body.removeChild(regla);
+
+    const tamanos = [60, 52, 46, 40, 34, 28, 24, 20];
+    let elegido = tamanos[tamanos.length - 1];
+    for(const tamano of tamanos){
+      const medidor = document.createElement('div');
+      medidor.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + ANCHO + 'pt;'
+        + 'font-family:Helvetica,"Helvetica Neue",Arial,sans-serif;font-weight:400;'
+        + 'font-size:' + tamano + 'pt;line-height:' + (tamano * 1.08) + 'pt;white-space:normal;';
+      medidor.textContent = texto;
+      document.body.appendChild(medidor);
+      const altoPt = medidor.getBoundingClientRect().height / pxPorPt;
+      document.body.removeChild(medidor);
+      if(altoPt <= DISPONIBLE){ elegido = tamano; break; }
+    }
+    return '<div class="cv-titulo" style="top:' + TOP + 'pt;right:50.6pt;font-size:' + elegido + 'pt;'
+      + 'line-height:' + (elegido * 1.08) + 'pt;white-space:normal">' + esc(texto) + '</div>';
+  }
+
   function paginaPortadaHTML(){
-    const topTitulo = 338.8 - 5.2;
     return '<div class="page cover">'
       + '<svg class="cv-marca" viewBox="0 0 612 792" aria-hidden="true">'
       +   '<g fill="#021449" stroke="#1B2B59" stroke-width="2.71" stroke-linejoin="round">'
@@ -325,10 +359,7 @@ if(!PI){
       + '</svg>'
       + '<div class="cv-iso">' + isotipo(79.9) + '</div>'
       + '<div class="cv-logo">' + logotipo(143.9) + '</div>'
-      + '<div class="cv-titulo" style="top:' + topTitulo + 'pt">'
-      +   '<div style="margin-top:0">Imagen /</div>'
-      +   '<div style="margin-top:-11.6pt">Apertura</div>'
-      + '</div>'
+      + tituloPortadaHTML(PI.nombreProyecto || PI.tipoEtiqueta || 'Proyecto')
       + '<div class="cv-meta">'
       +   '<div class="campo"><span class="etiqueta">Cliente</span><span class="valor">' + esc(PI.cliente) + (PI.sitio ? '<br>' + esc(PI.sitio) : '') + '</span></div>'
       +   '<div class="campo"><span class="etiqueta">Fecha</span><span class="valor">' + esc(PI.fecha) + '</span></div>'
@@ -449,8 +480,14 @@ if(!PI){
     medidor1.innerHTML = paginaCostosHTML(filasCostoInfo.map((_,i)=>i), true);
     document.body.appendChild(medidor1);
     const alturas = Array.from(medidor1.querySelectorAll('table.costos-tabla tbody tr')).map(tr => tr.getBoundingClientRect().height);
+    /* El presupuesto se mide desde donde EMPIEZAN los renglones de verdad
+       (debajo del encabezado thead), no desde el top de la tabla completa
+       — el thead (Proveedor/Concepto/Cantidad/...) también ocupa espacio
+       real y antes no se restaba, así que el margen de 12pt se lo comía el
+       propio encabezado y los renglones se pasaban sobre el pie de página
+       (detectado 01-oct-2026, reporte de Victor con captura real). */
     const alturaPrimera = medidor1.querySelector('.footwrap').getBoundingClientRect().top
-      - medidor1.querySelector('table.costos-tabla').getBoundingClientRect().top - 12;
+      - medidor1.querySelector('table.costos-tabla thead').getBoundingClientRect().bottom - 12;
     document.body.removeChild(medidor1);
 
     const medidor2 = document.createElement('div');
@@ -458,7 +495,7 @@ if(!PI){
     medidor2.innerHTML = paginaCostosHTML(filasCostoInfo.map((_,i)=>i), false);
     document.body.appendChild(medidor2);
     const alturaContinuacion = medidor2.querySelector('.footwrap').getBoundingClientRect().top
-      - medidor2.querySelector('table.costos-tabla').getBoundingClientRect().top - 12;
+      - medidor2.querySelector('table.costos-tabla thead').getBoundingClientRect().bottom - 12;
     document.body.removeChild(medidor2);
 
     /* Las últimas 3 filas (materiales/mano de obra/total) no se separan

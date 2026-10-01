@@ -10626,7 +10626,13 @@ function armarPayloadProyectoImagen(p, usarCosto){
     fecha: fechaDocumento(p.fecha),
     cliente: p.clienteNombre || 'Prospecto',
     sitio: p.sitioNombre || '',
-    nombreProyecto: p.nombreProyecto || '',
+    /* aOracionTolerante() (30-sep-2026, pedido de Victor: "coloca el nombre
+       del proyecto en escritura 'Tipo oración'", sobre la portada del PDF):
+       el nombre se captura libre y a veces llega TODO en mayúsculas — se
+       formatea aquí, una sola vez, para que tanto la portada como el
+       renglón "Proyecto" de la tabla de metadatos (más abajo en la
+       plantilla) salgan ya parejos, sin tocar el dato tal como se guardó. */
+    nombreProyecto: aOracionTolerante(p.nombreProyecto || ''),
     tipoEtiqueta: ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo],
     estatusEtiqueta: ETIQUETA_ESTATUS_PROYECTO_IMAGEN[p.estatus],
     estatusTono: TONO_ESTATUS_PROYECTO_IMAGEN[p.estatus],
