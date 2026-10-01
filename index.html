@@ -2416,6 +2416,31 @@ function aOracion(texto){
   const bajo = t.toLowerCase();
   return bajo.charAt(0).toUpperCase() + bajo.slice(1);
 }
+/* Misma idea que aOracion(), pero MÁS TOLERANTE: una sola minúscula ya basta
+   para que aOracion() se rinda y deje el texto intacto — pensado para no
+   atropellar una marca a medio escribir, pero en la práctica un concepto
+   importado real en mayúsculas casi siempre trae alguna abreviatura con
+   minúscula pegada ("Mts.", "m.", "mts", "m2") que lo salvaba de
+   convertirse sin que esa fuera la intención (pedido de Victor, 01-oct-
+   2026: "requiero que se respete a pesar de ser importado el archivo la
+   escritura 'Tipo oración' ya que existen algunos conceptos escritos en
+   mayúsculas" — ejemplo real: "ACRILICO TRANSPARENTE 1.35 X 1.8 Mts. CON 4
+   CHAPETONES DE ALUMINIO" se quedaba intacto por la "ts" de "Mts."). Aquí
+   se mide la proporción de letras en mayúscula contra el total de letras:
+   si la GRAN MAYORÍA (90% o más) son mayúsculas, se trata como si todo el
+   texto lo fuera —igual que haría aOracion() sin esa minúscula suelta—; si
+   no, se deja tal cual, mismo criterio de fondo que aOracion(). Solo se usa
+   en normalizarConceptoProyecto(): el resto de los ~20 usos de aOracion()
+   en la app (Activos, Pólizas, Proveedores…) no se tocan. */
+function aOracionTolerante(texto){
+  const t = (texto || '').trim().replace(/\s+/g, ' ');
+  const letras = t.match(/[a-zA-ZáéíóúñüÁÉÍÓÚÑÜ]/g);
+  if(!letras || !letras.length) return t;
+  const mayus = letras.filter(c => c !== c.toLowerCase()).length;
+  if(mayus / letras.length < 0.9) return t;
+  const bajo = t.toLowerCase();
+  return bajo.charAt(0).toUpperCase() + bajo.slice(1);
+}
 
 /* Un renglón de la lista de precios. Mismo tono que los otros normalizadores:
    esta función es el contrato. El precio se limita al peso entero (pedido de
@@ -6869,7 +6894,7 @@ function normalizarConceptoProyecto(x){
        viaja completo cuando se importa de un desglose como el de Excel, que
        trae un proveedor por renglón. */
     proveedor: (x && x.proveedor ? String(x.proveedor) : '').trim(),
-    concepto: aOracion((x && x.concepto ? String(x.concepto) : '').trim()),
+    concepto: aOracionTolerante((x && x.concepto ? String(x.concepto) : '').trim()),
     cantidad: Math.max(0, numDef(x && x.cantidad, 1)),
     costoUnitario,
     /* precioVenta: lo que se le cobra al cliente por este concepto — pedido
@@ -13849,10 +13874,10 @@ const TEMAS_AYUDA = [
         'Agrega los <b>Costos/conceptos</b> uno por uno (Proveedor, Concepto, Cantidad, Precio unitario) — el resumen de inversión total se arma solo.',
         'Sube <b>Imágenes y planos</b> etiquetados por tipo: Render, Plano/layout o Foto (hasta 12 archivos, imagen o PDF).',
         'Busca por folio/proyecto/sitio/cliente y filtra por estatus; alterna entre tarjetas, tabla y <b>Cronograma</b> (vista Gantt).',
-        'Usa <b>Generar PDF</b> para el documento del proyecto.'
+        'Usa <b>Generar PDF</b> para el documento del proyecto, con el precio de venta — sin mostrar de qué proveedor sale cada concepto (30-sep-2026, pedido de Victor). Si eres Admin, <b>PDF con costos</b> (uso interno) es el mismo documento pero con el costo real y SÍ con la columna Proveedor.'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
-        'Usa <b>Importar desde Excel</b> para prellenar un proyecto nuevo con el desglose de costos de una hoja (proveedor, concepto, cantidad, precio) — nunca guarda solo, siempre revisas y confirmas antes de crear.',
+        'Usa <b>Importar desde Excel</b> para prellenar un proyecto nuevo con el desglose de costos de una hoja (proveedor, concepto, cantidad, precio) — nunca guarda solo, siempre revisas y confirmas antes de crear. Un concepto que venga TODO en mayúsculas se convierte solo a Tipo oración (igual que si lo tecleas a mano), aunque traiga alguna abreviatura en minúscula pegada ("Mts.", "m.") — solo se respeta tal cual cuando ya trae una mezcla real de mayúsculas y minúsculas (una marca propia, por ejemplo).',
         'El <b>Cronograma</b> dibuja cada proyecto como una barra en una línea de tiempo continua (no una columna por día), separando los atrasados arriba y los sin fecha capturada aparte.',
         'Un PDF subido como plano se intenta convertir a imagen automáticamente (para verlo como miniatura); si no se puede, se guarda como documento con su nombre de archivo.'
       ]))
