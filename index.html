@@ -1708,6 +1708,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
       <button type="button" class="mas-item" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
       <button type="button" class="mas-item" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
       <button type="button" class="mas-item" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
+      <button type="button" class="mas-item" data-modulo="equipos" role="tab" aria-selected="false">Catálogo de equipos</button>
       <button type="button" class="mas-item" data-modulo="ayuda" role="tab" aria-selected="false">Ayuda</button>
     </div>
   </div>
@@ -6403,6 +6404,169 @@ function activoPorId(id){ return datos.activos.find(a => a.id === id); }
 function activosDeSitio(sitioId){ return datos.activos.filter(a => a.sitioId === sitioId); }
 function activosDeCliente(clienteId){ return datos.activos.filter(a => a.clienteId === clienteId); }
 
+/* ===================== Catálogo de equipos (02-oct-2026) =====================
+   Pedido de Victor: "de que manera podemos hacer como un catalogo de
+   equipos con los que trabajamos, donde podamos ver la marca, modelo y
+   numero de serie... podriamos tomar de todos los registros estos datos, y
+   tambien de las polizas". Confirmado con él: arranca como una VISTA
+   AGREGADA DE SOLO LECTURA (vistaCatalogoEquipos()), no un módulo nuevo
+   donde se vuelva a capturar nada — marca/modelo/serie ya se capturan en
+   TRES lados distintos, cada uno con su propia razón de ser:
+   - Activos: el inventario formal, por cliente/sitio.
+   - Levantamientos → hallazgos: lo que se documenta en una visita, aunque
+     no sea formalmente un Activo (mismos nombres de campo a propósito,
+     ver normalizarHallazgo()).
+   - Pólizas → partidas: el equipo específico que cubre cada renglón del
+     contrato, con modelo/serie (o `series[]`, una por unidad si la
+     cantidad es mayor a 1).
+   Cotizaciones queda FUERA a propósito: sus renglones (normalizarPartidaCotizacion)
+   no guardan serie, solo concepto/precio — no hay nada que aportar aquí.
+
+   Se agrupa por SERIE normalizada cuando existe —es el único dato que de
+   verdad identifica una unidad física sin ambigüedad—; sin serie, cada
+   aparición se queda separada en su propio renglón (agrupar solo por
+   marca+modelo inventaría una coincidencia que no se puede probar). Si la
+   misma serie aparece en más de una fuente (p.ej. un Activo que también se
+   documentó en un Levantamiento), se funde en un solo renglón con todas
+   sus apariciones listadas — nunca se repite la unidad. */
+function claveEquipoAgregado(serie){
+  return (serie || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+const ETIQUETA_ORIGEN_EQUIPO = { activo:'Activo', levantamiento:'Levantamiento', poliza:'Póliza' };
+function apariencesCatalogoEquipos(){
+  const filas = [];
+
+  datos.activos.forEach(a=>{
+    if(!a.marca && !a.modelo && !a.serie) return;
+    const cliente = a.clienteId ? ((clientePorId(a.clienteId) || {}).nombre || 'Cliente eliminado') : ETIQUETA_TIPO_ACTIVO[a.tipo];
+    filas.push({
+      marca: a.marca, modelo: a.modelo, serie: a.serie,
+      clienteNombre: cliente, sitioNombre: a.sitioNombre || '',
+      origen: 'activo', origenId: a.id,
+      origenEtiqueta: 'Activo' + (a.folio ? ' ' + a.folio : '')
+    });
+  });
+
+  datos.levantamientos.forEach(l=>{
+    const cliente = (clientePorId(l.clienteId) || {}).nombre || 'Cliente eliminado';
+    l.hallazgos.forEach(h=>{
+      if(!h.marca && !h.modelo && !h.serie) return;
+      filas.push({
+        marca: h.marca, modelo: h.modelo, serie: h.serie,
+        clienteNombre: cliente, sitioNombre: l.sitioNombre,
+        origen: 'levantamiento', origenId: l.id,
+        origenEtiqueta: 'Levantamiento' + (l.folio ? ' ' + l.folio : '') + (h.equipoNombre ? ' — ' + h.equipoNombre : '')
+      });
+    });
+  });
+
+  datos.polizas.forEach(p=>{
+    const cliente = (clientePorId(p.clienteId) || {}).nombre || 'Cliente eliminado';
+    p.partidas.forEach(x=>{
+      /* Si cantidad === 1 basta con `serie`; si hay varias unidades, cada
+         una trae la suya en `series[]` (ver modalPoliza → "Capturar
+         series") — un renglón por unidad, no uno por partida. */
+      const series = x.series && x.series.some(Boolean) ? x.series : [x.serie];
+      series.forEach((serie, i)=>{
+        if(!x.marca && !x.modelo && !serie) return;
+        filas.push({
+          marca: x.marca, modelo: x.modelo, serie: serie || '',
+          clienteNombre: cliente, sitioNombre: p.sitioNombre,
+          origen: 'poliza', origenId: p.id,
+          origenEtiqueta: 'Póliza' + (p.folio ? ' ' + p.folio : '') + ' — ' + (x.concepto || 'Equipo') + (series.length > 1 ? ' (unidad ' + (i+1) + ')' : '')
+        });
+      });
+    });
+  });
+
+  return filas;
+}
+/* Un renglón por equipo: fundidos por serie cuando se puede probar que es
+   la misma unidad, separados cuando no. `apariciones` guarda cada captura
+   de origen (Activo/Levantamiento/Póliza) para el enlace de "Documentado
+   en", sin perder ninguna aunque varias fuentes coincidan en la serie. */
+function catalogoEquiposAgregado(){
+  const filas = apariencesCatalogoEquipos();
+  const grupos = new Map();
+  const sueltos = [];
+
+  filas.forEach(f=>{
+    const clave = claveEquipoAgregado(f.serie);
+    if(!clave){ sueltos.push({ marca: f.marca, modelo: f.modelo, serie: f.serie, clienteNombre: f.clienteNombre, sitioNombre: f.sitioNombre, apariciones: [f] }); return; }
+    if(!grupos.has(clave)){
+      grupos.set(clave, { marca: f.marca, modelo: f.modelo, serie: f.serie, clienteNombre: f.clienteNombre, sitioNombre: f.sitioNombre, apariciones: [] });
+    }
+    const g = grupos.get(clave);
+    g.apariciones.push(f);
+    if(!g.marca && f.marca) g.marca = f.marca;
+    if(!g.modelo && f.modelo) g.modelo = f.modelo;
+  });
+
+  return [...grupos.values(), ...sueltos]
+    .filter(g => g.marca || g.modelo || g.serie)
+    .sort((a,b)=> (a.marca || '').localeCompare(b.marca || '', 'es') || (a.modelo || '').localeCompare(b.modelo || '', 'es'));
+}
+
+function vistaCatalogoEquipos(){
+  const grupos = catalogoEquiposAgregado();
+  const conSerie = grupos.filter(g => claveEquipoAgregado(g.serie)).length;
+
+  let h = '<div class="titulo-zona"><div>'
+     +   '<h2>Catálogo de equipos</h2>'
+     +   '<p>Marca, modelo y número de serie, reunidos de Activos, Levantamientos y Pólizas — nada se vuelve a capturar aquí.</p>'
+     + '</div></div>';
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Equipos documentados', numero(grupos.length), 'Entre Activos, Levantamientos y Pólizas')
+     + tarjetaKpi('Con número de serie', numero(conSerie), grupos.length ? Math.round(conSerie / grupos.length * 100) + '% del total' : 'Todavía sin equipos')
+     + '</div>';
+
+  if(!grupos.length){
+    h += vistaVacia('activo', 'Todavía no hay marca/modelo/serie capturados',
+      'En cuanto captures estos datos en un Activo, un hallazgo de Levantamiento o un renglón de Póliza, aparecen aquí solos.', '', '');
+    return h;
+  }
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaCatalogoEquipos" placeholder="Buscar por marca, modelo, serie, cliente o sitio…" value="' + esc(estado.busca) + '">'
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const visibles = q
+    ? grupos.filter(g => [g.marca, g.modelo, g.serie, g.clienteNombre, g.sitioNombre].some(v => (v || '').toLowerCase().includes(q)))
+    : grupos;
+
+  if(!visibles.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Nada coincide con la búsqueda.</p></div>';
+    return h;
+  }
+
+  h += '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:860px"><thead><tr>'
+     +   '<th>Marca</th><th>Modelo</th><th>Serie</th><th>Cliente / Sitio</th><th>Documentado en</th>'
+     + '</tr></thead><tbody>'
+     + visibles.map(g=>{
+         const vistos = new Set();
+         const origenesUnicos = g.apariciones.filter(a=>{
+           const k = a.origen + ':' + a.origenId;
+           if(vistos.has(k)) return false;
+           vistos.add(k); return true;
+         });
+         const atributo = o => o.origen === 'activo' ? 'data-activo' : o.origen === 'levantamiento' ? 'data-levantamiento' : 'data-poliza';
+         return '<tr>'
+           +   '<td>' + esc(g.marca || '—') + '</td>'
+           +   '<td>' + esc(g.modelo || '—') + '</td>'
+           +   '<td>' + esc(g.serie || '—') + '</td>'
+           +   '<td>' + esc(g.clienteNombre || 'Sin cliente') + (g.sitioNombre ? '<br><span class="pista">' + esc(g.sitioNombre) + '</span>' : '') + '</td>'
+           +   '<td style="display:flex; gap:6px; flex-wrap:wrap">' + origenesUnicos.map(o =>
+                 '<button type="button" class="btn btn-suave btn-mini" ' + atributo(o) + '="' + esc(o.origenId) + '" title="' + esc(o.origenEtiqueta) + '">' + ETIQUETA_ORIGEN_EQUIPO[o.origen] + '</button>'
+               ).join('') + '</td>'
+           + '</tr>';
+       }).join('')
+     + '</tbody></table></div>';
+
+  return h;
+}
+
 /* AC-ddmmaa-NNNN: mismo molde que reportes/cotizaciones. Sugerencia, no
    candado: sigue siendo texto libre por si hace falta corregirlo a mano. */
 function generarFolioActivo(fechaISO){
@@ -10867,7 +11031,7 @@ const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
    Desde la ficha de un cliente en Clientes se puede seguir saltando
    directo a su Forpass con "Ver en Forpass" (ver irAlClienteEnForpass())
    — un atajo, no la única puerta. */
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'equipos', 'ayuda'];
 function cargarModulo(){
   estado.modulo = MODULOS[0];
   estado.vista = inicioDelModulo();
@@ -10912,9 +11076,13 @@ function modulosPermitidos(){
      botones de crear/editar/importar detrás de puedeEditar(), igual que ya
      hacían Pólizas y Cotizaciones, y exigirPermiso() los bloquea aunque
      alguien fuerce el clic. Activos es la excepción (ver arriba): ni
-     Admin, Analyst ni Viewer lo ven ya, solo Owner y control_activos. */
+     Admin, Analyst ni Viewer lo ven ya, solo Owner y control_activos.
+     "Catálogo de equipos" (02-oct-2026) se suma a esa misma excepción: es
+     una vista agregada que incluye datos de Activos, así que se restringe
+     igual —sin esto, un rol que no puede ver Activos vería sus marcas/
+     modelos/series coladas aquí de todos modos. */
   if(HAY_NUBE && haySesion() && rolEfectivo() !== 'owner'){
-    return MODULOS.filter(m => m !== 'organigrama' && m !== 'activos');
+    return MODULOS.filter(m => m !== 'organigrama' && m !== 'activos' && m !== 'equipos');
   }
   return MODULOS;
 }
@@ -10934,6 +11102,7 @@ function inicioDelModulo(){
        : estado.modulo === 'proveedores' ? 'gastos-proveedor'
        : estado.modulo === 'organigrama' ? 'organigrama'
        : estado.modulo === 'imagen' ? 'imagen'
+       : estado.modulo === 'equipos' ? 'equipos'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'ayuda' ? 'ayuda'
        : 'clientes';
@@ -13943,6 +14112,20 @@ const TEMAS_AYUDA = [
         + guiaTip('El único módulo oculto del todo a quien no edita', [
             'A diferencia de Levantamientos (que sigue visible de solo lectura), Imagen/Aperturas desaparece por completo del selector de módulos para cualquiera que no tenga permiso de edición — ni Viewer, ni Técnico, ni Reportero lo ven jamás.'
           ])) },
+
+  { id:'equipos', titulo:'Catálogo de equipos',
+    resumen:'Marca, modelo y número de serie de todo lo que ya se ha documentado, reunido en un solo lugar — no es un módulo de captura.',
+    contenido:
+      guiaSeccion('Qué es y de dónde sale', guiaPasos([
+        'Es una <b>vista agregada de solo lectura</b> (02-oct-2026, pedido de Victor: "un catalogo de equipos... marca, modelo y numero de serie"): no captura nada nuevo, solo junta lo que ya existe en 3 lados distintos — <b>Activos</b> (el inventario formal, por cliente/sitio), <b>Levantamientos</b> (lo que se documenta en una visita, en cada hallazgo) y <b>Pólizas</b> (el equipo de cada renglón del contrato, con su número de serie si aplica). Cotizaciones no aporta: sus renglones no guardan serie.',
+        'Cuando el MISMO número de serie aparece en más de una fuente (p.ej. un Activo que también se anotó en un Levantamiento), el catálogo lo <b>funde en un solo renglón</b> con los dos orígenes listados en "Documentado en" — nunca se repite la unidad. Sin número de serie capturado, cada aparición se queda separada: no hay forma de probar que son la misma pieza solo por compartir marca y modelo.',
+        'Clic en cualquier botón de "Documentado en" (Activo/Levantamiento/Póliza) te lleva directo a ESE registro real, en su propio módulo — igual que el resto de la app.',
+        'Solo lo ve <b>Owner</b> (mismo candado que Activos, ver Ayuda de Activos): como incluye datos de ahí, se restringe igual.'
+      ]))
+      + guiaTip('Por qué no es un módulo de captura', [
+          'Agregar un "catálogo real" con su propio id (donde Activos/Levantamientos/Pólizas referenciaran un equipo compartido en vez de repetir marca/modelo/serie cada vez) es una opción más robusta a futuro, pero una migración grande que toca los 3 módulos — se dejó fuera a propósito de esta primera versión.',
+          'Por ahora, corregir una marca o modelo mal escrito se sigue haciendo en su fuente original (el Activo, el hallazgo, o la partida de la póliza) — el catálogo solo refleja lo que ya está ahí.'
+        ]) },
 
   { id:'admin', titulo:'Administración',
     resumen:'Cuentas del equipo, solicitudes de acceso de clientes, respaldo de toda la base, y catálogos configurables.',
@@ -22303,6 +22486,7 @@ function render(){
                                     : vistaGastosProveedor())
     : estado.modulo === 'organigrama'  ? vistaOrganigrama()
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
+    : estado.modulo === 'equipos'      ? vistaCatalogoEquipos()
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
     : estado.modulo === 'ayuda'        ? (estado.vista === 'ayuda-tema' ? vistaAyudaTema() : vistaAyuda())
@@ -22354,6 +22538,8 @@ function render(){
     const sfA = $('sitioFiltroActivo');
     if(sfA) sfA.addEventListener('change', ()=>{ estado.sitioFiltroActivo = sfA.value; render(); });
   }
+  const bpCe = $('buscaCatalogoEquipos');
+  if(bpCe) bpCe.addEventListener('input', ()=>{ estado.busca = bpCe.value; renderConservandoFoco(bpCe, 'buscaCatalogoEquipos'); });
   const bpGp = $('buscaGastoProveedor');
   if(bpGp){
     bpGp.addEventListener('input', ()=>{ estado.busca = bpGp.value; renderConservandoFoco(bpGp, 'buscaGastoProveedor'); });
@@ -22886,11 +23072,11 @@ function pintarCabecera(){
     b.style.display = permitidos.includes(b.dataset.modulo) ? '' : 'none';
     b.setAttribute('aria-selected', b.dataset.modulo === estado.modulo ? 'true' : 'false');
   });
-  /* El botón "Más" agrupa Activos/Proveedores/Organigrama/Imagen/Ayuda (ver
-     comentario en el HTML): se esconde si el rol no tiene ninguno de los
-     cinco, y se enciende como si fuera la pestaña activa cuando el módulo
-     abierto vive adentro. */
-  const GRUPO_MAS = ['activos', 'proveedores', 'organigrama', 'imagen', 'ayuda'];
+  /* El botón "Más" agrupa Activos/Proveedores/Organigrama/Imagen/Catálogo
+     de equipos/Ayuda (ver comentario en el HTML): se esconde si el rol no
+     tiene ninguno de los seis, y se enciende como si fuera la pestaña
+     activa cuando el módulo abierto vive adentro. */
+  const GRUPO_MAS = ['activos', 'proveedores', 'organigrama', 'imagen', 'equipos', 'ayuda'];
   const btnMas = $('btnMasModulos');
   btnMas.style.display = GRUPO_MAS.some(m => permitidos.includes(m)) ? '' : 'none';
   btnMas.setAttribute('aria-selected', GRUPO_MAS.includes(estado.modulo) ? 'true' : 'false');
@@ -22918,6 +23104,7 @@ function pintarCabecera(){
                  : estado.modulo === 'activos' ? 'Activos' : estado.modulo === 'proveedores' ? 'Proveedores'
                  : estado.modulo === 'organigrama' ? 'Organigrama'
                  : estado.modulo === 'imagen' ? 'Imagen / Aperturas'
+                 : estado.modulo === 'equipos' ? 'Catálogo de equipos'
                  : estado.modulo === 'ayuda' ? 'Ayuda'
                  : 'Clientes';
   const enInicio = modulosPermitidos()[0] === estado.modulo && estado.vista === inicioDelModulo();
