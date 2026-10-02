@@ -12129,6 +12129,20 @@ function vistaResumenCliente(){
                  +   '<div style="display:flex; align-items:center; gap:6px; flex-shrink:0">'
                  +     '<span class="insignia i-' + (tieneForpass ? (cs.tono === 'error' ? 'error' : cs.tono === 'alerta' ? 'alerta' : cs.tono === 'ok' ? 'ok' : 'neutro') : 'neutro') + '">' + (tieneForpass ? esc(cs.estatus) : 'Sin Forpass') + '</span>'
                  +     (puedeEditar() ? '<button type="button" class="icono-mini" data-editar-sitio="' + esc(s.id) + '" data-tip="Editar">' + ICONO.lapiz + '</button>' : '')
+                 /* "Fusionar" vivía SOLO en Forpass (tablaSitios/tarjetaSitio,
+                    dentro de vistaCliente()) — pero esa pantalla filtra a
+                    sitios con modulos>0 (30-sep-2026, ver el comentario junto
+                    a ese filtro), así que un sitio SIN Forpass —el caso más
+                    común de un duplicado real, ver captura de Victor con
+                    varios "MERCADO LIBRE" repetidos, todos "Sin Forpass
+                    activo"— nunca llegaba a aparecer ahí, y el botón quedaba
+                    inalcanzable para fusionarlo (02-oct-2026, pedido de
+                    Victor: "como puedo fusionar sitios tambien"). Aquí, en
+                    Clientes, SÍ se ven todos los sitios del cliente sin
+                    importar Forpass, así que es el lugar correcto para
+                    ofrecerlo — mismo modalFusionSitio()/fusionarSitios() de
+                    siempre, sin tocarlos. */
+                 +     (esAdmin() ? '<button type="button" class="icono-mini" data-fusionar-sitio="' + esc(s.id) + '" data-tip="Fusionar">' + ICONO.respaldo + '</button>' : '')
                  +     (esAdmin() ? '<button type="button" class="icono-mini" data-borrar-sitio="' + esc(s.id) + '" data-tip="Eliminar sitio">' + ICONO.basura + '</button>' : '')
                  +   '</div>'
                  + '</div>';
@@ -13532,6 +13546,7 @@ const TEMAS_AYUDA = [
         'Busca con <b>Buscar cliente…</b> por nombre.',
         'Haz clic en un cliente para abrir su <b>resumen 360°</b>: 4 KPIs (Sitios Forpass, Pólizas, Cotizaciones, Reportes) y, debajo, un bloque por módulo con hasta 8 renglones y un enlace "ver todas/todos" si tiene más — cada renglón te lleva directo a su módulo. El bloque <b>Sitios</b> es la excepción (02-oct-2026): como un sitio no tiene un módulo propio al que mandar (vive repartido entre Clientes y Forpass, y Forpass solo lista los que ya tienen Forpass activo), su "y N más…" no navega a ningún lado — expande la lista completa ahí mismo, con "Ver menos" para volver a compactarla.',
         '<b>Agregar/editar/eliminar un sitio</b> vive aquí, en el bloque "Sitios" del resumen 360° (30-sep-2026, pedido de Victor: el alta de un sitio es del módulo Clientes, no de Forpass) — el mismo formulario trae, adentro, la sección para activar Forpass en ese sitio si aplica (módulos, tipo de cargo, mensualidad, etc.); si el sitio ya tiene Forpass, "Ver cobranza en Forpass" te lleva a esa pantalla para consultar su calendario de pagos.',
+        '<b>Fusionar sitio</b> (icono junto a Editar/Eliminar, Admin/Owner): para cuando el mismo sitio quedó capturado dos veces (02-oct-2026, pedido de Victor con un caso real de varios "MERCADO LIBRE" repetidos) — elige con cuál sitio ya existente del cliente fusionarlo y todo lo suyo (pólizas, cotizaciones, reportes, levantamientos, proyectos de imagen, activos) se pasa al que se conserva; el duplicado se elimina. <b>Ojo: renombrar un sitio NUNCA lo fusiona solo</b> — dos sitios con el mismo nombre siguen siendo dos registros distintos hasta que uses este botón.',
         'Usa el lápiz para <b>Editar cliente</b>; eliminarlo es exclusivo de Admin/Owner y también borra todos sus sitios — desde el 30-sep-2026 pide escribir el nombre EXACTO del cliente para confirmar (no basta con darle "Sí, eliminar"), tras un incidente real donde se perdieron varios clientes sin respaldo por confirmar de reflejo tarjeta por tarjeta.'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
@@ -13582,7 +13597,7 @@ const TEMAS_AYUDA = [
             'El onboarding y los viáticos se cobran UNA sola vez, siempre en la mensualidad 1 — nunca se reparten ni se repiten.',
             'Un sitio marcado "Activo" pero cuya vigencia ya terminó NO cuenta como Forpass activo en los KPIs, aunque siga apareciendo en la lista.',
             'Escribir una Zona que ya existe en otro sitio copia su color automáticamente — a menos que ya hayas tocado la paleta de colores tú mismo en ese formulario.',
-            'Eliminar un sitio por completo es exclusivo de Admin/Owner y ya solo se hace desde <b>Clientes</b> (destruye historial de pagos de forma irreversible); aquí en Forpass lo que puede hacer un Admin es "Quitar Forpass" de un sitio, que no borra nada (ver abajo). Fusionar sitios también sigue siendo de Admin, pero eso sí se quedó aquí en Forpass; asignar un encargado es solo Admin aunque no borra nada, porque es una decisión de gente, no de captura diaria.'
+            'Eliminar un sitio por completo es exclusivo de Admin/Owner y ya solo se hace desde <b>Clientes</b> (destruye historial de pagos de forma irreversible); aquí en Forpass lo que puede hacer un Admin es "Quitar Forpass" de un sitio, que no borra nada (ver abajo). Fusionar sitios también es de Admin — aquí en Forpass solo aparece en los sitios con Forpass activo (esta pantalla no lista los que no lo tienen); para fusionar cualquier sitio, con o sin Forpass, usa el mismo botón desde Clientes (02-oct-2026). Asignar un encargado es solo Admin aunque no borra nada, porque es una decisión de gente, no de captura diaria.'
           ])
         + guiaTip('"Quitar Forpass" NO elimina el sitio (30-sep-2026)', [
             'Antes, el botón de basura en un sitio de Forpass lo eliminaba por completo — Victor pidió el cambio tras un incidente real donde, creyendo que solo lo quitaba de esta vista, terminó borrando el registro para siempre. Ahora ese botón se llama <b>"Quitar Forpass de este sitio"</b> y solo apaga su configuración de Forpass: pone en 0 los módulos instalados y borra tipo de cargo, facturación, mensualidad, costo, cortesía e historial de pagos.',
@@ -24476,11 +24491,13 @@ function fusionarSitios(idConservar, idDescartar){
   anotar('fusionó', 'sitio', descartar.nombre, 'con «' + conservar.nombre + '»');
 }
 
-/* Botón "Fusionar" de cada tarjeta de Forpass: para el caso de un sitio
-   capturado dos veces SIN que su cliente esté duplicado —"Componentes" y
-   "JD Componentes" son el mismo lugar, del mismo cliente, nada más que a
-   "Componentes" nunca le corrigieron el nombre ni lo borraron—. Deja elegir
-   a la vez el cliente correcto y, si ya existe ahí ese mismo sitio, con cuál
+/* Botón "Fusionar" de cada sitio, en Clientes (resumen 360°, cualquier
+   sitio) y en Forpass (solo los que tienen Forpass activo — ver el filtro
+   de vistaCliente()): para el caso de un sitio capturado dos veces SIN que
+   su cliente esté duplicado —"Componentes" y "JD Componentes" son el mismo
+   lugar, del mismo cliente, nada más que a "Componentes" nunca le
+   corrigieron el nombre ni lo borraron—. Deja elegir a la vez el cliente
+   correcto y, si ya existe ahí ese mismo sitio, con cuál
    fusionarlo — así no se necesita pasar primero por "fusionar clientes"
    cuando el cliente ya está bien y el problema es solo el sitio. */
 function modalFusionSitio(sitioId){
@@ -24502,7 +24519,7 @@ function modalFusionSitio(sitioId){
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
             + '<button type="button" class="btn btn-peligro" data-modal="guardar">Aplicar</button>';
 
-  abrirModal('Fusionar sitio de Forpass', cuerpo, pie);
+  abrirModal('Fusionar sitio', cuerpo, pie);
 
   function opcionesSitiosDe(clienteId){
     return sitiosDe(clienteId).filter(s => s.id !== origen.id)
