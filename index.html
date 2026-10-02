@@ -10738,6 +10738,20 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                     Mismo mecanismo genérico que el resto de la app (ver
                     data-accion="vista-lista" / controlAlternaVista). */
                  resultadosMeses:'compacto',
+                 /* Resumen 360° de un cliente, bloque "Sitios": arranca
+                    compacto (los primeros 8) igual que los demás bloques,
+                    pero a diferencia de Pólizas/Cotizaciones/Reportes/
+                    Activos, Sitios no tiene un módulo propio al que mandar
+                    un "ver todos" —viven repartidos entre Clientes (alta) y
+                    Forpass (cobranza, y ESE solo lista los que ya tienen
+                    Forpass activo, ver vistaCliente())—, así que "y N más…"
+                    se queda aquí mismo y expande la lista completa en su
+                    lugar (mismo mecanismo genérico vista-lista). Pedido de
+                    Victor (02-oct-2026, con captura real de un cliente con
+                    muchos sitios): "revisa que el boton mas pueda
+                    funcionar... me refiero al 'y 11 más' debido a que no
+                    permite ver todo el listado de los sitios". */
+                 sitiosResumenVista:'compacto',
                  /* Qué pestaña del módulo Visitas está abierta: el calendario
                     semanal (el default), la bolsa de pendientes por programar,
                     o la lista completa de visitas ya programadas. */
@@ -12096,12 +12110,14 @@ function vistaResumenCliente(){
      Forpass"). Los botones de acción NO van dentro del renglón clicable
      (evita que un clic en "Editar" también dispare la navegación a
      Forpass del renglón completo). */
+  const sitiosExpandido = estado.sitiosResumenVista === 'todos';
+  const sitiosVisibles = sitiosExpandido ? sitios : sitios.slice(0, MAX_FILAS);
   h += '<div class="bloque-resumen">'
      +   '<h3>' + ICONO.credencial + 'Sitios</h3>'
      +   '<div class="b-pie">' + numero(sitios.length) + ' ' + plural(sitios.length,'sitio','sitios')
      +     (rSitios.mrr ? ' · ' + dinero(rSitios.mrr) + '/mes de Forpass' : '') + '</div>'
      +   (sitios.length
-        ? sitios.slice(0, MAX_FILAS).map(s=>{
+        ? sitiosVisibles.map(s=>{
             const cs = calcular(s);
             const tieneForpass = s.modulos > 0;
             return '<div class="fila-resumen">'
@@ -12118,7 +12134,11 @@ function vistaResumenCliente(){
                  + '</div>';
           }).join('')
         : '<p class="pista" style="margin:0">Sin sitios registrados todavía.</p>')
-     +   (sitios.length > MAX_FILAS ? '<div class="b-pie" style="margin:8px 0 0">y ' + (sitios.length - MAX_FILAS) + ' más…</div>' : '')
+     +   (sitios.length > MAX_FILAS
+          ? '<button type="button" class="b-pie btn-vertodos" style="margin:8px 0 0; background:none; border:none; padding:0; cursor:pointer; text-decoration:underline" '
+            + 'data-accion="vista-lista" data-campo="sitiosResumenVista" data-modo="' + (sitiosExpandido ? 'compacto' : 'todos') + '">'
+            + (sitiosExpandido ? 'Ver menos' : 'y ' + (sitios.length - MAX_FILAS) + ' más…') + '</button>'
+          : '')
      +   '<div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">'
      +     (puedeEditar() ? '<button type="button" class="btn btn-primario btn-mini" data-accion="nuevo-sitio">' + ICONO.mas + 'Agregar sitio</button>' : '')
      +     (sitios.length ? '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-cliente-forpass">Ver cobranza en Forpass</button>' : '')
@@ -13510,7 +13530,7 @@ const TEMAS_AYUDA = [
       guiaSeccion('Lo básico', guiaPasos([
         'Usa <b>Agregar cliente</b>: Logo (opcional, con recorte y zoom), Nombre*, Contacto, Notas, casilla "Incluye Forpass", más cualquier campo personalizado que haya definido Administración.',
         'Busca con <b>Buscar cliente…</b> por nombre.',
-        'Haz clic en un cliente para abrir su <b>resumen 360°</b>: 4 KPIs (Sitios Forpass, Pólizas, Cotizaciones, Reportes) y, debajo, un bloque por módulo con hasta 8 renglones y un enlace "ver todas/todos" si tiene más — cada renglón te lleva directo a su módulo.',
+        'Haz clic en un cliente para abrir su <b>resumen 360°</b>: 4 KPIs (Sitios Forpass, Pólizas, Cotizaciones, Reportes) y, debajo, un bloque por módulo con hasta 8 renglones y un enlace "ver todas/todos" si tiene más — cada renglón te lleva directo a su módulo. El bloque <b>Sitios</b> es la excepción (02-oct-2026): como un sitio no tiene un módulo propio al que mandar (vive repartido entre Clientes y Forpass, y Forpass solo lista los que ya tienen Forpass activo), su "y N más…" no navega a ningún lado — expande la lista completa ahí mismo, con "Ver menos" para volver a compactarla.',
         '<b>Agregar/editar/eliminar un sitio</b> vive aquí, en el bloque "Sitios" del resumen 360° (30-sep-2026, pedido de Victor: el alta de un sitio es del módulo Clientes, no de Forpass) — el mismo formulario trae, adentro, la sección para activar Forpass en ese sitio si aplica (módulos, tipo de cargo, mensualidad, etc.); si el sitio ya tiene Forpass, "Ver cobranza en Forpass" te lleva a esa pantalla para consultar su calendario de pagos.',
         'Usa el lápiz para <b>Editar cliente</b>; eliminarlo es exclusivo de Admin/Owner y también borra todos sus sitios — desde el 30-sep-2026 pide escribir el nombre EXACTO del cliente para confirmar (no basta con darle "Sí, eliminar"), tras un incidente real donde se perdieron varios clientes sin respaldo por confirmar de reflejo tarjeta por tarjeta.'
       ]))
