@@ -79,12 +79,62 @@
   --sombra:0 18px 50px rgba(0,20,61,.18);
   --sombra-suave:0 1px 2px rgba(0,20,61,.04), 0 2px 8px rgba(0,20,61,.06);
   --ease:cubic-bezier(.4,0,.2,1);
+  /* ---- Modo oscuro (05-oct-2026, pedido de Victor) ----
+     Cada variable de aquí en adelante reemplaza un color que antes vivía
+     escrito a mano, repetido, en decenas de reglas (tarjetas, insignias de
+     estatus, chips de marca) — el valor de abajo es IDÉNTICO al que había,
+     así que el modo claro se ve exactamente igual que antes de este
+     cambio; lo único nuevo es que ahora se puede redefinir de un solo
+     golpe bajo [data-theme="dark"], más abajo. No se tocó ningún margin/
+     padding/width/height/flex/grid/posición en todo este cambio — regla
+     explícita del pedido. */
+  --superficie:#fff;                 /* Tarjetas, header, inputs, modales — antes "background:#fff" repetido */
+  --ok-texto:#2c7a4e;    --ok-borde:#c5e6d3;      /* Texto/borde de una insignia "al día" */
+  --alerta-texto:#9a6a15; --alerta-borde:#f0dcb4;  /* Texto/borde de una insignia "por vencer" */
+  --error-texto:#a5322e;  --error-borde:#f0cbc9;   /* Texto/borde de una insignia "atrasado" */
+  --neutro-texto:#5c6273; --neutro-borde:#dfe3ee;  /* Texto/borde de una insignia neutra */
+  --marca-suave:#EEF2FB; --marca-borde:#c9d4ec;    /* Chip de zona/"en trabajo", tono de marca */
+  --fondo-suave:#f3f5f9;             /* Barra de selección múltiple */
+  --k-error-bg:#fbe7e6;              /* Mensaje de error del formulario público (Forpass) */
+  --accent-suave:#f6f9ff;            /* Fondo al pasar el mouse sobre un botón/opción de marca */
+}
+/* Un tema EXPLÍCITO (data-theme, el que pone btnTema) siempre gana; sin
+   ninguno puesto, se sigue la preferencia del sistema operativo. Mismo
+   criterio en los dos bloques de abajo — oscuro primero por SO, luego la
+   anulación si alguien ya eligió claro/oscuro a mano. */
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0B1220; --superficie:#141B2E; --ink:#E7EAF2;
+    --gray:#A7ADBD; --gray-claro:#6B7280; --line:#283049;
+    --navy:#8FB3FF; --navy-2:#2F5FD1;
+    --accent:#5FCB88; --accent-hover:#74D89B;
+    --ok:#5BC98A; --ok-suave:#163A2A; --ok-texto:#6FE3A4; --ok-borde:#2B5A41;
+    --alerta:#F0B85C; --alerta-suave:#3A2E14; --alerta-texto:#E8B563; --alerta-borde:#5C4A24;
+    --error:#E8726E; --error-suave:#3A1E1D; --error-texto:#F29490; --error-borde:#5C2D2B;
+    --neutro:#9199AE; --neutro-suave:#232A3D; --neutro-texto:#B8BECF; --neutro-borde:#3A4156;
+    --marca-suave:#1B2A4A; --marca-borde:#33456E; --fondo-suave:#1A2235; --k-error-bg:#3A1E1D; --accent-suave:#16233D;
+    --sombra:0 18px 50px rgba(0,0,0,.45);
+    --sombra-suave:0 1px 2px rgba(0,0,0,.3), 0 2px 8px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0B1220; --superficie:#141B2E; --ink:#E7EAF2;
+  --gray:#A7ADBD; --gray-claro:#6B7280; --line:#283049;
+  --navy:#8FB3FF; --navy-2:#2F5FD1;
+  --accent:#5FCB88; --accent-hover:#74D89B;
+  --ok:#5BC98A; --ok-suave:#163A2A; --ok-texto:#6FE3A4; --ok-borde:#2B5A41;
+  --alerta:#F0B85C; --alerta-suave:#3A2E14; --alerta-texto:#E8B563; --alerta-borde:#5C4A24;
+  --error:#E8726E; --error-suave:#3A1E1D; --error-texto:#F29490; --error-borde:#5C2D2B;
+  --neutro:#9199AE; --neutro-suave:#232A3D; --neutro-texto:#B8BECF; --neutro-borde:#3A4156;
+  --marca-suave:#1B2A4A; --marca-borde:#33456E; --fondo-suave:#1A2235; --k-error-bg:#3A1E1D; --accent-suave:#16233D;
+  --sombra:0 18px 50px rgba(0,0,0,.45);
+  --sombra-suave:0 1px 2px rgba(0,0,0,.3), 0 2px 8px rgba(0,0,0,.35);
 }
 *{box-sizing:border-box; margin:0; padding:0;}
 body{font-family:'Manrope',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--ink); min-height:100vh;}
 
 /* ---------- Encabezado ---------- */
-header.app{background:#fff; border-bottom:1px solid var(--line); padding:14px 24px; display:flex; align-items:center; gap:16px; position:sticky; top:0; z-index:50;}
+header.app{background:var(--superficie); border-bottom:1px solid var(--line); padding:14px 24px; display:flex; align-items:center; gap:16px; position:sticky; top:0; z-index:50;}
 header.app::before{content:""; position:absolute; inset:0 0 auto 0; height:3px; background:linear-gradient(90deg,var(--navy),var(--accent));}
 header.app .logo-header{height:22px; width:auto; display:block;}
 /* El logo hace de atajo a Clientes. Sin fondo, borde ni relleno: visualmente
@@ -130,7 +180,7 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
               font-weight:600; color:var(--gray); padding:7px 17px; border-radius:6px;
               cursor:pointer; white-space:nowrap; flex-shrink:0; transition:color .15s var(--ease), background .15s var(--ease);}
 .modulos .mod:hover{color:var(--navy);}
-.modulos .mod[aria-selected="true"]{background:#fff; color:var(--navy); box-shadow:var(--sombra-suave); cursor:default;}
+.modulos .mod[aria-selected="true"]{background:var(--superficie); color:var(--navy); box-shadow:var(--sombra-suave); cursor:default;}
 .modulos .mod:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 
 .mod-mas{appearance:none; display:flex; align-items:center; gap:3px; flex-shrink:0;
@@ -139,7 +189,7 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
          padding:0 17px; cursor:pointer; white-space:nowrap;
          transition:color .15s var(--ease), background .15s var(--ease);}
 .mod-mas:hover{color:var(--navy);}
-.mod-mas[aria-selected="true"]{background:#fff; color:var(--navy); box-shadow:var(--sombra-suave);}
+.mod-mas[aria-selected="true"]{background:var(--superficie); color:var(--navy); box-shadow:var(--sombra-suave);}
 .mod-mas:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 .mod-mas svg{width:13px; height:13px; flex-shrink:0; transition:transform .15s var(--ease);}
 .mod-mas[aria-expanded="true"] svg{transform:rotate(180deg);}
@@ -149,7 +199,7 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
    del botón, no importa cuánto haya scrolleado la fila de al lado. */
 .mas-panel{position:absolute; top:calc(100% + 6px); right:0; min-width:200px;
            max-width:calc(100vw - 24px); z-index:20;
-           background:#fff; border:1px solid var(--line); border-radius:10px;
+           background:var(--superficie); border:1px solid var(--line); border-radius:10px;
            box-shadow:var(--sombra-suave); padding:6px; display:flex; flex-direction:column; gap:2px;}
 /* Sin esto el panel se queda SIEMPRE visible: [hidden] y .mas-panel pesan
    igual en especificidad (0,1,0 cada uno), y al venir .mas-panel después en
@@ -204,9 +254,9 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .btn svg{width:15px; height:15px; flex-shrink:0;}
 .btn-primario{background:var(--navy); color:#fff; box-shadow:0 4px 14px rgba(10,27,77,.22);}
 .btn-primario:hover{background:var(--navy-2);}
-.btn-suave{background:#fff; color:var(--navy); border-color:var(--line);}
-.btn-suave:hover{border-color:var(--accent); background:#f6f9ff;}
-.btn-peligro{background:#fff; color:var(--error); border-color:#f0d5d4;}
+.btn-suave{background:var(--superficie); color:var(--navy); border-color:var(--line);}
+.btn-suave:hover{border-color:var(--accent); background:var(--accent-suave);}
+.btn-peligro{background:var(--superficie); color:var(--error); border-color:#f0d5d4;}
 .btn-peligro:hover{background:var(--error-suave); border-color:var(--error);}
 .btn-mini{font-size:12px; padding:7px 11px; border-radius:8px;}
 
@@ -245,7 +295,7 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .kpis{display:flex; flex-wrap:nowrap; overflow-x:auto; gap:12px; margin-bottom:22px;
       -ms-overflow-style:none; scrollbar-width:none;}
 .kpis::-webkit-scrollbar{display:none;}
-.kpi{background:#fff; border:1px solid var(--line); border-radius:14px; padding:15px 16px; position:relative; overflow:hidden; box-shadow:var(--sombra-suave);
+.kpi{background:var(--superficie); border:1px solid var(--line); border-radius:14px; padding:15px 16px; position:relative; overflow:hidden; box-shadow:var(--sombra-suave);
      flex:1 1 130px; min-width:130px;}
 .kpi::before{content:""; position:absolute; inset:0 auto 0 0; width:4px; background:var(--accent);}
 .kpi.k-ok::before{background:var(--ok);} .kpi.k-alerta::before{background:var(--alerta);} .kpi.k-error::before{background:var(--error);}
@@ -272,7 +322,7 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 /* Indicadores que se pueden abrir para ver el detalle */
 button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
 .kpi-clic{transition:transform .15s, box-shadow .15s, border-color .15s;}
-.kpi-clic:hover{transform:translateY(-2px); box-shadow:0 8px 22px rgba(0,20,61,.12); border-color:#c9d4ec;}
+.kpi-clic:hover{transform:translateY(-2px); box-shadow:0 8px 22px rgba(0,20,61,.12); border-color:var(--marca-borde);}
 .kpi-clic:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 .kpi .k-mas{display:block; font-size:11px; font-weight:600; color:var(--accent); margin-top:7px;}
 
@@ -280,11 +330,11 @@ button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
 .barra-busca{display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;}
 .barra-busca input, .barra-busca select{
   padding:10px 12px; border:1px solid #d4d9e6; border-radius:10px; font-family:inherit; font-size:13px;
-  color:var(--ink); background:#fff; outline:none; transition:border-color .15s;
+  color:var(--ink); background:var(--superficie); outline:none; transition:border-color .15s;
 }
 .barra-busca input{flex:1; min-width:180px;}
 /* Barra de selección múltiple (ej. Activos: elegir varios para borrarlos). */
-.barra-seleccion{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:16px; padding:10px 14px; background:var(--fondo-suave,#f3f5f9); border:1px solid var(--line); border-radius:10px;}
+.barra-seleccion{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:16px; padding:10px 14px; background:var(--fondo-suave); border:1px solid var(--line); border-radius:10px;}
 .barra-seleccion .pista{margin:0;}
 .barra-seleccion .btn{margin-left:auto;}
 .chk-linea{display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; white-space:nowrap;}
@@ -300,7 +350,7 @@ button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
 }
 .alterna-vista button svg{width:16px; height:16px;}
 .alterna-vista button:hover{color:var(--navy);}
-.alterna-vista button[aria-pressed="true"]{background:#fff; color:var(--navy); box-shadow:var(--sombra-suave); cursor:default;}
+.alterna-vista button[aria-pressed="true"]{background:var(--superficie); color:var(--navy); box-shadow:var(--sombra-suave); cursor:default;}
 .alterna-vista button:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 /* Variante con texto en vez de icono (ej. "Mis reportes"/"Todos", o los tres
    niveles de Cocinas): el botón base es un cuadro fijo de 34x34 pensado para
@@ -320,7 +370,7 @@ button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
 @media (max-width:700px){ .grid, .grid-sitios{grid-template-columns:1fr;} }
 
 .tarjeta{
-  background:#fff; border:1px solid var(--line); border-radius:15px; padding:18px 18px 16px;
+  background:var(--superficie); border:1px solid var(--line); border-radius:15px; padding:18px 18px 16px;
   position:relative; transition:transform .15s var(--ease), box-shadow .15s var(--ease), border-color .15s var(--ease);
   box-shadow:var(--sombra-suave);
   animation:aparece .3s cubic-bezier(.22,1,.36,1) both; animation-delay:var(--d,0ms);
@@ -340,7 +390,7 @@ button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
 .encargado{
   position:absolute; top:-12px; left:16px; z-index:2;
   display:inline-flex; align-items:center; gap:6px; max-width:calc(100% - 32px);
-  background:#fff; border:1.5px solid var(--marca-borde, #c9d4ec); border-radius:999px;
+  background:var(--superficie); border:1.5px solid var(--marca-borde); border-radius:999px;
   padding:4px 12px; font-family:inherit; font-size:11.5px; font-weight:600; color:var(--navy);
   box-shadow:0 2px 8px rgba(10,27,77,.10); white-space:nowrap;
 }
@@ -366,11 +416,11 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .tarjeta.t-error::before{background:linear-gradient(90deg,var(--error),#eda19f);}
 .tarjeta.t-neutro::before{background:var(--line);}
 .tarjeta-clic{cursor:pointer;}
-.tarjeta-clic:hover{transform:translateY(-3px); box-shadow:0 10px 26px rgba(10,27,77,.10); border-color:#c9d4ec;}
+.tarjeta-clic:hover{transform:translateY(-3px); box-shadow:0 10px 26px rgba(10,27,77,.10); border-color:var(--marca-borde);}
 
 /* ---------- Resumen de cliente (módulo Clientes): cruce de Forpass, Pólizas
    y Cotizaciones sin ir módulo por módulo. ---------- */
-.bloque-resumen{background:#fff; border:1px solid var(--line); border-radius:15px; padding:18px; margin-bottom:16px;}
+.bloque-resumen{background:var(--superficie); border:1px solid var(--line); border-radius:15px; padding:18px; margin-bottom:16px;}
 .bloque-resumen h3{font-size:15px; color:var(--navy); display:flex; align-items:center; gap:8px; margin:0;}
 .bloque-resumen h3 svg{width:18px; height:18px; color:var(--accent); flex-shrink:0;}
 .bloque-resumen .b-pie{font-size:12px; color:var(--gray); margin:2px 0 10px;}
@@ -382,14 +432,14 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .fr-sub{font-size:11.5px; color:var(--gray); margin-top:1px;}
 
 /* ---------- Estado de resultados (módulo Resultados) ---------- */
-.tabla-pyl{background:#fff; border:1px solid var(--line); border-radius:15px; padding:6px 20px; margin-bottom:16px;}
+.tabla-pyl{background:var(--superficie); border:1px solid var(--line); border-radius:15px; padding:6px 20px; margin-bottom:16px;}
 .tp-seccion{font-size:12px; font-weight:700; letter-spacing:.04em; color:var(--gray); text-transform:uppercase; padding:14px 0 4px;}
 .tp-fila{display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13.5px; color:var(--ink);}
 .tp-fila:last-of-type{border-bottom:none;}
 .tp-fila .tp-monto{font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap;}
 .tp-fila.tp-total{font-weight:700; font-size:14.5px; color:var(--navy); border-top:1.5px solid var(--line); border-bottom:none; padding-top:12px; margin-top:2px;}
 .tp-fila.tp-negativo .tp-monto{color:var(--error);}
-.tp-final{display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px 20px; margin-top:6px; border-top:2px solid var(--navy); background:#fff; border-radius:0 0 15px 15px;}
+.tp-final{display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px 20px; margin-top:6px; border-top:2px solid var(--navy); background:var(--superficie); border-radius:0 0 15px 15px;}
 .tp-final .tp-label{font-size:14.5px; font-weight:700; color:var(--navy);}
 .tp-final .tp-monto{font-size:24px; font-weight:800; font-variant-numeric:tabular-nums;}
 /* Tabla mensual del Framework de Proforma (24-sep-2026, rediseño desde
@@ -429,7 +479,7 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
    horizontal (.rodillo) para esos casos. */
 .proforma-grid{display:grid; grid-template-columns:340px 1fr; gap:20px; align-items:start;}
 @media (max-width:960px){ .proforma-grid{grid-template-columns:1fr;} }
-.proforma-grafico{background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:var(--sombra-suave);}
+.proforma-grafico{background:var(--superficie); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:var(--sombra-suave);}
 .proforma-grafico h4{font-size:12px; font-weight:700; color:var(--navy); margin-bottom:2px;}
 .proforma-grafico svg{overflow:visible;}
 /* Un segundo widget apilado dentro del mismo .proforma-grafico (Cumplimiento
@@ -480,7 +530,7 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .eje-cruce.activo{opacity:1;}
 .grafica-tt{
   position:fixed; z-index:210; pointer-events:none; opacity:0; visibility:hidden;
-  background:#fff; border:1px solid var(--line); border-radius:11px; box-shadow:var(--sombra);
+  background:var(--superficie); border:1px solid var(--line); border-radius:11px; box-shadow:var(--sombra);
   padding:11px 14px; font-size:12.5px; color:var(--ink); min-width:160px;
   transition:opacity .1s; top:0; left:0;
 }
@@ -508,21 +558,21 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 /* Etiqueta de zona del sitio, con su color */
 .chip-zona{
   display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.03em;
-  background:var(--marca-suave, #EEF2FB); color:var(--navy); border:1px solid #c9d4ec;
+  background:var(--marca-suave); color:var(--navy); border:1px solid var(--marca-borde);
   border-radius:6px; padding:1px 7px; margin-right:7px; vertical-align:1px;
 }
 /* Los diez colores. Cada uno lleva su tono de texto y de borde para que se lea
    bien: un fondo de color con texto oscuro del mismo tono nunca falla. */
 .z-azul    {background:#EAF1FC; color:#1B4FA8; border-color:#C6D8F5;}
 .z-verde   {background:#E8F5EE; color:#26714A; border-color:#C0E3D0;}
-.z-rojo    {background:#FCEDEC; color:#B3312C; border-color:#F0CBC9;}
-.z-ambar   {background:#FDF4E5; color:#8A5A0B; border-color:#F0DCB4;}
+.z-rojo    {background:#FCEDEC; color:#B3312C; border-color:var(--error-borde);}
+.z-ambar   {background:#FDF4E5; color:#8A5A0B; border-color:var(--alerta-borde);}
 .z-morado  {background:#F1ECFB; color:#5B3A9E; border-color:#DBCEF3;}
 .z-rosa    {background:#FCECF3; color:#A32B62; border-color:#F5CFE0;}
 .z-turquesa{background:#E6F6F6; color:#12656B; border-color:#C2E7E8;}
 .z-naranja {background:#FDEFE6; color:#A34A12; border-color:#F6D6BE;}
 .z-cafe    {background:#F4EFEA; color:#6B4A2F; border-color:#E3D6C8;}
-.z-gris    {background:#F1F3F8; color:#5C6273; border-color:#DFE3EE;}
+.z-gris    {background:#F1F3F8; color:var(--neutro-texto); border-color:var(--neutro-borde);}
 
 /* Selector de color en el formulario */
 .colores{display:flex; gap:6px; flex-wrap:wrap; margin-top:2px;}
@@ -540,7 +590,7 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
   overflow:hidden;
 }
 /* Con logo: fondo blanco y la imagen completa, sin recortarla ni deformarla. */
-.t-avatar.con-logo{background:#fff; border:1px solid var(--line); padding:4px;}
+.t-avatar.con-logo{background:var(--superficie); border:1px solid var(--line); padding:4px;}
 .t-avatar.con-logo img{width:100%; height:100%; object-fit:contain; display:block;}
 
 /* Zona de carga del logo dentro del formulario */
@@ -549,13 +599,13 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
   width:64px; height:64px; border-radius:14px; flex-shrink:0; display:grid; place-items:center; overflow:hidden;
   background:linear-gradient(135deg,var(--navy-2),var(--accent)); color:#fff; font-size:20px; font-weight:700;
 }
-.logo-previa.con-logo{background:#fff; border:1px solid var(--line); padding:4px;}
+.logo-previa.con-logo{background:var(--superficie); border:1px solid var(--line); padding:4px;}
 .logo-previa img{width:100%; height:100%; object-fit:contain; display:block;}
 .logo-botones{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
 
 /* Editor de encuadre: cuadro con la imagen y control de zoom */
 .logo-lienzo{
-  width:128px; height:128px; border-radius:16px; border:1px solid var(--line); background:#fff;
+  width:128px; height:128px; border-radius:16px; border:1px solid var(--line); background:var(--superficie);
   display:block; flex-shrink:0; cursor:grab; touch-action:none;
   background-image:linear-gradient(45deg,#f3f5fa 25%,transparent 25%,transparent 75%,#f3f5fa 75%),
                    linear-gradient(45deg,#f3f5fa 25%,transparent 25%,transparent 75%,#f3f5fa 75%);
@@ -576,11 +626,11 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
   transition:color .15s, background .15s, border-color .15s;
 }
 .icono-btn svg{width:16px; height:16px;}
-.icono-btn:hover{color:var(--navy); background:#EEF2FB; border-color:#c9d4ec;}
+.icono-btn:hover{color:var(--navy); background:var(--marca-suave); border-color:var(--marca-borde);}
 .icono-btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 /* Sin contacto registrado: se nota, para que se llene. */
 .icono-btn.sin-datos{color:var(--alerta);}
-.icono-btn.sin-datos:hover{color:#9a6a15; background:var(--alerta-suave); border-color:#f0dcb4;}
+.icono-btn.sin-datos:hover{color:var(--alerta-texto); background:var(--alerta-suave); border-color:var(--alerta-borde);}
 
 /* Tarjetas de contacto dentro del modal */
 .contacto{border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; background:#fafbfe; position:relative;}
@@ -611,26 +661,26 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
   display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600;
   border-radius:999px; padding:4px 10px; border:1px solid transparent; white-space:nowrap;
 }
-.i-ok{background:var(--ok-suave); color:#2c7a4e; border-color:#c5e6d3;}
-.i-alerta{background:var(--alerta-suave); color:#9a6a15; border-color:#f0dcb4;}
-.i-error{background:var(--error-suave); color:#a5322e; border-color:#f0cbc9;}
+.i-ok{background:var(--ok-suave); color:var(--ok-texto); border-color:var(--ok-borde);}
+.i-alerta{background:var(--alerta-suave); color:var(--alerta-texto); border-color:var(--alerta-borde);}
+.i-error{background:var(--error-suave); color:var(--error-texto); border-color:var(--error-borde);}
 
 /* ---- Agenda de servicios (Fase 4) ----
    Tres bloques por estado, y adentro mes → sitio → equipos. El color vive en el
    filo izquierdo del bloque y no en cada chip: con veinte equipos en pantalla,
    veinte chips de color no dicen nada y cansan. */
-.agenda-bloque{background:#fff; border:1px solid var(--line); border-left:3px solid var(--neutro);
+.agenda-bloque{background:var(--superficie); border:1px solid var(--line); border-left:3px solid var(--neutro);
   border-radius:14px; padding:16px 18px 6px; margin-bottom:16px; box-shadow:var(--sombra-suave);}
 .agenda-bloque.a-error {border-left-color:var(--error);}
 .agenda-bloque.a-alerta{border-left-color:var(--alerta);}
 .agenda-bloque.a-ok    {border-left-color:var(--ok);}
-.agenda-bloque.a-info  {border-left-color:#c9d4ec;}
+.agenda-bloque.a-info  {border-left-color:var(--marca-borde);}
 .agenda-cabeza h3{font-size:14.5px; color:var(--navy); display:flex; align-items:center; gap:8px;}
 .agenda-cabeza .pista{margin:3px 0 0;}
 .agenda-cuenta{background:var(--neutro-suave); color:#5d6479; font-size:11.5px; font-weight:700;
   border-radius:999px; padding:1px 9px;}
-.a-error .agenda-cuenta {background:var(--error-suave);  color:#a5322e;}
-.a-alerta .agenda-cuenta{background:var(--alerta-suave); color:#9a6a15;}
+.a-error .agenda-cuenta {background:var(--error-suave);  color:var(--error-texto);}
+.a-alerta .agenda-cuenta{background:var(--alerta-suave); color:var(--alerta-texto);}
 .agenda-mes{margin-top:14px;}
 .agenda-mes-tit{font-size:11px; font-weight:800; letter-spacing:.7px; text-transform:uppercase;
   color:#5d6479; padding-bottom:7px; border-bottom:1px solid var(--line);}
@@ -639,7 +689,7 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .agenda-sitio-tit{background:none; border:0; padding:0; cursor:pointer; font-family:inherit;
   font-size:13px; font-weight:700; color:var(--navy); display:flex; align-items:center; gap:7px;
   margin-bottom:8px;}
-.agenda-sitio-tit:hover{color:#2c7a4e;}
+.agenda-sitio-tit:hover{color:var(--ok-texto);}
 .agenda-sitio-tit span{font-weight:500; color:var(--gray);}
 .agenda-cuenta-mini{background:var(--neutro-suave); color:#5d6479; font-size:10.5px; font-weight:700;
   border-radius:999px; padding:0 7px;}
@@ -650,10 +700,10 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
   border:1px solid var(--line); border-radius:9px; padding:5px 10px; cursor:pointer;
   transition:border-color .12s, background .12s;}
 .agenda-eq b{font-weight:700; color:var(--navy);}
-.agenda-eq:hover{border-color:var(--accent); background:#fff;}
+.agenda-eq:hover{border-color:var(--accent); background:var(--superficie);}
 /* Parcial: ámbar, la misma señal que su chip en el detalle de la póliza. */
-.agenda-eq.parcial{background:var(--alerta-suave); border-color:#F0DCB4;}
-.agenda-eq.parcial b{color:#9a6a15;}
+.agenda-eq.parcial{background:var(--alerta-suave); border-color:var(--alerta-borde);}
+.agenda-eq.parcial b{color:var(--alerta-texto);}
 
 /* Cronograma de Imagen/Aperturas: mismo molde de bloque que la agenda de
    servicios (mes → filas), pero cada fila YA es un proyecto completo, sin
@@ -672,20 +722,20 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 /* Gantt de Imagen/Aperturas: eje de fechas continuo en píxeles (ver
    filaGanttProyectoImagen), no una columna por día — así un rango de varios
    meses no significa cientos de columnas de tabla. */
-.gantt-alerta{background:var(--error-suave); border:1px solid #f0cbc9; border-radius:12px;
-  padding:11px 16px; margin-bottom:14px; font-size:12.5px; color:#a5322e; line-height:1.5;}
-.gantt-caja{border:1px solid var(--line); border-radius:14px; background:#fff;
+.gantt-alerta{background:var(--error-suave); border:1px solid var(--error-borde); border-radius:12px;
+  padding:11px 16px; margin-bottom:14px; font-size:12.5px; color:var(--error-texto); line-height:1.5;}
+.gantt-caja{border:1px solid var(--line); border-radius:14px; background:var(--superficie);
   overflow-x:auto; box-shadow:var(--sombra-suave);}
 .gantt{position:relative;}
-.gantt-meses{display:flex; position:sticky; top:0; background:#fff; z-index:3;
+.gantt-meses{display:flex; position:sticky; top:0; background:var(--superficie); z-index:3;
   border-bottom:1px solid var(--line);}
 .gantt-mes{flex:none; font-size:10.5px; font-weight:800; letter-spacing:.4px;
   color:#5d6479; padding:9px 0 9px 10px; border-left:1px solid var(--line); box-sizing:border-box;}
-.gantt-mes-espaciador{position:sticky; left:0; z-index:4; width:260px; background:#fff; border-left:0;}
+.gantt-mes-espaciador{position:sticky; left:0; z-index:4; width:260px; background:var(--superficie); border-left:0;}
 .gantt-filas{position:relative;}
 .gantt-fila{display:flex; align-items:stretch; border-bottom:1px solid var(--line);}
 .gantt-fila:last-child{border-bottom:0;}
-.gantt-rotulo{position:sticky; left:0; z-index:2; background:#fff; flex:none; width:260px;
+.gantt-rotulo{position:sticky; left:0; z-index:2; background:var(--superficie); flex:none; width:260px;
   padding:10px 12px; box-sizing:border-box; border-right:1px solid var(--line); cursor:pointer;}
 .gantt-rotulo:hover{background:var(--bg);}
 .gantt-fechas{color:var(--navy); font-weight:600; margin-top:2px;}
@@ -700,7 +750,7 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
   border-radius:3px; cursor:pointer; box-shadow:0 0 0 2px #fff, var(--sombra-suave);}
 .gantt-hoy{position:absolute; top:0; bottom:0; width:2px; background:var(--navy); z-index:1; opacity:.5;}
 .gantt-hoy-etq{position:absolute; top:2px; left:4px; font-size:9px; font-weight:800; color:var(--navy);
-  background:#fff; padding:1px 4px; border-radius:4px; white-space:nowrap;}
+  background:var(--superficie); padding:1px 4px; border-radius:4px; white-space:nowrap;}
 /* El alta de cliente en línea, dentro del modal de la cotización. */
 .cliente-nuevo{background:var(--neutro-suave); border:1px solid var(--line); border-radius:11px;
   padding:12px 14px 10px; margin-top:10px;}
@@ -716,8 +766,8 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .enlace-modulo:hover{border-color:var(--accent); color:var(--navy);}
 .agenda-eq.inerte{cursor:default;}
 .agenda-eq.inerte:hover{border-color:var(--line); background:var(--bg);}
-.i-neutro{background:var(--neutro-suave); color:#5c6273; border-color:#dfe3ee;}
-.i-info{background:#EEF2FB; color:var(--navy); border-color:#c9d4ec;}
+.i-neutro{background:var(--neutro-suave); color:var(--neutro-texto); border-color:var(--neutro-borde);}
+.i-info{background:var(--marca-suave); color:var(--navy); border-color:var(--marca-borde);}
 
 .t-chips{display:flex; gap:7px; flex-wrap:wrap; margin-top:12px;}
 
@@ -726,7 +776,7 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .t-dato .d-label{font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--gray); font-weight:600;}
 .t-dato .d-valor{font-size:13.5px; font-weight:600; color:var(--ink); margin-top:2px;}
 .t-dato .d-valor.chico{font-size:12.5px; font-weight:500;}
-.t-dato .d-valor.ok{color:#2c7a4e;} .t-dato .d-valor.alerta{color:#9a6a15;} .t-dato .d-valor.error{color:#a5322e;}
+.t-dato .d-valor.ok{color:var(--ok-texto);} .t-dato .d-valor.alerta{color:var(--alerta-texto);} .t-dato .d-valor.error{color:var(--error-texto);}
 
 /* Barra de progreso de mensualidades */
 .progreso{margin-top:14px;}
@@ -759,16 +809,16 @@ button.mes{cursor:pointer;}
 
 /* ---------- Estado vacío ---------- */
 .vacio{
-  background:#fff; border:1.5px dashed #d4d9e6; border-radius:16px; padding:44px 26px; text-align:center;
+  background:var(--superficie); border:1.5px dashed #d4d9e6; border-radius:16px; padding:44px 26px; text-align:center;
 }
-.vacio .v-icono{width:52px; height:52px; margin:0 auto 14px; border-radius:14px; display:grid; place-items:center; background:#EEF2FB; color:var(--navy);}
+.vacio .v-icono{width:52px; height:52px; margin:0 auto 14px; border-radius:14px; display:grid; place-items:center; background:var(--marca-suave); color:var(--navy);}
 .vacio .v-icono svg{width:26px; height:26px;}
 .vacio h3{font-size:16px; font-weight:600; color:var(--navy);}
 .vacio p{font-size:13px; color:var(--gray); margin:7px auto 18px; max-width:420px; line-height:1.6;}
 
 /* ---------- Aviso de guardado local ---------- */
 .aviso{
-  display:flex; gap:11px; align-items:flex-start; background:#fff; border:1px solid var(--line);
+  display:flex; gap:11px; align-items:flex-start; background:var(--superficie); border:1px solid var(--line);
   border-left:4px solid var(--accent); border-radius:12px; padding:13px 15px; margin-bottom:20px;
 }
 .aviso svg{width:17px; height:17px; color:var(--accent); flex-shrink:0; margin-top:1px;}
@@ -782,7 +832,7 @@ button.mes{cursor:pointer;}
 }
 .telon.abierto{display:flex;}
 .modal{
-  background:#fff; border-radius:18px; width:100%; max-width:620px; box-shadow:0 24px 70px rgba(0,0,0,.3);
+  background:var(--superficie); border-radius:18px; width:100%; max-width:620px; box-shadow:0 24px 70px rgba(0,0,0,.3);
   animation:sube .24s cubic-bezier(.22,1,.36,1) both; overflow:hidden;
 }
 .modal.ancho{max-width:860px;}
@@ -799,7 +849,7 @@ button.mes{cursor:pointer;}
 .modal.doc-previa{max-width:900px;}
 .iframe-previa{width:100%; height:78vh; border:0; border-radius:10px; background:#E9EBEE; display:block;}
 @keyframes sube{ from{opacity:0; transform:translateY(16px) scale(.99);} to{opacity:1; transform:none;} }
-.modal-cabeza{padding:19px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; position:sticky; top:0; background:#fff; z-index:2;}
+.modal-cabeza{padding:19px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; position:sticky; top:0; background:var(--superficie); z-index:2;}
 /* La tabla de equipos vive en su propia caja con scroll: el modal en sí tiene
    overflow:hidden (para las esquinas redondeadas) y eso le rompe el "sticky"
    a cualquier cosa que dependa de desplazarse contra la ventana completa del
@@ -807,7 +857,7 @@ button.mes{cursor:pointer;}
    (buscador + chips) se puede fijar contra ESTA caja sin tocar el modal ni
    el resto de las pantallas que lo usan. */
 .equipos-scroll{max-height:min(58vh, 560px); overflow-y:auto; border:1px solid var(--line); border-radius:10px;}
-.equipo-fijo{position:sticky; top:0; background:#fff; z-index:1; padding:10px 10px 8px; border-bottom:1px solid var(--line);}
+.equipo-fijo{position:sticky; top:0; background:var(--superficie); z-index:1; padding:10px 10px 8px; border-bottom:1px solid var(--line);}
 .equipos-scroll #listaPartidas{padding:0 10px 10px;}
 .modal-cabeza h3{font-size:16px; font-weight:700; color:var(--navy); flex:1;}
 .modal-cabeza .cerrar{background:none; border:none; cursor:pointer; color:var(--gray); font-size:22px; line-height:1; padding:2px 6px; border-radius:7px; font-family:inherit;}
@@ -826,8 +876,8 @@ button.mes{cursor:pointer;}
   width:100%; padding:9px 11px; border:1px solid #d4d9e6; border-radius:9px;
   font-family:inherit; font-size:13px; color:var(--ink); background:#fbfcfe; outline:none; transition:border-color .15s, background .15s;
 }
-.campo input:focus, .campo select:focus, .campo textarea:focus{border-color:var(--accent); background:#fff;}
-.campo input[readonly]{background:#f1f3f8; color:#5c6273; cursor:default;}
+.campo input:focus, .campo select:focus, .campo textarea:focus{border-color:var(--accent); background:var(--superficie);}
+.campo input[readonly]{background:#f1f3f8; color:var(--neutro-texto); cursor:default;}
 .campo input[readonly]:focus{border-color:#d4d9e6;}
 .campo textarea{resize:vertical; min-height:66px; font-size:12.5px; line-height:1.5;}
 .campo input[aria-invalid="true"]{border-color:var(--error); background:#fffafa;}
@@ -881,7 +931,7 @@ button.mes{cursor:pointer;}
 .tabla-renglones td{padding:3px 4px; border-bottom:1px solid var(--line); vertical-align:middle;}
 .tabla-renglones input, .tabla-renglones select{width:100%; padding:6px 7px; border:1px solid #d4d9e6;
   border-radius:7px; font-family:inherit; font-size:12px; color:var(--ink); background:#fbfcfe; outline:none;}
-.tabla-renglones input:focus, .tabla-renglones select:focus{border-color:var(--accent); background:#fff;}
+.tabla-renglones input:focus, .tabla-renglones select:focus{border-color:var(--accent); background:var(--superficie);}
 /* El total va gris y de solo lectura porque NO se captura: se calcula. */
 /* Apunta al TOTAL por su atributo, no a "cualquier readonly de la tabla": con lo
    segundo, congelar las demás celdas les robaba este estilo y el concepto salía
@@ -903,28 +953,28 @@ button.mes{cursor:pointer;}
 .btn-series{display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); border-radius:6px; background:none;
   padding:5px 8px; font-size:11.5px; font-weight:600; color:var(--gray); cursor:pointer; font-family:inherit; white-space:nowrap;}
 .btn-series svg{width:12px; height:12px; flex:none;}
-.btn-series:hover{border-color:var(--navy); color:var(--navy); background:#fff;}
+.btn-series:hover{border-color:var(--navy); color:var(--navy); background:var(--superficie);}
 .btn-series.on{border-color:var(--navy); color:var(--navy); background:var(--bg);}
 .info-equipo{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px;}
 .info-equipo label{display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--gray); font-weight:600; flex:1 1 180px;}
 .info-equipo label input{font-size:13px; font-weight:400; color:var(--navy);}
 .info-equipo label > button{margin-top:6px; align-self:flex-start;}
-.vista-barras{background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 14px; display:flex; justify-content:center;}
+.vista-barras{background:var(--superficie); border:1px solid var(--line); border-radius:8px; padding:10px 14px; display:flex; justify-content:center;}
 .codigo-barras{height:56px; max-width:100%;}
 .vista-barras.vista-qr{padding:14px;}
 .codigo-qr{width:140px; height:140px; image-rendering:pixelated;}
 /* Miniatura clicable del código en la tabla de Activos: abre el modal para
    verlo en grande y descargarlo listo para imprimir. */
-.codigo-mini-btn{border:1px solid var(--line); background:#fff; border-radius:6px; padding:3px; cursor:pointer; display:inline-flex; line-height:0;}
+.codigo-mini-btn{border:1px solid var(--line); background:var(--superficie); border-radius:6px; padding:3px; cursor:pointer; display:inline-flex; line-height:0;}
 .codigo-mini-btn:hover{border-color:var(--accent);}
 .codigo-mini-btn .codigo-qr{width:30px; height:30px;}
 .codigo-mini-btn .codigo-barras{height:24px; width:70px;}
 .tipo-codigo{display:flex; gap:0; border:1px solid #d4d9e6; border-radius:9px; overflow:hidden; align-self:flex-start; height:33px; margin-top:19px;}
-.tipo-codigo button{border:none; background:#fff; padding:0 12px; font-size:12px; font-weight:600; color:var(--gray); cursor:pointer; font-family:inherit;}
+.tipo-codigo button{border:none; background:var(--superficie); padding:0 12px; font-size:12px; font-weight:600; color:var(--gray); cursor:pointer; font-family:inherit;}
 .tipo-codigo button + button{border-left:1px solid #d4d9e6;}
 .tipo-codigo button.on{background:var(--accent); color:#fff;}
 /* Links públicos para levantar reportes sin sesión (ver abrirGestionLinkReportes). */
-.liga-publica{border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; background:#fff;}
+.liga-publica{border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; background:var(--superficie);}
 .liga-publica.liga-inactiva{opacity:.6;}
 .liga-publica-cab{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; flex-wrap:wrap;}
 .liga-publica-cuerpo{display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start;}
@@ -940,13 +990,13 @@ button.mes{cursor:pointer;}
    necesita su propio contenedor de página centrado. */
 .fp-pagina{min-height:100vh; display:flex; align-items:flex-start; justify-content:center;
   padding:32px 16px; background:var(--bg);}
-.fp-tarjeta{width:100%; max-width:480px; background:#fff; border:1px solid var(--line); border-radius:14px;
+.fp-tarjeta{width:100%; max-width:480px; background:var(--superficie); border:1px solid var(--line); border-radius:14px;
   padding:26px 24px; box-shadow:0 8px 28px rgba(10,27,77,.08);}
 .fp-marca{font-size:15px; font-weight:800; color:var(--navy); letter-spacing:.04em; margin-bottom:14px;}
 .fp-tarjeta h2{margin:0 0 6px; font-size:19px; color:var(--navy);}
 .fp-cargando{padding:30px 0; text-align:center; color:var(--gray);}
 .fp-error{color:var(--error); font-size:14px; line-height:1.5;}
-.fp-mensaje{margin-top:10px; padding:9px 12px; border-radius:8px; font-size:12.5px; background:var(--k-error-bg,#fbe7e6); color:var(--error);}
+.fp-mensaje{margin-top:10px; padding:9px 12px; border-radius:8px; font-size:12.5px; background:var(--k-error-bg); color:var(--error);}
 .fp-mensaje.fp-ok{background:#e4f5ec; color:var(--ok);}
 .fp-pie{margin-top:16px; font-size:11px; color:var(--gray); text-align:center;}
 .fp-exito{text-align:center;}
@@ -954,7 +1004,7 @@ button.mes{cursor:pointer;}
   background:#e4f5ec; color:var(--ok); box-sizing:border-box;}
 .fp-lista{max-height:220px; overflow-y:auto; margin-top:-8px;}
 .fp-fila-cliente{display:block; width:100%; text-align:left; padding:10px 12px; border:1px solid var(--line);
-  border-top:none; background:#fff; font:inherit; font-size:14px; cursor:pointer;}
+  border-top:none; background:var(--superficie); font:inherit; font-size:14px; cursor:pointer;}
 .fp-fila-cliente:first-child{border-top:1px solid var(--line); border-radius:8px 8px 0 0;}
 .fp-fila-cliente:last-child{border-radius:0 0 8px 8px;}
 .fp-fila-cliente:only-child{border-radius:8px;}
@@ -965,7 +1015,7 @@ button.mes{cursor:pointer;}
 /* Fusionar clientes: tarjetas de radio para elegir cuál de los dos se conserva. */
 .fc-opciones{display:flex; flex-direction:column; gap:8px;}
 .fc-opcion{display:flex; align-items:flex-start; gap:10px; border:1.5px solid #d4d9e6; border-radius:10px; padding:10px 12px; cursor:pointer;}
-.fc-opcion.on{border-color:var(--accent); background:#f6f9ff;}
+.fc-opcion.on{border-color:var(--accent); background:var(--accent-suave);}
 .fc-opcion input{margin-top:3px;}
 .fc-opcion .fc-nombre{font-weight:700; color:var(--navy); font-size:13.5px;}
 .fc-opcion .fc-datos{font-size:11.5px; color:var(--gray); margin-top:2px; line-height:1.5;}
@@ -985,7 +1035,7 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .imp-pie b{font-size:15.5px; color:var(--navy);}
 .icono-mini{background:none; border:1px solid var(--line); border-radius:6px; cursor:pointer;
   padding:5px 6px; color:var(--gray); line-height:0; margin-left:3px;}
-.icono-mini:hover{border-color:var(--navy); color:var(--navy); background:#fff;}
+.icono-mini:hover{border-color:var(--navy); color:var(--navy); background:var(--superficie);}
 .icono-mini svg{width:13px; height:13px; display:block;}
 .icono-mini.on{border-color:var(--navy); color:var(--navy); background:var(--bg);}
 /* Globito al pasar el mouse. El title nativo tarda casi un segundo y con tres
@@ -1008,7 +1058,7 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .busca-equipo{display:flex; gap:9px; align-items:center; margin-bottom:13px; flex-wrap:wrap;}
 .busca-equipo input{flex:1; min-width:220px; padding:9px 11px; border:1px solid #d4d9e6; border-radius:9px;
   font-family:inherit; font-size:13px; color:var(--ink); background:#fbfcfe; outline:none;}
-.busca-equipo input:focus{border-color:var(--accent); background:#fff;}
+.busca-equipo input:focus{border-color:var(--accent); background:var(--superficie);}
 .cuantos-zona{display:flex; align-items:stretch; gap:6px;}
 .cliente-zona{display:flex; gap:7px; align-items:stretch;}
 .cliente-zona select{flex:1; min-width:0;}
@@ -1021,7 +1071,7 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
   border:1px solid var(--line); border-radius:999px; padding:5px 9px 5px 11px;
   font-family:inherit; font-size:12px; font-weight:600; color:var(--navy); cursor:pointer;
   transition:background .14s var(--ease), border-color .14s var(--ease), transform .14s var(--ease);}
-.chip-eq:hover{background:#fff; border-color:var(--navy); transform:translateY(-1px);}
+.chip-eq:hover{background:var(--superficie); border-color:var(--navy); transform:translateY(-1px);}
 .chip-eq:active{transform:none;}
 .chip-eq:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 .chip-eq .mas{display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px;
@@ -1029,7 +1079,7 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .chip-eq:hover .mas{background:var(--accent);}
 /* Calendario de la póliza: una tarjeta por mes. */
 .cal-meses{display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr)); gap:11px; margin-top:15px;}
-.cal-mes{border:1px solid var(--line); border-radius:11px; padding:11px 12px; background:#fff;}
+.cal-mes{border:1px solid var(--line); border-radius:11px; padding:11px 12px; background:var(--superficie);}
 .cal-mes.vacio{background:var(--bg); border-style:dashed;}
 .cal-mes.ahora{border-color:var(--alerta); box-shadow:0 0 0 2px var(--alerta-suave);}
 .cal-cabeza{display:flex; align-items:center; gap:7px; margin-bottom:8px;}
@@ -1056,7 +1106,7 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
    lista de abajo. #8BB4D8 es el mismo azul que usa la plantilla impresa
    (var(--shade) ahí) para que el de pantalla y el de papel se reconozcan
    como la misma cosa. */
-.cal-gantt-caja{margin:14px 0 4px; background:#fff; border:1px solid var(--line); border-radius:11px; padding:12px;}
+.cal-gantt-caja{margin:14px 0 4px; background:var(--superficie); border:1px solid var(--line); border-radius:11px; padding:12px;}
 .cal-gantt-leyenda{display:flex; flex-wrap:wrap; gap:12px; font-size:11px; color:var(--gray); margin-bottom:10px;}
 .cal-gantt-leyenda span{display:inline-flex; align-items:center; gap:5px;}
 .cal-gantt-leyenda i{width:11px; height:11px; border-radius:3px; display:inline-block; flex:0 0 auto;}
@@ -1145,7 +1195,7 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .partida .p-num{width:22px; height:22px; border-radius:50%; background:var(--navy); color:#fff;
                 font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:0 0 auto;}
 .partida .p-cabeza select{flex:1; min-width:0; padding:7px 9px; border:1px solid #d4d9e6; border-radius:8px;
-                          font-family:inherit; font-size:12px; color:var(--ink); background:#fff; outline:none;}
+                          font-family:inherit; font-size:12px; color:var(--ink); background:var(--superficie); outline:none;}
 .partida .p-cabeza select:focus{border-color:var(--accent);}
 .partida .fila3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:11px;}
 @media (max-width:560px){ .partida .fila3{grid-template-columns:1fr;} }
@@ -1156,7 +1206,7 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 /* Aviso de póliza cerrada, arriba del formulario. Va en ámbar y no en rojo a
    propósito: no es un error de quien captura, es el estado del documento. Los
    campos apagados se ven apagados por el navegador; esto explica POR QUÉ. */
-.aviso-congelada{background:var(--alerta-suave); color:#8A5A0B; border:1px solid #F0DCB4;
+.aviso-congelada{background:var(--alerta-suave); color:#8A5A0B; border:1px solid var(--alerta-borde);
   border-radius:11px; padding:12px 14px; margin-bottom:16px; font-size:12.5px; line-height:1.6;}
 .aviso-congelada b{color:#6E480A;}
 /* Mismo tono ámbar de "responsabilidad del cliente" que ya usan el documento
@@ -1205,20 +1255,20 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .nube-zona{display:flex; align-items:center; gap:9px; margin-left:auto; flex-shrink:0;}
 .pastilla{
   display:inline-flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600;
-  border-radius:999px; padding:6px 12px; border:1px solid var(--line); background:#fff; color:var(--gray);
+  border-radius:999px; padding:6px 12px; border:1px solid var(--line); background:var(--superficie); color:var(--gray);
   white-space:nowrap;
 }
 .pastilla .punto{width:8px; height:8px;}
-.pastilla.n-ok{background:var(--ok-suave); color:#2c7a4e; border-color:#c5e6d3;}
-.pastilla.n-trabajo{background:#EEF2FB; color:var(--navy); border-color:#c9d4ec;}
-.pastilla.n-error{background:var(--error-suave); color:#a5322e; border-color:#f0cbc9;}
-.pastilla.n-local{background:var(--neutro-suave); color:#5c6273; border-color:#dfe3ee;}
+.pastilla.n-ok{background:var(--ok-suave); color:var(--ok-texto); border-color:var(--ok-borde);}
+.pastilla.n-trabajo{background:var(--marca-suave); color:var(--navy); border-color:var(--marca-borde);}
+.pastilla.n-error{background:var(--error-suave); color:var(--error-texto); border-color:var(--error-borde);}
+.pastilla.n-local{background:var(--neutro-suave); color:var(--neutro-texto); border-color:var(--neutro-borde);}
 .btn-cabeza{
-  font-family:inherit; font-size:12px; font-weight:600; color:var(--navy); background:#fff;
+  font-family:inherit; font-size:12px; font-weight:600; color:var(--navy); background:var(--superficie);
   border:1.5px solid var(--line); border-radius:9px; padding:7px 11px; cursor:pointer;
   display:inline-flex; align-items:center; gap:6px; white-space:nowrap; transition:border-color .15s, background .15s;
 }
-.btn-cabeza:hover{border-color:var(--accent); background:#f6f9ff;}
+.btn-cabeza:hover{border-color:var(--accent); background:var(--accent-suave);}
 .btn-cabeza svg{width:14px; height:14px;}
 /* Puntito ámbar en "Mi cuenta" cuando la contraseña sigue siendo la que dio el
    administrador. Es un recordatorio, no un bloqueo: se ve pero no estorba. */
@@ -1237,10 +1287,10 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
   border-radius:9px; padding:0 4px; font-size:10px; line-height:16px; font-weight:800; color:#fff;
   background:var(--error); box-shadow:0 0 0 2px #fff; text-align:center;}
 .notif-panel{position:absolute; top:calc(100% + 8px); right:0; width:340px; max-width:calc(100vw - 24px);
-  max-height:70vh; overflow-y:auto; background:#fff; border:1px solid var(--line); border-radius:12px;
+  max-height:70vh; overflow-y:auto; background:var(--superficie); border:1px solid var(--line); border-radius:12px;
   box-shadow:0 14px 34px rgba(10,27,77,.16); z-index:60;}
 .notif-cabeza{display:flex; align-items:center; justify-content:space-between; gap:8px;
-  padding:12px 14px; border-bottom:1px solid var(--line); position:sticky; top:0; background:#fff;}
+  padding:12px 14px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--superficie);}
 .notif-cabeza h4{margin:0; font-size:13.5px; color:var(--navy);}
 .notif-cabeza button{all:unset; cursor:pointer; font-size:11.5px; font-weight:700; color:var(--accent);}
 .notif-fila{display:flex; gap:10px; align-items:flex-start; padding:11px 14px; border-bottom:1px solid var(--line);
@@ -1302,10 +1352,10 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
   display:inline-flex; align-items:center; font-size:11px; font-weight:700; letter-spacing:.02em;
   border-radius:999px; padding:4px 11px; border:1px solid transparent; white-space:nowrap;
 }
-.c-owner  {background:#FCEDEC; color:#B3312C; border-color:#F0CBC9;}
+.c-owner  {background:#FCEDEC; color:#B3312C; border-color:var(--error-borde);}
 .c-admin  {background:#EAF1FC; color:#1B4FA8; border-color:#C6D8F5;}
 .c-analyst{background:#E8F5EE; color:#26714A; border-color:#C0E3D0;}
-.c-viewer {background:#F1F3F8; color:#5C6273; border-color:#DFE3EE;}
+.c-viewer {background:#F1F3F8; color:var(--neutro-texto); border-color:var(--neutro-borde);}
 .c-tecnico  {background:#FCEFDD; color:#9A5B12; border-color:#F0D9B4;}
 .c-reportero{background:#F1EAFB; color:#6A3FA0; border-color:#DCC9F2;}
 table.tabla select.sel-rol{font-weight:600;}
@@ -1326,7 +1376,7 @@ table.tabla select.sel-rol{font-weight:600;}
 }
 .banda-vista-previa[hidden]{display:none;}
 .banda-vista-previa svg{width:15px; height:15px; vertical-align:-3px; margin-right:2px;}
-.banda-vista-previa .btn{background:#fff;}
+.banda-vista-previa .btn{background:var(--superficie);}
 @media (max-width:700px){ .banda-vista-previa{padding:9px 16px;} }
 /* Mismos colores que los chips de categoría de equipo (COLOR_CATEGORIA_EQUIPO
    en index.html: z-rojo/z-azul/z-gris/z-morado/z-naranja), pero definidos
@@ -1334,9 +1384,9 @@ table.tabla select.sel-rol{font-weight:600;}
    en especificidad a `table.tabla select` de la línea de abajo — con una sola
    clase, como .c-owner de arriba, la pierde y el select se queda gris. */
 table.tabla select.sel-categoria{font-weight:600;}
-table.tabla select.sel-categoria.c-caliente{background:#FCEDEC; color:#B3312C; border-color:#F0CBC9;}
+table.tabla select.sel-categoria.c-caliente{background:#FCEDEC; color:#B3312C; border-color:var(--error-borde);}
 table.tabla select.sel-categoria.c-frio{background:#EAF1FC; color:#1B4FA8; border-color:#C6D8F5;}
-table.tabla select.sel-categoria.c-equipoMenor{background:#F1F3F8; color:#5C6273; border-color:#DFE3EE;}
+table.tabla select.sel-categoria.c-equipoMenor{background:#F1F3F8; color:var(--neutro-texto); border-color:var(--neutro-borde);}
 table.tabla select.sel-categoria.c-rational{background:#F1ECFB; color:#5B3A9E; border-color:#DBCEF3;}
 table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12; border-color:#F6D6BE;}
 @media (max-width:700px){ .pastilla span.txt{display:none;} .pastilla{padding:6px 8px;} }
@@ -1348,7 +1398,7 @@ table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12;
 }
 .acceso.abierto{display:flex;}
 .acceso-caja{
-  background:#fff; border:1px solid var(--line); border-radius:18px; padding:34px 30px 28px;
+  background:var(--superficie); border:1px solid var(--line); border-radius:18px; padding:34px 30px 28px;
   width:100%; max-width:392px; box-shadow:var(--sombra); position:relative; overflow:hidden;
   animation:sube .3s cubic-bezier(.22,1,.36,1) both;
 }
@@ -1361,7 +1411,7 @@ table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12;
 .acceso-caja p.intro{font-size:12.5px; color:var(--gray); line-height:1.55; margin:7px 0 20px;}
 .acceso-caja .btn{width:100%; margin-top:6px; padding:13px;}
 .acceso-error{
-  display:none; font-size:12px; color:#a5322e; background:var(--error-suave); border:1px solid #f0cbc9;
+  display:none; font-size:12px; color:var(--error-texto); background:var(--error-suave); border:1px solid var(--error-borde);
   border-radius:9px; padding:9px 11px; margin:2px 0 12px; line-height:1.5;
 }
 
@@ -1423,7 +1473,7 @@ table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12;
 .acceso-pie button:hover{text-decoration:underline;}
 
 /* ---------- Tablas del panel de administración ---------- */
-.bloque{background:#fff; border:1px solid var(--line); border-radius:15px; padding:20px 20px 16px; margin-bottom:18px; position:relative; overflow:hidden;}
+.bloque{background:var(--superficie); border:1px solid var(--line); border-radius:15px; padding:20px 20px 16px; margin-bottom:18px; position:relative; overflow:hidden;}
 .bloque::before{content:""; position:absolute; inset:0 0 auto 0; height:4px; background:linear-gradient(90deg,var(--navy),var(--accent));}
 .bloque-cabeza{display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px;}
 .bloque-cabeza h3{font-size:15.5px; font-weight:700; color:var(--navy);}
@@ -1443,7 +1493,7 @@ table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12;
 .guia-pasos{margin:0 0 16px; padding-left:22px; display:flex; flex-direction:column; gap:9px;}
 .guia-pasos li{font-size:13.5px; line-height:1.6; color:var(--ink);}
 .guia-pasos li b{color:var(--navy);}
-.guia-tip{background:var(--ok-suave); border:1px solid #c5e6d3; border-radius:12px; padding:12px 14px; font-size:13px; line-height:1.6; color:#215c3f; margin:0 0 16px;}
+.guia-tip{background:var(--ok-suave); border:1px solid var(--ok-borde); border-radius:12px; padding:12px 14px; font-size:13px; line-height:1.6; color:#215c3f; margin:0 0 16px;}
 .guia-tip b{display:block; margin-bottom:5px; color:#1a4a32; font-size:12px; text-transform:uppercase; letter-spacing:.04em;}
 .guia-tip ul{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px;}
 .guia-roles{display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--gray); background:var(--neutro-suave); border-radius:20px; padding:5px 12px; margin:0 0 16px;}
@@ -1456,7 +1506,7 @@ table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12;
    alto limitado y el encabezado fijo, se ve y se hojea como cualquier otra
    lista larga de la app, sin perder ninguna fila. */
 .rodillo-alto{max-height:420px; overflow-y:auto; border:1px solid var(--line); border-radius:10px;}
-.rodillo-alto table.tabla thead th{position:sticky; top:0; background:#fff; z-index:1;}
+.rodillo-alto table.tabla thead th{position:sticky; top:0; background:var(--superficie); z-index:1;}
 /* La tabla PRINCIPAL de un módulo (Pólizas, Reportes, Cotizaciones, Activos…)
    se sale del ancho fijo de .wrap (1180px) y usa todo el ancho de la ventana:
    en monitores anchos, una tabla de 12+ columnas (ej. tablaPolizas(),
@@ -1508,10 +1558,10 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
 .bitacora{display:flex; flex-direction:column; gap:2px;}
 .evento{display:flex; gap:12px; align-items:flex-start; padding:10px 2px; border-bottom:1px solid var(--line);}
 .evento:last-child{border-bottom:none;}
-.evento .e-icono{width:28px; height:28px; border-radius:8px; flex-shrink:0; display:grid; place-items:center; background:#EEF2FB; color:var(--navy);}
+.evento .e-icono{width:28px; height:28px; border-radius:8px; flex-shrink:0; display:grid; place-items:center; background:var(--marca-suave); color:var(--navy);}
 .evento .e-icono svg{width:14px; height:14px;}
-.evento.e-alta .e-icono{background:var(--ok-suave); color:#2c7a4e;}
-.evento.e-baja .e-icono{background:var(--error-suave); color:#a5322e;}
+.evento.e-alta .e-icono{background:var(--ok-suave); color:var(--ok-texto);}
+.evento.e-baja .e-icono{background:var(--error-suave); color:var(--error-texto);}
 .evento .e-texto{flex:1; min-width:0; font-size:12.5px; color:var(--ink); line-height:1.5;}
 .evento .e-texto b{font-weight:600; color:var(--navy);}
 .evento .e-meta{font-size:11px; color:var(--gray); margin-top:2px;}
@@ -1612,23 +1662,37 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
   content:''; position:absolute; top:0; left:50%; width:0; height:28px; border-left:2px solid var(--line);
 }
 .organigrama-nodo{
-  background:#fff; border:1px solid var(--line); border-radius:13px; padding:9px 14px; min-width:160px;
+  background:var(--superficie); border:1px solid var(--line); border-radius:13px; padding:9px 14px; min-width:160px;
   display:flex; align-items:center; gap:9px; cursor:pointer; box-shadow:var(--sombra-suave); text-align:left;
   transition:transform .15s var(--ease), box-shadow .15s var(--ease), border-color .15s var(--ease);
 }
-.organigrama-nodo:hover{ transform:translateY(-2px); box-shadow:0 10px 24px rgba(0,20,61,.12); border-color:#c9d4ec; }
+.organigrama-nodo:hover{ transform:translateY(-2px); box-shadow:0 10px 24px rgba(0,20,61,.12); border-color:var(--marca-borde); }
 .organigrama-nodo.n-baja{ opacity:.5; }
 .organigrama-nodo .n-datos{ min-width:0; }
 .organigrama-nodo .n-nombre{ font-size:12.5px; font-weight:700; color:var(--navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:148px; }
 .organigrama-nodo .n-puesto{ font-size:11px; color:var(--gray); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:148px; }
 
 /* ---------- Pie ---------- */
-.pie{padding:18px 24px; text-align:center; font-size:11.5px; color:var(--gray); border-top:1px solid var(--line); background:#fff;}
+.pie{padding:18px 24px; text-align:center; font-size:11.5px; color:var(--gray); border-top:1px solid var(--line); background:var(--superficie);}
 
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms !important; transition-duration:.01ms !important;}
 }
 </style>
+<!-- Anti-parpadeo del modo oscuro (05-oct-2026): pone el atributo ANTES de
+     que se pinte el <body>, para que quien ya eligió oscuro (o lo trae por
+     preferencia del sistema) no vea un destello de la página en claro. La
+     lógica completa (botón, ícono, sincronizar con Firestore) vive más
+     abajo, en el script principal — esto es solo el primer trazo. -->
+<script>
+(function(){
+  try{
+    var t = localStorage.getItem('forguard.tema');
+    if(!t) t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', t);
+  }catch(e){}
+})();
+</script>
 </head>
 <body>
 
@@ -1713,6 +1777,15 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
     </div>
   </div>
   <div class="nube-zona">
+    <!-- Siempre en el DOM, sin depender de haySesion(): en modo sin nube
+         (HAY_NUBE=false, sin pantalla de acceso de por medio) queda usable
+         de inmediato; con nube, la pantalla de acceso (position:fixed,
+         z-index:150, por encima del header) lo tapa hasta iniciar sesión
+         —la preferencia del sistema operativo ya cubre ese caso sin botón,
+         ver @media (prefers-color-scheme: dark) en el <style>. -->
+    <button type="button" class="btn-cabeza" id="btnTema" title="Cambiar a modo oscuro" aria-label="Cambiar a modo oscuro">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="iconoTema"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+    </button>
     <span class="correo-sesion" id="nombreSesion"></span>
     <span id="rolSesion"></span>
     <span class="pastilla" id="estadoNube"></span>
@@ -2018,6 +2091,63 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 const HAY_NUBE = !!(CONFIG_NUBE.apiKey && CONFIG_NUBE.projectId);
+
+/* ===================== Modo oscuro (05-oct-2026, pedido de Victor) =====================
+   Tres niveles, el primero que aplique gana: 1) lo que esta persona ya
+   eligió a mano EN ESTE navegador (localStorage, ver TEMA_LLAVE); 2) si
+   tiene sesión, lo que ya había elegido en OTRO dispositivo (campo `tema`
+   en su perfil de /usuarios/{uid} — se aplica una sola vez, al cargar el
+   perfil en cargarPerfil(), y de ahí en adelante manda la copia local); 3)
+   si nunca ha elegido nada, la preferencia del sistema operativo
+   (prefers-color-scheme).
+
+   El anti-parpadeo (que la página no nazca en el tema equivocado un
+   instante antes de que corra este script) vive aparte, en un <script>
+   chiquito dentro de <head> que hace exactamente el paso 1/3 de forma
+   síncrona antes de que se pinte nada — ver justo antes de </head>.
+
+   Solo se toca `document.documentElement.dataset.theme`: todo el color de
+   la app corre por variables CSS (:root / [data-theme="dark"], arriba del
+   todo del <style>), así que esta función nunca necesita saber nada de
+   componentes ni de vistas — ningún margin/padding/tamaño/layout se tocó
+   para este pedido, solo color/fondo/borde/sombra, como se pidió. */
+const TEMA_LLAVE = 'forguard.tema';
+function temaSistema(){
+  return (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+function temaGuardado(){
+  try{ return localStorage.getItem(TEMA_LLAVE); }catch(e){ return null; }
+}
+const ICONO_TEMA_SOL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="iconoTema"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+const ICONO_TEMA_LUNA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="iconoTema"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+function aplicarTema(tema){
+  document.documentElement.setAttribute('data-theme', tema === 'dark' ? 'dark' : 'light');
+  const btn = $('btnTema');
+  if(!btn) return;
+  btn.title = tema === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro';
+  btn.setAttribute('aria-label', btn.title);
+  btn.innerHTML = tema === 'dark' ? ICONO_TEMA_LUNA : ICONO_TEMA_SOL;
+}
+function alternarTema(){
+  const actual = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  const nuevo = actual === 'dark' ? 'light' : 'dark';
+  aplicarTema(nuevo);
+  try{ localStorage.setItem(TEMA_LLAVE, nuevo); }catch(e){}
+  /* PATCH acotado a SOLO `tema` (igual que el de `ultimoAcceso` en
+     cargarPerfil()), nunca por escribirNube(): esa función siempre estampa
+     `actualizadoEn` de más, y la regla de Firestore para esta cuenta propia
+     solo deja tocar ultimoAcceso/telefono/tema — con actualizadoEn de
+     colado el servidor rechazaría el PATCH entero con 403. Mejor esfuerzo,
+     nunca bloquea: sin sesión, sin internet, o mientras esa regla no esté
+     publicada todavía (ver config/firestore.rules), el tema se queda igual
+     de bien guardado en localStorage — cross-device es un plus, no un
+     requisito. */
+  if(HAY_NUBE && typeof haySesion === 'function' && haySesion() && sesion.uid){
+    pedirNube('/usuarios/' + encodeURIComponent(sesion.uid) + '?updateMask.fieldPaths=tema', {
+      method:'PATCH', body: JSON.stringify({ fields:{ tema:{ stringValue: nuevo } } })
+    }).catch(()=>{});
+  }
+}
 
 /* Tope de mensualidades por contrato (12 meses es lo normal, 24 el máximo). */
 const MAX_MESES = 24;
@@ -3884,6 +4014,17 @@ async function cargarPerfil(){
      guarda su propia copia y ahí se puede teclear. */
   sesion.telefono = p.telefono || '';
   guardarSesion();
+  /* Modo oscuro entre dispositivos (05-oct-2026): si esta persona YA eligió
+     un tema en otro navegador/celular (quedó guardado en su perfil al
+     alternarTema()), y este navegador todavía no tiene ninguna preferencia
+     propia, se adopta la de su perfil — de ahí en adelante manda la copia
+     local de este navegador, igual que cualquier otro dispositivo. Si ya
+     había algo en localStorage, se respeta tal cual (no se pisa lo que la
+     persona ya eligió aquí mismo). */
+  if((p.tema === 'dark' || p.tema === 'light') && !temaGuardado()){
+    aplicarTema(p.tema);
+    try{ localStorage.setItem(TEMA_LLAVE, p.tema); }catch(e){}
+  }
   /* Deja constancia del acceso, sin frenar el arranque si falla. */
   pedirNube('/usuarios/' + encodeURIComponent(sesion.uid) + '?updateMask.fieldPaths=ultimoAcceso', {
     method:'PATCH', body: JSON.stringify({ fields:{ ultimoAcceso:{ stringValue:new Date().toISOString() } } })
@@ -9124,6 +9265,20 @@ function pintarEstadoNube(){
 }
 $('estadoNube').addEventListener('click', ()=>{ if(colaRechazada.length) modalCambiosRechazados(); });
 
+/* Arranca ya con el tema correcto (el <script> chiquito de <head> ya puso
+   el atributo para evitar el parpadeo; esto solo sincroniza el ícono/
+   título del botón con lo que haya quedado puesto) y wire del botón. Si
+   nadie ha elegido nunca nada a mano (sin localStorage), sigue la
+   preferencia del sistema EN VIVO mientras la pestaña esté abierta —en
+   cuanto alguien elige a mano, esta pestaña dejó de seguir al sistema. */
+aplicarTema(document.documentElement.getAttribute('data-theme') || temaGuardado() || temaSistema());
+$('btnTema').addEventListener('click', alternarTema);
+if(window.matchMedia){
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ev=>{
+    if(!temaGuardado()) aplicarTema(ev.matches ? 'dark' : 'light');
+  });
+}
+
 /* Veredicto de auditoría (21-sep-2026): lista los cambios que el servidor
    rechazó definitivamente (ver colaRechazada) para que alguien los revise a
    mano — típicamente falta una regla de Firestore, o el registro ya no cabe
@@ -13645,6 +13800,7 @@ const TEMAS_AYUDA = [
     resumen:'Lo que vive en el encabezado, junto a tu nombre: tu perfil, la campanita de avisos, tu libreta de pendientes y la verificación en dos pasos.',
     contenido:
       guiaSeccion('Lo básico', guiaPasos([
+        'El <b>ícono de sol/luna</b>, junto a tu nombre, alterna entre modo claro y modo oscuro (05-oct-2026). Sin tocarlo, la app sigue sola la preferencia de tu sistema operativo; en cuanto lo usas una vez, esa elección se guarda en este navegador y gana siempre, sin importar lo que diga tu sistema. Con sesión iniciada, también se guarda en tu cuenta — así que si entras desde otro celular o computadora, se te presenta tal cual lo dejaste la última vez.',
         '<b>Mi cuenta</b> (icono junto a tu nombre): ve tu correo y tu permiso, cambia tu nombre/teléfono/foto, y cambia tu contraseña cuando quieras.',
         'La <b>campanita de notificaciones</b> es tu buzón por cuenta: asignaciones de reportes, resueltos y comentarios nuevos. El número rojo cuenta los que no has visto; haz clic en un aviso para marcarlo como leído y saltar directo a su reporte, o usa "Marcar todas leídas".',
         '<b>Mis pendientes</b> (icono junto a la campanita) es tu propia libreta de recordatorios de texto libre — nada que ver con Visitas ni con ningún módulo de trabajo, es para cualquier cosa suelta que quieras anotar. Escribe el texto, opcionalmente ponle una <b>fecha de entrega</b>, y da "Agregar".',

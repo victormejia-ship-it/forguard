@@ -600,8 +600,13 @@ service cloud.firestore {
                     || (esAdmin()
                         && resource.data.rol != 'owner'
                         && request.resource.data.rol != 'owner')
+                    /* 'tema' (05-oct-2026, modo oscuro): preferencia personal de
+                       pantalla, no sensible y sin efecto en permisos — mismo
+                       autoservicio que ya tenían ultimoAcceso/telefono, para
+                       que el tema elegido en un dispositivo se adopte solo en
+                       los demás (ver alternarTema()/cargarPerfil() en index.html). */
                     || (request.auth != null && request.auth.uid == uid
-                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcceso', 'telefono']));
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcceso', 'telefono', 'tema']));
 
       allow delete: if esOwner() || (esAdmin() && resource.data.rol != 'owner');
     }
