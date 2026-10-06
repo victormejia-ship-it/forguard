@@ -105,6 +105,7 @@
   --fondo-suave:#f3f5f9;             /* Barra de selección múltiple */
   --k-error-bg:#fbe7e6;              /* Mensaje de error del formulario público (Forpass) */
   --accent-suave:#f6f9ff;            /* Fondo al pasar el mouse sobre un botón/opción de marca */
+  --raya-suave:#F7F8FB;               /* Barra "INGRESOS"/"COSTOS DIRECTOS" y renglón de Utilidad/Margen de la tabla de Resultados */
 }
 /* Un tema EXPLÍCITO (data-theme, el que pone btnTema) siempre gana; sin
    ninguno puesto, se sigue la preferencia del sistema operativo. Mismo
@@ -121,6 +122,7 @@
     --error:#E8726E; --error-suave:#3A1E1D; --error-texto:#F29490; --error-borde:#5C2D2B;
     --neutro:#9199AE; --neutro-suave:#232A3D; --neutro-texto:#B8BECF; --neutro-borde:#3A4156;
     --marca-suave:#1B2A4A; --marca-borde:#33456E; --fondo-suave:#1A2235; --k-error-bg:#3A1E1D; --accent-suave:#16233D;
+    --raya-suave:#1B2436;
     --sombra:0 18px 50px rgba(0,0,0,.45);
     --sombra-suave:0 1px 2px rgba(0,0,0,.3), 0 2px 8px rgba(0,0,0,.35);
   }
@@ -135,6 +137,7 @@
   --error:#E8726E; --error-suave:#3A1E1D; --error-texto:#F29490; --error-borde:#5C2D2B;
   --neutro:#9199AE; --neutro-suave:#232A3D; --neutro-texto:#B8BECF; --neutro-borde:#3A4156;
   --marca-suave:#1B2A4A; --marca-borde:#33456E; --fondo-suave:#1A2235; --k-error-bg:#3A1E1D; --accent-suave:#16233D;
+  --raya-suave:#1B2436;
   --sombra:0 18px 50px rgba(0,0,0,.45);
   --sombra-suave:0 1px 2px rgba(0,0,0,.3), 0 2px 8px rgba(0,0,0,.35);
 }
@@ -454,9 +457,9 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
    cero de Resultados) — un pilar por tabla, Concepto + 12 meses + Total. */
 .tabla-proforma{min-width:1180px;}
 .tabla-proforma td.num, .tabla-proforma th.num{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap;}
-.tabla-proforma tr.fila-seccion td{font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--gray); text-transform:uppercase; background:#F7F8FB; border-bottom:1px solid var(--line);}
+.tabla-proforma tr.fila-seccion td{font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--gray); text-transform:uppercase; background:var(--raya-suave); border-bottom:1px solid var(--line);}
 .tabla-proforma tr.fila-total td{font-weight:700; color:var(--navy-texto); border-top:1.5px solid var(--line);}
-.tabla-proforma tr.fila-utilidad td{background:#F7F8FB;}
+.tabla-proforma tr.fila-utilidad td{background:var(--raya-suave);}
 /* Celdas clicables (pedido de Victor, 25-sep-2026: "que el dash también
    pueda ser interactivo... se pueda desplegar un modal"): solo los
    renglones ya conectados a una fuente real las traen (ver
@@ -13166,7 +13169,12 @@ function filaTotalProforma(label, totalesPorMes, idxVisibles, clase){
    checador (es una línea, no un relleno categórico). */
 const COLOR_PROFORMA_INGRESO = '#54C682';
 const COLOR_PROFORMA_COSTO = '#2F5FB8';
-const COLOR_PROFORMA_UTILIDAD = '#002369';
+/* var(--navy-texto), no el hex fijo: en oscuro --navy-texto se aclara a
+   blanco (06-oct-2026, pedido de Victor) y esta línea necesita lo mismo —
+   con el navy fijo de marca quedaba casi invisible sobre el fondo oscuro.
+   En claro sigue siendo el mismo #002369 de siempre (--navy-texto vale lo
+   mismo ahí), así que el gráfico no cambia nada a plena luz. */
+const COLOR_PROFORMA_UTILIDAD = 'var(--navy-texto)';
 
 function leyendaProforma(){
   return '<div class="grafica-leyenda">'

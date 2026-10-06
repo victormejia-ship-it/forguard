@@ -116,6 +116,51 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   });
   chkF('Un botón primario sigue con fondo navy aclarado + texto blanco (el fondo no se tocó)', !!btnPrimario && btnPrimario.bg === 'rgb(143, 179, 255)' && btnPrimario.color === 'rgb(255, 255, 255)');
 
+  // --------- 5c) --raya-suave + línea de Utilidad del gráfico (06-oct-2026,
+  // pedido de Victor tras ver una captura en oscuro: "en el grafico... la
+  // linea no se ve bien, en los titulos de la parte de abajo con una banda
+  // blanca no se diferencian tampoco las letras"). Dos bugs reales, los dos
+  // causados por hex fijos que el reemplazo sistemático de colores no
+  // había tocado: 1) la línea de Utilidad bruta del gráfico usaba el navy
+  // de marca fijo (#002369, invisible sobre fondo oscuro) — ahora usa
+  // var(--navy-texto), igual que el resto de la tipografía. 2) las barras
+  // "INGRESOS"/"COSTOS DIRECTOS" de la tabla y el renglón de Utilidad/
+  // Margen tenían background:#F7F8FB fijo (casi blanco) — con el texto ya
+  // blanco (--navy-texto) ese renglón quedaba blanco sobre blanco,
+  // ilegible. Ahora las dos reglas usan var(--raya-suave), que en claro
+  // sigue siendo el mismo #F7F8FB de siempre y en oscuro es un azul oscuro
+  // que sí contrasta. ---------
+  const coloresRaya = await page2.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    return { rayaSuave: cs.getPropertyValue('--raya-suave').trim() };
+  });
+  chkF('En oscuro, --raya-suave ya NO es el casi-blanco original (#F7F8FB)', coloresRaya.rayaSuave.toUpperCase() !== '#F7F8FB');
+  const lineaUtilidad = await page2.evaluate(() => {
+    const ingresos = [0,0,0,0,0,0,273410,0,0,0,0,0];
+    const costos = [125000,125000,125000,125000,125000,125000,352174,125000,125000,125000,125000,125000];
+    const utilidad = ingresos.map((v,i)=> v - costos[i]);
+    const div = document.createElement('div');
+    div.innerHTML = graficoProforma(ingresos, costos, utilidad, 2026);
+    document.body.appendChild(div);
+    const path = div.querySelector('svg path[stroke-width="2"]');
+    const color = path ? getComputedStyle(path).stroke : null;
+    div.remove();
+    return color;
+  });
+  chkF('En oscuro, la línea de "Utilidad bruta" del gráfico es blanca (ya no el navy fijo, invisible sobre fondo oscuro)', lineaUtilidad === 'rgb(255, 255, 255)');
+  const filaUtilidadBanda = await page2.evaluate(() => {
+    const div = document.createElement('div');
+    div.innerHTML = '<table class="tabla-proforma"><tbody>' + filaTotalProforma('Utilidad bruta', [1,2], [0,1], 'fila-utilidad') + '</tbody></table>';
+    document.body.appendChild(div);
+    const td = div.querySelector('tr.fila-total.fila-utilidad td');
+    const cs = getComputedStyle(td);
+    const res = { bg: cs.backgroundColor, color: cs.color };
+    div.remove();
+    return res;
+  });
+  chkF('En oscuro, el renglón "Utilidad bruta" ya NO es texto blanco sobre fondo casi blanco (antes ilegible)',
+    filaUtilidadBanda.color === 'rgb(255, 255, 255)' && filaUtilidadBanda.bg !== 'rgb(247, 248, 251)');
+
   // --------- 6) El modo claro sigue viéndose EXACTAMENTE como antes (diseño intacto) ---------
   await page2.evaluate(() => { localStorage.setItem('forguard.tema','light'); document.documentElement.setAttribute('data-theme','light'); });
   await page2.waitForTimeout(100);
@@ -126,6 +171,8 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Con data-theme="light" explícito, --bg vuelve a ser el original (#F6F7F9)', coloresClaro.bg.toUpperCase() === '#F6F7F9');
   chkF('Con data-theme="light" explícito, --superficie vuelve a ser blanco (#fff)', ['#FFF','#FFFFFF'].includes(coloresClaro.superficie.toUpperCase()));
   chkF('Con data-theme="light" explícito, --ink vuelve al navy original (#00143D)', coloresClaro.ink.toUpperCase() === '#00143D');
+  const rayaClaro = await page2.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--raya-suave').trim());
+  chkF('Con data-theme="light" explícito, --raya-suave vuelve a ser el casi-blanco original (#F7F8FB)', rayaClaro.toUpperCase() === '#F7F8FB');
 
   // --------- 7) Sincroniza con Firestore SOLO cuando hay sesión, con un PATCH acotado a "tema" ---------
   let patchBody = null, patchUrl = null;
