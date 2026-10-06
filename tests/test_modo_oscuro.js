@@ -96,6 +96,26 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('En oscuro, --superficie ya NO es blanco puro (#fff)', colores.superficie.toUpperCase() !== '#FFF' && colores.superficie.toUpperCase() !== '#FFFFFF');
   chkF('En oscuro, --ink (texto) ya NO es el navy casi negro original (#00143D)', colores.ink.toUpperCase() !== '#00143D');
 
+  // --------- 5b) --navy-texto (06-oct-2026, pedido de Victor: "modifica el
+  // color de la tipografía que pueda ser en color blanco") — --navy sigue
+  // siendo el navy aclarado de SIEMPRE porque todavía hace de FONDO (botones/
+  // insignias con texto blanco encima); --navy-texto es la variable nueva
+  // que usan los "color:" (títulos, números de KPI) y en oscuro es blanca,
+  // no azul. ---------
+  const coloresNavy = await page2.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    return { navy: cs.getPropertyValue('--navy').trim(), navyTexto: cs.getPropertyValue('--navy-texto').trim() };
+  });
+  chkF('En oscuro, --navy-texto es blanco (la tipografía ya no sale azul)', coloresNavy.navyTexto.toUpperCase() === '#FFFFFF');
+  chkF('En oscuro, --navy sigue siendo el navy aclarado (todavía es fondo de botones/insignias)', coloresNavy.navy.toUpperCase() === '#8FB3FF');
+  const btnPrimario = await page2.evaluate(() => {
+    const btn = document.querySelector('.btn-primario');
+    if(!btn) return null;
+    const cs = getComputedStyle(btn);
+    return { bg: cs.backgroundColor, color: cs.color };
+  });
+  chkF('Un botón primario sigue con fondo navy aclarado + texto blanco (el fondo no se tocó)', !!btnPrimario && btnPrimario.bg === 'rgb(143, 179, 255)' && btnPrimario.color === 'rgb(255, 255, 255)');
+
   // --------- 6) El modo claro sigue viéndose EXACTAMENTE como antes (diseño intacto) ---------
   await page2.evaluate(() => { localStorage.setItem('forguard.tema','light'); document.documentElement.setAttribute('data-theme','light'); });
   await page2.waitForTimeout(100);
