@@ -1584,6 +1584,11 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
    una tira con scroll horizontal escondido. */
 .galeria-evidencia{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;}
 .galeria-evidencia:empty{margin-bottom:0;}
+/* Una sección por unidad cuando el servicio activa "Fotos separadas por
+   equipo" (modalServicioPoliza) — mismas .galeria-evidencia/.evidencia-foto
+   de siempre, solo agrupadas con un título encima. */
+.fotos-unidad{margin-bottom:14px;}
+.fotos-unidad-titulo{font:700 12.5px Manrope,sans-serif; color:var(--gray); text-transform:uppercase; letter-spacing:.03em; margin-bottom:6px;}
 .evidencia-foto{position:relative; width:92px; height:92px; border-radius:10px; overflow:hidden; border:1px solid var(--line); flex-shrink:0;}
 .evidencia-foto img{width:100%; height:100%; object-fit:cover; display:block; cursor:pointer;}
 .evidencia-quitar{
@@ -5458,7 +5463,12 @@ function normalizarEvidencia(e){
     tipo: (e && e.tipo === 'hoja_servicio') ? 'hoja_servicio' : 'general',
     nota: (e && e.nota ? String(e.nota) : '').trim(),
     subioNombre: (e && e.subioNombre ? String(e.subioNombre) : '').trim(),
-    cuando: (e && e.cuando) || hoyISO()
+    cuando: (e && e.cuando) || hoyISO(),
+    /* Solo lo usa modalServicioPoliza, cuando el renglón tiene varias unidades
+       y se activa "Fotos separadas por equipo": 0 = sin asignar/compartida,
+       1..cantidad = a cuál unidad pertenece. En todo el resto de la app
+       (Reportes, Levantamientos, Proyectos de Imagen) siempre queda en 0. */
+    unidad: (e && Number.isInteger(e.unidad) && e.unidad > 0) ? e.unidad : 0
   };
 }
 
@@ -14107,7 +14117,7 @@ const TEMAS_AYUDA = [
         'Usa <b>Nueva cotización</b> para armar un contrato: Cliente, Sitio (con alta al vuelo), Fecha, Facturación (Anual/Mensual), Cargo a (Cliente/Interno), Vendedor, y los equipos cotizados —cada uno con precio, costo, servicios al año, mes de arranque y <b>Alcance</b>—, tomados del buscador de catálogo.',
         'El <b>Alcance</b> de cada equipo marca si esa actividad está "Dentro de nuestro alcance" o es "Responsabilidad del cliente" (por ejemplo, una fuga de gas o una instalación eléctrica que le toca a un especialista certificado, no al mantenimiento preventivo) — se ve como una etiqueta bajo el nombre del equipo, tanto al capturar como en el detalle del contrato. Un equipo "Responsabilidad del cliente" NO se suma al Precio Anual ni al Costo Anual del contrato: su monto se separa aparte, así nunca se le cobra al cliente algo que no es trabajo de Forguard.',
         'Estatus del contrato: Borrador → Enviada (en espera de confirmar) → Activa (precios ya congelados) — o Cancelada.',
-        'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción.',
+        'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción. Si el renglón tiene más de una unidad, la casilla <b>"Fotos separadas por equipo"</b> reparte la galería en una sección por unidad — útil cuando a una le pasó algo distinto a las demás; si no, una sola galería sirve para todas.',
         'Haz clic en una casilla de cobro para <b>capturar el cobro</b>: quién captura, número de OC, si ya se facturó.',
         'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa) — un equipo "Responsabilidad del cliente" sale marcado ahí mismo: su fila se sombrea, su número lleva un "†", su Total sale en blanco, y una nota al final explica el símbolo y lista de nuevo cuáles son.',
         '<b>Imprimir calendario</b> (junto a Imprimir): abre solo la portada y la hoja del calendario de mantenimientos, sin la tabla de equipos, descripción de trabajos ni consideraciones — para cuando el técnico solo necesita el calendario en papel, sin las demás hojas. Sale en hoja horizontal (mejor visibilidad de las 12 columnas de mes) y con su propia portada, dejando bien claro que es SOLO el calendario, no el contrato completo.'
@@ -25544,11 +25554,23 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     +     'varias unidades iguales, para saber cuál de todas se atendió.</div>'
     + '</div>'
 
+    /* Con varias unidades, las fotos pueden ir todas juntas (por omisión,
+       igual que siempre) o repartidas por unidad — útil cuando a una le pasó
+       algo distinto a las demás. La casilla solo reordena la MISMA galería
+       en memoria (evidenciasTmp): cada foto lleva su propio campo `unidad`
+       (ver normalizarEvidencia), así que cambiar de modo no pierde nada. */
+    + (x.cantidad > 1
+        ? '<div class="campo"><label class="casilla"><input type="checkbox" id="svFotosSeparadas"'
+          + (evidenciasTmp.some(e => e.unidad > 0) ? ' checked' : '') + '> Fotos separadas por equipo</label>'
+          + '<div class="pista">Actívalo si vas a subir fotos distintas para cada una de las ' + x.cantidad
+          +   ' unidades — por ejemplo, si a una le pasó algo distinto. Si no, una sola galería sirve para todas.</div>'
+          + '</div>'
+        : '')
+
     + '<div class="campo"><label>Fotos de evidencia (opcional)</label>'
-    +   '<div class="galeria-evidencia" id="svGaleriaEvidencia"></div>'
-    +   '<button type="button" class="btn btn-suave btn-mini" id="svBtnAgregarFoto">' + ICONO.camara + 'Tomar o elegir foto</button>'
+    +   '<div id="svFotosWrap"></div>'
     +   '<input type="file" id="svArchivoEvidencia" accept="image/*" capture="environment" multiple style="display:none">'
-    +   '<div class="pista" id="svPistaEvidencia">Hasta ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos. Se reducen solas para no pesar.</div>'
+    +   '<div class="pista" id="svPistaEvidencia">Hasta ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos en total. Se reducen solas para no pesar.</div>'
     + '</div>'
 
     + '<div class="campo"><label class="casilla"><input type="checkbox" id="svRefaccionChk"'
@@ -25594,29 +25616,65 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
       const campo = $('svCampoMotivo');
       campo.style.display = prendidos < x.cantidad ? '' : 'none';
       if(prendidos < x.cantidad) $('svMotivo').focus();
+      /* Si las fotos van separadas por equipo, la lista de unidades con
+         sección propia depende de cuáles sigan prendidas. */
+      pintarFotosSv();
     });
     /* Al reabrir un registro parcial, el campo del motivo ya debe verse. */
     if(det && (det.hechas || x.cantidad) < x.cantidad) $('svCampoMotivo').style.display = '';
+    $('svFotosSeparadas').addEventListener('change', pintarFotosSv);
   }
 
   /* Misma galería-en-staging que el reporte nuevo (evidenciasTmp + repintar):
      la foto se comprime y se agrega de inmediato, pero solo se guarda en la
-     póliza cuando se pica "Marcar como hecho" / "Guardar cambios". */
-  function pintarGaleriaSv(){
-    $('svGaleriaEvidencia').innerHTML = evidenciasTmp.map(e =>
+     póliza cuando se pica "Marcar como hecho" / "Guardar cambios".
+     Con "Fotos separadas por equipo" activo, la MISMA evidenciasTmp se
+     repinta agrupada por e.unidad (una sección por cada unidad todavía
+     prendida en "Equipos atendidos", más "Generales" si queda alguna foto
+     sin asignar) en vez de una sola galería — activar/desactivar la casilla
+     no mueve ni borra ninguna foto, solo cambia cómo se ven. */
+  let unidadParaSubir = 0;
+  function galeriaHtml(lista){
+    return lista.map(e =>
       '<div class="evidencia-foto"><img src="' + esc(e.dataUrl) + '" alt="Evidencia">'
       + '<button type="button" class="evidencia-quitar" data-quitar-tmp="' + esc(e.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
     ).join('');
-    $('svGaleriaEvidencia').querySelectorAll('[data-quitar-tmp]').forEach(b=>{
+  }
+  function pintarFotosSv(){
+    const separadas = x.cantidad > 1 && $('svFotosSeparadas') && $('svFotosSeparadas').checked;
+    const llena = evidenciasTmp.length >= EVIDENCIA_MAX_POR_SERVICIO;
+    const botonFoto = unidad => '<button type="button" class="btn btn-suave btn-mini" data-agregar-unidad="' + unidad + '"'
+      + (llena ? ' disabled' : '') + '>' + ICONO.camara + (unidad ? 'Foto de la unidad ' + unidad : 'Tomar o elegir foto') + '</button>';
+    if(!separadas){
+      $('svFotosWrap').innerHTML = '<div class="galeria-evidencia">' + galeriaHtml(evidenciasTmp) + '</div>' + botonFoto(0);
+    }else{
+      const activas = Array.from($('svUnidades').querySelectorAll('.sv-uni'))
+        .map((b,i)=> b.classList.contains('activa') ? i+1 : 0).filter(Boolean);
+      const generales = evidenciasTmp.filter(e => !e.unidad);
+      $('svFotosWrap').innerHTML = activas.map(j =>
+          '<div class="fotos-unidad"><div class="fotos-unidad-titulo">Unidad ' + j + '</div>'
+          + '<div class="galeria-evidencia">' + galeriaHtml(evidenciasTmp.filter(e => e.unidad === j)) + '</div>'
+          + botonFoto(j) + '</div>'
+        ).join('')
+        + (generales.length
+            ? '<div class="fotos-unidad"><div class="fotos-unidad-titulo">Generales (sin unidad asignada)</div>'
+              + '<div class="galeria-evidencia">' + galeriaHtml(generales) + '</div></div>'
+            : '');
+    }
+    $('svFotosWrap').querySelectorAll('[data-quitar-tmp]').forEach(b=>{
       b.addEventListener('click', ()=>{
         evidenciasTmp = evidenciasTmp.filter(e => e.id !== b.dataset.quitarTmp);
-        pintarGaleriaSv();
+        pintarFotosSv();
       });
     });
-    $('svBtnAgregarFoto').disabled = evidenciasTmp.length >= EVIDENCIA_MAX_POR_SERVICIO;
+    $('svFotosWrap').querySelectorAll('[data-agregar-unidad]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        unidadParaSubir = +b.dataset.agregarUnidad;
+        $('svArchivoEvidencia').click();
+      });
+    });
   }
-  pintarGaleriaSv();
-  $('svBtnAgregarFoto').addEventListener('click', ()=> $('svArchivoEvidencia').click());
+  pintarFotosSv();
   $('svArchivoEvidencia').addEventListener('change', async ev=>{
     const archivos = Array.from(ev.target.files || []);
     ev.target.value = '';
@@ -25628,11 +25686,11 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
       try{
         const img = await leerEvidencia(archivo);
         const dataUrl = comprimirEvidencia(img);
-        evidenciasTmp.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' }));
+        evidenciasTmp.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '', unidad: unidadParaSubir }));
       }catch(e){ aviso(e.message, true); }
     }
-    $('svPistaEvidencia').textContent = 'Hasta ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos. Se reducen solas para no pesar.';
-    pintarGaleriaSv();
+    $('svPistaEvidencia').textContent = 'Hasta ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos en total. Se reducen solas para no pesar.';
+    pintarFotosSv();
   });
 
   /* Si ya existe una solicitud generada, el texto queda de solo lectura: no
