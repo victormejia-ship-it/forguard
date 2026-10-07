@@ -161,6 +161,44 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('En oscuro, el renglón "Utilidad bruta" ya NO es texto blanco sobre fondo casi blanco (antes ilegible)',
     filaUtilidadBanda.color === 'rgb(255, 255, 255)' && filaUtilidadBanda.bg !== 'rgb(247, 248, 251)');
 
+  // --------- 5d) Segunda ronda de contraste (07-oct-2026, pedido de Victor
+  // con dos capturas reales — la tabla "Equipos cotizados" y el modal
+  // "Registrar servicio": "revisa nuevamente el contraste de los colores
+  // porque en ocasiones se pierde el texto"). El reemplazo del 05-oct dejó
+  // fuera varios fondos casi blancos fijos (inputs de TODA la app,
+  // etiquetas de campo, chips de mes pendientes, tips de Ayuda) que, al
+  // quedar su TEXTO ya aclarado para oscuro, bajaban a un contraste real de
+  // ~1.6:1 — no "apagado", literalmente ilegible. --------- */
+  const segundaRonda = await page2.evaluate(() => {
+    const div = document.createElement('div');
+    div.innerHTML =
+        '<div class="campo"><label id="chkLabel">Etiqueta</label><input id="chkInput" value="x">'
+      + '<input id="chkReadonly" value="x" readonly></div>'
+      + '<span class="chip-zona z-gris" id="chkChip">ago 26</span>'
+      + '<div class="guia-tip" id="chkTip"><b id="chkTipB">Tip</b>Texto</div>';
+    document.body.appendChild(div);
+    const cs = sel => getComputedStyle(div.querySelector(sel));
+    const res = {
+      labelColor: cs('#chkLabel').color,
+      inputBg: cs('#chkInput').backgroundColor,
+      inputColor: cs('#chkInput').color,
+      readonlyBg: cs('#chkReadonly').backgroundColor,
+      chipBg: cs('#chkChip').backgroundColor,
+      tipColor: cs('#chkTip').color,
+      tipBColor: cs('#chkTipB').color,
+    };
+    div.remove();
+    return res;
+  });
+  chkF('En oscuro, la etiqueta de un campo ("Fecha en que se hizo", etc.) ya NO es el navy casi negro original (#3A4256), antes ilegible sobre un modal ya oscuro',
+    segundaRonda.labelColor !== 'rgb(58, 66, 86)');
+  chkF('En oscuro, un input en reposo ya NO tiene fondo casi blanco fijo (#FBFCFE)', segundaRonda.inputBg !== 'rgb(251, 252, 254)');
+  chkF('...y su texto (ya aclarado) SÍ contrasta contra ese fondo nuevo', segundaRonda.inputBg !== segundaRonda.inputColor);
+  chkF('En oscuro, un input "readonly" (ej. "Nombre de quien captura") ya NO tiene fondo casi blanco fijo (#F1F3F8)', segundaRonda.readonlyBg !== 'rgb(241, 243, 248)');
+  chkF('En oscuro, un chip de mes pendiente (z-gris, el de "ago 26"/"dic 26" de Equipos cotizados) ya NO tiene fondo casi blanco fijo', segundaRonda.chipBg !== 'rgb(241, 243, 248)');
+  chkF('En oscuro, un tip de Ayuda (fondo verde suave) ya NO es el verde oscuro fijo original (#215C3F), antes casi del mismo tono que su fondo', segundaRonda.tipColor !== 'rgb(33, 92, 63)');
+  chkF('...y su encabezado en negritas tampoco', segundaRonda.tipBColor !== 'rgb(26, 74, 50)');
+
   // --------- 6) El modo claro sigue viéndose EXACTAMENTE como antes (diseño intacto) ---------
   await page2.evaluate(() => { localStorage.setItem('forguard.tema','light'); document.documentElement.setAttribute('data-theme','light'); });
   await page2.waitForTimeout(100);
@@ -173,6 +211,16 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Con data-theme="light" explícito, --ink vuelve al navy original (#00143D)', coloresClaro.ink.toUpperCase() === '#00143D');
   const rayaClaro = await page2.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--raya-suave').trim());
   chkF('Con data-theme="light" explícito, --raya-suave vuelve a ser el casi-blanco original (#F7F8FB)', rayaClaro.toUpperCase() === '#F7F8FB');
+  const segundaRondaClaro = await page2.evaluate(() => {
+    const div = document.createElement('div');
+    div.innerHTML = '<div class="campo"><label id="chkLabel">Etiqueta</label><input id="chkInput" value="x"></div>';
+    document.body.appendChild(div);
+    const res = { labelColor: getComputedStyle(div.querySelector('#chkLabel')).color, inputBg: getComputedStyle(div.querySelector('#chkInput')).backgroundColor };
+    div.remove();
+    return res;
+  });
+  chkF('Con data-theme="light" explícito, la etiqueta de un campo vuelve al navy original (#3A4256) — cero cambio de diseño en claro', segundaRondaClaro.labelColor === 'rgb(58, 66, 86)');
+  chkF('Con data-theme="light" explícito, el fondo de un input vuelve al casi-blanco original (#FBFCFE)', segundaRondaClaro.inputBg === 'rgb(251, 252, 254)');
 
   // --------- 7) Sincroniza con Firestore SOLO cuando hay sesión, con un PATCH acotado a "tema" ---------
   let patchBody = null, patchUrl = null;

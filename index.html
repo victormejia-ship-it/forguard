@@ -106,6 +106,25 @@
   --k-error-bg:#fbe7e6;              /* Mensaje de error del formulario público (Forpass) */
   --accent-suave:#f6f9ff;            /* Fondo al pasar el mouse sobre un botón/opción de marca */
   --raya-suave:#F7F8FB;               /* Barra "INGRESOS"/"COSTOS DIRECTOS" y renglón de Utilidad/Margen de la tabla de Resultados */
+  /* 07-oct-2026 (pedido de Victor: "revisa nuevamente el contraste de los
+     colores porque en ocasiones se pierde el texto"): estos 4 quedaron
+     fuera del reemplazo sistemático del 05-oct — fondos casi blancos fijos
+     que, combinados con un texto que SÍ se aclaraba en oscuro (var(--ink),
+     var(--neutro-texto), var(--gray)), dejaban el texto casi invisible
+     sobre su propio fondo (ej. los campos de "Registrar servicio", o el
+     campo bloqueado "Nombre de quien captura"). */
+  --campo-bg:#fbfcfe;         /* Fondo de un input/select/textarea en reposo (campo editable) */
+  --campo-bg-error:#fffafa;   /* Mismo campo cuando aria-invalid="true" */
+  --tarjeta-sutil-bg:#fafbfe; /* Tarjeta de contacto, nota de tarjeta, renglón de partida */
+  --fila-irregular-bg:#fffdf6; /* Renglón de calendario "irregular" en la tabla de partidas */
+  /* Mismo problema pero del lado del TEXTO: estos quedaban fijos en un tono
+     oscuro pensado solo para fondo claro — en oscuro, con la tarjeta/campo
+     ya oscurecido, el contraste caía a ~1.6:1 (perdido de verdad, no solo
+     "apagado"). Afecta la etiqueta de CADA campo de la app. */
+  --etiqueta-texto:#3a4256;          /* Etiqueta de campo ("Fecha en que se hizo", checkbox) */
+  --texto-secundario-fijo:#5d6479;   /* Contador de Agenda, encabezado de mes del Gantt */
+  --guia-tip-texto:#215c3f;          /* Texto de un recuadro de Ayuda tipo "tip" (fondo --ok-suave) */
+  --guia-tip-texto-fuerte:#1a4a32;   /* Su encabezado en negritas */
 }
 /* Un tema EXPLÍCITO (data-theme, el que pone btnTema) siempre gana; sin
    ninguno puesto, se sigue la preferencia del sistema operativo. Mismo
@@ -123,6 +142,8 @@
     --neutro:#9199AE; --neutro-suave:#232A3D; --neutro-texto:#B8BECF; --neutro-borde:#3A4156;
     --marca-suave:#1B2A4A; --marca-borde:#33456E; --fondo-suave:#1A2235; --k-error-bg:#3A1E1D; --accent-suave:#16233D;
     --raya-suave:#1B2436;
+    --campo-bg:#10172A; --campo-bg-error:#3A1E1D; --tarjeta-sutil-bg:#10172A; --fila-irregular-bg:#3A2E14;
+    --etiqueta-texto:#C7CCDA; --texto-secundario-fijo:#9199AE; --guia-tip-texto:#8FEFB8; --guia-tip-texto-fuerte:#6FE3A4;
     --sombra:0 18px 50px rgba(0,0,0,.45);
     --sombra-suave:0 1px 2px rgba(0,0,0,.3), 0 2px 8px rgba(0,0,0,.35);
   }
@@ -138,6 +159,8 @@
   --neutro:#9199AE; --neutro-suave:#232A3D; --neutro-texto:#B8BECF; --neutro-borde:#3A4156;
   --marca-suave:#1B2A4A; --marca-borde:#33456E; --fondo-suave:#1A2235; --k-error-bg:#3A1E1D; --accent-suave:#16233D;
   --raya-suave:#1B2436;
+  --campo-bg:#10172A; --campo-bg-error:#3A1E1D; --tarjeta-sutil-bg:#10172A; --fila-irregular-bg:#3A2E14;
+  --etiqueta-texto:#C7CCDA; --texto-secundario-fijo:#9199AE; --guia-tip-texto:#8FEFB8; --guia-tip-texto-fuerte:#6FE3A4;
   --sombra:0 18px 50px rgba(0,0,0,.45);
   --sombra-suave:0 1px 2px rgba(0,0,0,.3), 0 2px 8px rgba(0,0,0,.35);
 }
@@ -583,7 +606,7 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .z-turquesa{background:#E6F6F6; color:#12656B; border-color:#C2E7E8;}
 .z-naranja {background:#FDEFE6; color:#A34A12; border-color:#F6D6BE;}
 .z-cafe    {background:#F4EFEA; color:#6B4A2F; border-color:#E3D6C8;}
-.z-gris    {background:#F1F3F8; color:var(--neutro-texto); border-color:var(--neutro-borde);}
+.z-gris    {background:var(--neutro-suave); color:var(--neutro-texto); border-color:var(--neutro-borde);}
 
 /* Selector de color en el formulario */
 .colores{display:flex; gap:6px; flex-wrap:wrap; margin-top:2px;}
@@ -624,7 +647,7 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 }
 .logo-lienzo:active{cursor:grabbing;}
 .logo-zoom{display:flex; align-items:center; gap:10px; margin-top:2px;}
-.logo-zoom label{font-size:11.5px; font-weight:600; color:#3a4256; white-space:nowrap;}
+.logo-zoom label{font-size:11.5px; font-weight:600; color:var(--etiqueta-texto); white-space:nowrap;}
 .logo-zoom input[type="range"]{flex:1; min-width:120px; accent-color:var(--navy); cursor:pointer;}
 .logo-zoom output{font-size:11.5px; color:var(--gray); min-width:34px; text-align:right; font-variant-numeric:tabular-nums;}
 .logo-lado{flex:1; min-width:190px;}
@@ -644,7 +667,7 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .icono-btn.sin-datos:hover{color:var(--alerta-texto); background:var(--alerta-suave); border-color:var(--alerta-borde);}
 
 /* Tarjetas de contacto dentro del modal */
-.contacto{border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; background:#fafbfe; position:relative;}
+.contacto{border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; background:var(--tarjeta-sutil-bg); position:relative;}
 .contacto .c-quitar{position:absolute; top:10px; right:10px;}
 .contacto .fila2{margin-bottom:0;}
 .contacto-vista{display:flex; gap:12px; align-items:flex-start; border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:10px;}
@@ -688,13 +711,13 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .agenda-bloque.a-info  {border-left-color:var(--marca-borde);}
 .agenda-cabeza h3{font-size:14.5px; color:var(--navy-texto); display:flex; align-items:center; gap:8px;}
 .agenda-cabeza .pista{margin:3px 0 0;}
-.agenda-cuenta{background:var(--neutro-suave); color:#5d6479; font-size:11.5px; font-weight:700;
+.agenda-cuenta{background:var(--neutro-suave); color:var(--texto-secundario-fijo); font-size:11.5px; font-weight:700;
   border-radius:999px; padding:1px 9px;}
 .a-error .agenda-cuenta {background:var(--error-suave);  color:var(--error-texto);}
 .a-alerta .agenda-cuenta{background:var(--alerta-suave); color:var(--alerta-texto);}
 .agenda-mes{margin-top:14px;}
 .agenda-mes-tit{font-size:11px; font-weight:800; letter-spacing:.7px; text-transform:uppercase;
-  color:#5d6479; padding-bottom:7px; border-bottom:1px solid var(--line);}
+  color:var(--texto-secundario-fijo); padding-bottom:7px; border-bottom:1px solid var(--line);}
 .agenda-sitio{padding:11px 0 12px; border-bottom:1px solid var(--line);}
 .agenda-sitio:last-child{border-bottom:0;}
 .agenda-sitio-tit{background:none; border:0; padding:0; cursor:pointer; font-family:inherit;
@@ -702,7 +725,7 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
   margin-bottom:8px;}
 .agenda-sitio-tit:hover{color:var(--ok-texto);}
 .agenda-sitio-tit span{font-weight:500; color:var(--gray);}
-.agenda-cuenta-mini{background:var(--neutro-suave); color:#5d6479; font-size:10.5px; font-weight:700;
+.agenda-cuenta-mini{background:var(--neutro-suave); color:var(--texto-secundario-fijo); font-size:10.5px; font-weight:700;
   border-radius:999px; padding:0 7px;}
 .agenda-equipos{display:flex; flex-wrap:wrap; gap:7px;}
 /* El equipo es el botón que registra el servicio. Se ve como lo que es —algo que
@@ -741,7 +764,7 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
 .gantt-meses{display:flex; position:sticky; top:0; background:var(--superficie); z-index:3;
   border-bottom:1px solid var(--line);}
 .gantt-mes{flex:none; font-size:10.5px; font-weight:800; letter-spacing:.4px;
-  color:#5d6479; padding:9px 0 9px 10px; border-left:1px solid var(--line); box-sizing:border-box;}
+  color:var(--texto-secundario-fijo); padding:9px 0 9px 10px; border-left:1px solid var(--line); box-sizing:border-box;}
 .gantt-mes-espaciador{position:sticky; left:0; z-index:4; width:260px; background:var(--superficie); border-left:0;}
 .gantt-filas{position:relative;}
 .gantt-fila{display:flex; align-items:stretch; border-bottom:1px solid var(--line);}
@@ -816,7 +839,7 @@ button.mes{cursor:pointer;}
 .t-pie .espacio{margin-left:auto;}
 
 /* Nota de la tarjeta */
-.t-nota{margin-top:12px; font-size:11.5px; color:var(--gray); line-height:1.5; background:#fafbfe; border:1px solid var(--line); border-radius:9px; padding:8px 10px; white-space:pre-wrap;}
+.t-nota{margin-top:12px; font-size:11.5px; color:var(--gray); line-height:1.5; background:var(--tarjeta-sutil-bg); border:1px solid var(--line); border-radius:9px; padding:8px 10px; white-space:pre-wrap;}
 
 /* ---------- Estado vacío ---------- */
 .vacio{
@@ -882,20 +905,20 @@ button.mes{cursor:pointer;}
 .seccion h4{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--navy-texto); font-weight:700; margin-bottom:12px; display:flex; align-items:center; gap:8px;}
 .seccion h4::after{content:""; flex:1; height:1px; background:var(--line);}
 .campo{margin-bottom:13px;}
-.campo label{display:block; font-size:12px; font-weight:500; color:#3a4256; margin-bottom:5px;}
+.campo label{display:block; font-size:12px; font-weight:500; color:var(--etiqueta-texto); margin-bottom:5px;}
 .campo input, .campo select, .campo textarea{
   width:100%; padding:9px 11px; border:1px solid #d4d9e6; border-radius:9px;
-  font-family:inherit; font-size:13px; color:var(--ink); background:#fbfcfe; outline:none; transition:border-color .15s, background .15s;
+  font-family:inherit; font-size:13px; color:var(--ink); background:var(--campo-bg); outline:none; transition:border-color .15s, background .15s;
 }
 .campo input:focus, .campo select:focus, .campo textarea:focus{border-color:var(--accent); background:var(--superficie);}
-.campo input[readonly]{background:#f1f3f8; color:var(--neutro-texto); cursor:default;}
+.campo input[readonly]{background:var(--neutro-suave); color:var(--neutro-texto); cursor:default;}
 .campo input[readonly]:focus{border-color:#d4d9e6;}
 .campo textarea{resize:vertical; min-height:66px; font-size:12.5px; line-height:1.5;}
-.campo input[aria-invalid="true"]{border-color:var(--error); background:#fffafa;}
+.campo input[aria-invalid="true"]{border-color:var(--error); background:var(--campo-bg-error);}
 .fila2{display:grid; grid-template-columns:1fr 1fr; gap:11px;}
 @media (max-width:560px){ .fila2{grid-template-columns:1fr;} }
 .pista{font-size:11px; color:var(--gray); margin-top:4px; line-height:1.45;}
-.casilla{display:flex; align-items:center; gap:9px; font-size:13px; font-weight:500; color:#3a4256; cursor:pointer; margin-bottom:11px;}
+.casilla{display:flex; align-items:center; gap:9px; font-size:13px; font-weight:500; color:var(--etiqueta-texto); cursor:pointer; margin-bottom:11px;}
 .casilla input{width:16px; height:16px; accent-color:var(--navy); cursor:pointer;}
 
 /* Resumen dentro del modal */
@@ -941,16 +964,16 @@ button.mes{cursor:pointer;}
   font-weight:700; text-align:left; padding:7px 5px; border-bottom:1.5px solid var(--line); white-space:nowrap;}
 .tabla-renglones td{padding:3px 4px; border-bottom:1px solid var(--line); vertical-align:middle;}
 .tabla-renglones input, .tabla-renglones select{width:100%; padding:6px 7px; border:1px solid #d4d9e6;
-  border-radius:7px; font-family:inherit; font-size:12px; color:var(--ink); background:#fbfcfe; outline:none;}
+  border-radius:7px; font-family:inherit; font-size:12px; color:var(--ink); background:var(--campo-bg); outline:none;}
 .tabla-renglones input:focus, .tabla-renglones select:focus{border-color:var(--accent); background:var(--superficie);}
 /* El total va gris y de solo lectura porque NO se captura: se calcula. */
 /* Apunta al TOTAL por su atributo, no a "cualquier readonly de la tabla": con lo
    segundo, congelar las demás celdas les robaba este estilo y el concepto salía
    alineado a la derecha y en negritas. */
-.tabla-renglones input[data-total]{background:#f1f3f8; color:var(--navy-texto); font-weight:700; text-align:right; cursor:default;}
+.tabla-renglones input[data-total]{background:var(--neutro-suave); color:var(--navy-texto); font-weight:700; text-align:right; cursor:default;}
 /* Celda congelada: se ve inerte pero conserva su alineación y su peso. */
-.tabla-renglones input[readonly]:not([data-total]){background:#f1f3f8; color:#6b7186; cursor:not-allowed;}
-.tabla-renglones input[aria-invalid="true"]{border-color:var(--error); background:#fffafa;}
+.tabla-renglones input[readonly]:not([data-total]){background:var(--neutro-suave); color:#6b7186; cursor:not-allowed;}
+.tabla-renglones input[aria-invalid="true"]{border-color:var(--error); background:var(--campo-bg-error);}
 .tabla-renglones .num{width:24px; color:var(--gray-claro); font-size:11px; text-align:right; padding-right:6px;}
 .tabla-renglones .mini{width:62px;}
 .tabla-renglones .med{width:106px;}
@@ -959,7 +982,7 @@ button.mes{cursor:pointer;}
 .tabla-renglones tfoot td{border-bottom:none; padding-top:12px; font-size:13px; font-weight:700; color:var(--navy-texto);}
 .tabla-renglones tfoot .lbl{text-align:right; font-weight:500; color:var(--gray);}
 /* Renglón con meses que no siguen el intervalo: se marca para que no se pierda. */
-.tabla-renglones tr.irregular > td{background:#fffdf6;}
+.tabla-renglones tr.irregular > td{background:var(--fila-irregular-bg);}
 .fila-meses > td, .fila-info > td, .fila-series > td{background:var(--bg); padding:10px 12px 13px; border-bottom:1px solid var(--line);}
 .btn-series{display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); border-radius:6px; background:none;
   padding:5px 8px; font-size:11.5px; font-weight:600; color:var(--gray); cursor:pointer; font-family:inherit; white-space:nowrap;}
@@ -1068,7 +1091,7 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .avatar-btn[data-tip]:hover::after, .avatar-btn[data-tip]:focus-visible::after{opacity:1;}
 .busca-equipo{display:flex; gap:9px; align-items:center; margin-bottom:13px; flex-wrap:wrap;}
 .busca-equipo input{flex:1; min-width:220px; padding:9px 11px; border:1px solid #d4d9e6; border-radius:9px;
-  font-family:inherit; font-size:13px; color:var(--ink); background:#fbfcfe; outline:none;}
+  font-family:inherit; font-size:13px; color:var(--ink); background:var(--campo-bg); outline:none;}
 .busca-equipo input:focus{border-color:var(--accent); background:var(--superficie);}
 .cuantos-zona{display:flex; align-items:stretch; gap:6px;}
 .cliente-zona{display:flex; gap:7px; align-items:stretch;}
@@ -1201,7 +1224,7 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .pie-renglones b{font-size:16px; font-weight:700; color:var(--navy-texto);}
 
 /* Renglones de la cotización dentro del modal (tarjeta, ya no se usa en pólizas) */
-.partida{border:1px solid var(--line); border-radius:12px; padding:14px 14px 4px; margin-bottom:12px; background:#fcfdff;}
+.partida{border:1px solid var(--line); border-radius:12px; padding:14px 14px 4px; margin-bottom:12px; background:var(--tarjeta-sutil-bg);}
 .partida .p-cabeza{display:flex; align-items:center; gap:9px; margin-bottom:12px;}
 .partida .p-num{width:22px; height:22px; border-radius:50%; background:var(--navy); color:#fff;
                 font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:0 0 auto;}
@@ -1366,7 +1389,7 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .c-owner  {background:#FCEDEC; color:#B3312C; border-color:var(--error-borde);}
 .c-admin  {background:#EAF1FC; color:#1B4FA8; border-color:#C6D8F5;}
 .c-analyst{background:#E8F5EE; color:#26714A; border-color:#C0E3D0;}
-.c-viewer {background:#F1F3F8; color:var(--neutro-texto); border-color:var(--neutro-borde);}
+.c-viewer {background:var(--neutro-suave); color:var(--neutro-texto); border-color:var(--neutro-borde);}
 .c-tecnico  {background:#FCEFDD; color:#9A5B12; border-color:#F0D9B4;}
 .c-reportero{background:#F1EAFB; color:#6A3FA0; border-color:#DCC9F2;}
 table.tabla select.sel-rol{font-weight:600;}
@@ -1397,7 +1420,7 @@ table.tabla select.sel-rol{font-weight:600;}
 table.tabla select.sel-categoria{font-weight:600;}
 table.tabla select.sel-categoria.c-caliente{background:#FCEDEC; color:#B3312C; border-color:var(--error-borde);}
 table.tabla select.sel-categoria.c-frio{background:#EAF1FC; color:#1B4FA8; border-color:#C6D8F5;}
-table.tabla select.sel-categoria.c-equipoMenor{background:#F1F3F8; color:var(--neutro-texto); border-color:var(--neutro-borde);}
+table.tabla select.sel-categoria.c-equipoMenor{background:var(--neutro-suave); color:var(--neutro-texto); border-color:var(--neutro-borde);}
 table.tabla select.sel-categoria.c-rational{background:#F1ECFB; color:#5B3A9E; border-color:#DBCEF3;}
 table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12; border-color:#F6D6BE;}
 @media (max-width:700px){ .pastilla span.txt{display:none;} .pastilla{padding:6px 8px;} }
@@ -1504,8 +1527,8 @@ table.tabla select.sel-categoria.c-extraccion{background:#FDEFE6; color:#A34A12;
 .guia-pasos{margin:0 0 16px; padding-left:22px; display:flex; flex-direction:column; gap:9px;}
 .guia-pasos li{font-size:13.5px; line-height:1.6; color:var(--ink);}
 .guia-pasos li b{color:var(--navy-texto);}
-.guia-tip{background:var(--ok-suave); border:1px solid var(--ok-borde); border-radius:12px; padding:12px 14px; font-size:13px; line-height:1.6; color:#215c3f; margin:0 0 16px;}
-.guia-tip b{display:block; margin-bottom:5px; color:#1a4a32; font-size:12px; text-transform:uppercase; letter-spacing:.04em;}
+.guia-tip{background:var(--ok-suave); border:1px solid var(--ok-borde); border-radius:12px; padding:12px 14px; font-size:13px; line-height:1.6; color:var(--guia-tip-texto); margin:0 0 16px;}
+.guia-tip b{display:block; margin-bottom:5px; color:var(--guia-tip-texto-fuerte); font-size:12px; text-transform:uppercase; letter-spacing:.04em;}
 .guia-tip ul{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px;}
 .guia-roles{display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--gray); background:var(--neutro-suave); border-radius:20px; padding:5px 12px; margin:0 0 16px;}
 
@@ -1542,7 +1565,7 @@ table.tabla td.acciones{white-space:nowrap; text-align:right;}
 table.tabla td.acciones .btn{margin-left:5px;}
 table.tabla select{
   padding:6px 9px; border:1px solid #d4d9e6; border-radius:8px; font-family:inherit; font-size:12px;
-  color:var(--ink); background:#fbfcfe; outline:none;
+  color:var(--ink); background:var(--campo-bg); outline:none;
 }
 table.tabla select:focus{border-color:var(--accent);}
 table.tabla .yo{font-size:10.5px; color:var(--accent); font-weight:600;}
