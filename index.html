@@ -2673,11 +2673,23 @@ function normalizarItemChecklistRational(x){
   return { id: (x && x.id) || nuevoId(), texto: (x && x.texto ? String(x.texto) : '').trim().slice(0, 200) };
 }
 /* El checklist vivo: igual que catalogo(), sale del servidor y cae a la
-   semilla si todavía no hay nada guardado. */
+   semilla si todavía no hay nada guardado. A diferencia de CATALOGO_SEMILLA
+   (que trae su propio id de texto fijo, ej. 'amasadora-industrial'), esta
+   semilla es solo una lista de textos — por eso el id de respaldo se arma
+   aquí a partir del ÍNDICE, no con nuevoId(): "la semilla se sube cuando
+   alguien lo pide, nunca sola al arrancar" (sembrarChecklistRational), así
+   que mientras nadie la guarde de verdad, CUALQUIER técnico que marque este
+   checklist en una póliza o un hallazgo está usando la rama de respaldo —
+   con nuevoId() cada llamada a checklistRational() regeneraría ids nuevos
+   y lo marcado se perdería en cuanto se volviera a abrir el modal o se
+   generara el PDF, porque los ids guardados ya no coincidirían con los
+   recién inventados. Con un id fijo por posición, el respaldo es estable
+   hasta que se siembre de verdad (momento en que sembrarChecklistRational
+   sí usa nuevoId(), una sola vez, y esos ids quedan fijos en Firestore). */
 function checklistRational(){
   return datos.checklistRational.length
     ? datos.checklistRational
-    : CHECKLIST_RATIONAL_SEMILLA.map(texto => normalizarItemChecklistRational({ texto }));
+    : CHECKLIST_RATIONAL_SEMILLA.map((texto, i) => normalizarItemChecklistRational({ id: 'rational-sem-' + i, texto }));
 }
 /* Qué quedó marcado de ESE checklist en UN servicio/hallazgo en particular —
    se guarda denso (solo los ids en true) para no arrastrar un mapa con
@@ -5754,9 +5766,9 @@ function normalizarEvidencia(e){
    quitaría lugar a la placa o al agua. Se topa cada "cajón" (general + cada
    categoría Rational) por su cuenta y se vuelven a juntar en un solo
    arreglo, en el mismo orden en que ya venían. */
-function normalizarListaEvidencias(lista){
+function normalizarListaEvidencias(lista, topeGeneral){
   const crudas = (Array.isArray(lista) ? lista : []).map(normalizarEvidencia).filter(e => e.dataUrl);
-  const generales = crudas.filter(e => !e.categoriaRational).slice(0, EVIDENCIA_MAX_POR_SERVICIO);
+  const generales = crudas.filter(e => !e.categoriaRational).slice(0, topeGeneral || EVIDENCIA_MAX_POR_SERVICIO);
   const categorizadas = CATEGORIA_EVIDENCIA_RATIONAL.flatMap(cat =>
     crudas.filter(e => e.categoriaRational === cat).slice(0, EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL));
   return generales.concat(categorizadas);
@@ -7283,14 +7295,17 @@ function normalizarHallazgo(h){
     accionSugerida: (h && h.accionSugerida ? String(h.accionSugerida) : '').trim(),
     estatus: ESTATUS_HALLAZGO.includes(h && h.estatus) ? h.estatus : 'pendiente',
     resueltoNota: (h && h.resueltoNota ? String(h.resueltoNota) : '').trim(),
-    evidencias: (Array.isArray(h && h.evidencias) ? h.evidencias : [])
-      .map(normalizarEvidencia).filter(e => e.dataUrl).slice(0, EVIDENCIA_MAX_POR_HALLAZGO),
+    evidencias: normalizarListaEvidencias(h && h.evidencias, EVIDENCIA_MAX_POR_HALLAZGO),
     /* Qué hace falta cotizar (refacción, servicio, material) y la solicitud
        de cotización (borrador) que se generó sola para pedirlo — mismo
        criterio exacto que refaccion/refaccionCotizacionId en el servicio de
        una póliza: la liga se pone UNA sola vez. */
     cotizar: (h && h.cotizar ? String(h.cotizar) : '').trim(),
-    cotizacionId: (h && h.cotizacionId ? String(h.cotizacionId) : '').trim()
+    cotizacionId: (h && h.cotizacionId ? String(h.cotizacionId) : '').trim(),
+    /* Certificación RATIONAL (ver modalServicioPoliza): solo tiene algo
+       cuando `marca` es "Rational" — en cualquier otro hallazgo se queda en
+       {} para siempre. */
+    checklistRational: normalizarChecklistResultado(h && h.checklistRational)
   };
 }
 
@@ -11249,6 +11264,53 @@ function abrirDocumentoLevantamiento(id){
   if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
 }
 
+/* Documento de certificación RATIONAL (Fase 4 del pedido de Victor,
+   08-oct-2026: "un botón para exportar el reporte en PDF, parecido al de
+   Euromex"). Mismo criterio que armarPayloadLevantamiento(): solo strings ya
+   formateados, nada se calcula en la plantilla. `contexto` es un objeto
+   plano armado por quien llama (modalServicioPoliza/modalHallazgo, ambos ya
+   guardados — nunca staging sin guardar, ver abrirDocumentoCertificacionRational
+   en cada modal) con: cliente, sitio, concepto, marca, modelo, serie, fecha,
+   quien, checklistResultado ({itemId:true}) y evidencias (con
+   categoriaRational). El checklist se arma sobre checklistRational() VIGENTE
+   (el catálogo de puntos, no una copia congelada), igual que los modales en
+   vivo — si el checklist cambió después de capturar este servicio, el PDF
+   refleja el catálogo actual, marcando solo lo que de verdad se marcó. */
+function armarPayloadCertificacionRational(contexto){
+  const items = checklistRational();
+  const resultado = contexto.checklistResultado || {};
+  return {
+    meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
+    contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: (sesion && sesion.correo) || '' },
+    cliente: contexto.cliente || '',
+    sitio: contexto.sitio || '',
+    equipo: contexto.concepto || '',
+    marca: contexto.marca || '',
+    modelo: contexto.modelo || '',
+    serie: contexto.serie || '',
+    fecha: fechaDocumento(contexto.fecha || hoyISO()),
+    quien: contexto.quien || '',
+    checklist: items.map(it => ({ texto: it.texto, marcado: !!resultado[it.id] })),
+    categorias: CATEGORIA_EVIDENCIA_RATIONAL.map(cat => ({
+      etiqueta: ETIQUETA_CATEGORIA_EVIDENCIA_RATIONAL[cat],
+      fotos: (contexto.evidencias || []).filter(e => e.categoriaRational === cat).map(e => e.dataUrl)
+    })).filter(c => c.fotos.length)
+  };
+}
+
+const LLAVE_DOC_CERTIFICACION_RATIONAL = 'forguard.documento.certificacionRational';
+
+function abrirDocumentoCertificacionRational(contexto){
+  try{
+    sessionStorage.setItem(LLAVE_DOC_CERTIFICACION_RATIONAL, JSON.stringify(armarPayloadCertificacionRational(contexto)));
+  }catch(e){
+    aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
+    return;
+  }
+  const w = window.open('docs/plantilla_certificacion_rational.html?v=' + Date.now(), '_blank');
+  if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
+}
+
 /* Documento de un proyecto de Imagen/Aperturas: mismo criterio exacto que
    armarPayloadLevantamiento() — solo strings ya formateados, ninguna cuenta
    se hace en la plantilla. */
@@ -14341,6 +14403,7 @@ const TEMAS_AYUDA = [
         'Usa <b>Nuevo levantamiento</b>: Cliente y Sitio (con alta al vuelo si hacen falta), Fecha de la visita y quién <b>Realizó</b> el recorrido (se autosugiere tu nombre) y Notas generales. Folio automático <b>LV-DDMMAA-##</b>.',
         'Al guardar entras directo al detalle para empezar a <b>Agregar hallazgo</b> por cada cosa que encuentres.',
         'Cada hallazgo captura: Ubicación/área, Equipo del catálogo (u "Otro" con nombre libre), <b>Marca/Modelo/Número de serie</b> del equipo (opcionales, 25-sep-2026), Qué se encontró (obligatorio), Tipo de acción (correctivo/preventivo/<b>solo levantamiento</b>), Prioridad, Acción sugerida, Nota de resolución, hasta 4 fotos, y una casilla "¿Hay que cotizar algo?" con su propio texto.',
+        'Si escribes "Rational" en <b>Marca</b>, aparece de inmediato (sin cerrar el formulario) una sección de <b>Certificación RATIONAL</b>: el mismo checklist de inspección y evidencia por categoría (orden de servicio, placa, panel eléctrico, mediciones, pruebas iCareSystem/válvulas, calidad del agua) que trae el registro de servicio de una póliza — el botón <b>"Checklist RATIONAL"</b> de Pólizas (solo Admin/Owner) edita esos puntos si el proveedor cambia sus requisitos.',
         '<b>"Solo levantamiento (sin acción)"</b> es para cuando no hace falta programar nada — el hallazgo existe nada más para dejar documentado un equipo (con su marca/modelo/serie): nunca baja el "Análisis de funcionamiento" ni pinta en rojo, igual que uno preventivo.',
         'Al capturar varios hallazgos seguidos, usa <b>Guardar y agregar otro</b> para no cerrar el formulario cada vez.',
         'Marca cada hallazgo como <b>Resuelto</b> cuando se atienda, o <b>Reabrir</b> si vuelve a fallar — es un interruptor simple, sin formulario aparte.',
@@ -20371,8 +20434,16 @@ function modalHallazgo(levantamientoId, hallazgoId){
   if(!l) return;
   const hz = hallazgoId ? l.hallazgos.find(x => x.id === hallazgoId) : null;
   if(!exigirGestionLevantamiento()) return;
+  const cli = clientePorId(l.clienteId);
 
   let evidenciasTmp = hz ? hz.evidencias.slice() : [];
+  /* Certificación RATIONAL (ver modalServicioPoliza): a diferencia de ahí,
+     aquí `marca` es un campo de texto que se puede escribir DESPUÉS de abrir
+     el modal (un hallazgo nuevo arranca sin marca) — por eso la sección no
+     se arma condicional al HTML como en pólizas, sino que SIEMPRE se
+     imprime y se muestra/esconde con un listener en #hzMarca (ver más
+     abajo). Mismo patrón de staging que evidenciasTmp. */
+  let hzChecklistTmp = Object.assign({}, hz && hz.checklistRational);
   const cat = catalogo().slice().sort((a,b)=> a.concepto.localeCompare(b.concepto,'es'));
   const opc = (lista, sel, texto, valor) => lista.map(o =>
     '<option value="' + esc(valor(o)) + '"' + (valor(o) === sel ? ' selected' : '') + '>' + esc(texto(o)) + '</option>').join('');
@@ -20423,6 +20494,30 @@ function modalHallazgo(levantamientoId, hallazgoId){
     +   '<div class="pista" id="hzPistaEvidencia">Hasta ' + EVIDENCIA_MAX_POR_HALLAZGO + ' fotos. Se reducen solas para no pesar.</div>'
     + '</div>'
 
+    /* Certificación RATIONAL: SIEMPRE en el HTML (ver el comentario de
+       hzChecklistTmp arriba), oculta con `hidden` cuando la marca todavía no
+       es "Rational" — #hzMarca la muestra/esconde en vivo al escribir. */
+    + '<div class="bloque" id="hzZonaRational"' + (esMarcaRational(hz ? hz.marca : '') ? '' : ' hidden') + '>'
+    +   '<div class="bloque-cabeza"><div><h3>Certificación RATIONAL</h3>'
+    +     '<p>Checklist y evidencia que pide RATIONAL para certificar este equipo. Si el checklist cambió, se ajusta '
+    +     'desde "Checklist RATIONAL" en Pólizas — aquí solo se marca.</p></div></div>'
+    +   '<div class="campo"><label>Checklist de inspección</label>'
+    +     '<div id="hzChecklistRational"></div>'
+    +   '</div>'
+    +   '<div class="campo"><label>Evidencia categorizada (opcional)</label>'
+    +     '<div id="hzEvidenciaRationalWrap"></div>'
+    +     '<div class="pista">Hasta ' + EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL + ' fotos por categoría. No cuentan contra el cupo de "Fotos de evidencia" de arriba.</div>'
+    +   '</div>'
+    /* Solo si el hallazgo ya existe (está guardado): exporta lo último
+       guardado, no evidenciasTmp/hzChecklistTmp de este formulario abierto —
+       mismo criterio que modalServicioPoliza. */
+    +   (hz
+          ? '<button type="button" class="btn btn-suave btn-mini" id="hzBtnExportarCertificacionRational">'
+            + ICONO.imprimir + 'Exportar PDF de certificación</button>'
+            + '<div class="pista">Exporta lo último guardado. Si acabas de marcar o subir algo, guarda primero.</div>'
+          : '')
+    + '</div>'
+
     + '<div class="campo"><label class="casilla"><input type="checkbox" id="hzCotizarChk"'
     +     ((hz && hz.cotizar) ? ' checked' : '') + '> ¿Hay que cotizar algo para esto?</label>'
     +   '<div id="hzCotizarZona"' + ((hz && hz.cotizar) ? '' : ' hidden') + '>'
@@ -20451,37 +20546,117 @@ function modalHallazgo(levantamientoId, hallazgoId){
   pintarEquipoTexto();
   $('hzEquipoId').addEventListener('change', pintarEquipoTexto);
 
-  function pintarGaleriaHz(){
-    $('hzGaleriaEvidencia').innerHTML = evidenciasTmp.map(e =>
+  /* Certificación RATIONAL: a cuál categoría pertenece la próxima foto que
+     se suba ('' = foto general, igual que siempre). Mismo patrón que
+     modalServicioPoliza. */
+  let hzCategoriaParaSubir = '';
+  function galeriaHtmlHz(lista){
+    return lista.map(e =>
       '<div class="evidencia-foto"><img src="' + esc(e.dataUrl) + '" alt="Evidencia">'
       + '<button type="button" class="evidencia-quitar" data-quitar-tmp="' + esc(e.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
     ).join('');
+  }
+  /* Excluye a propósito las fotos ya etiquetadas con categoriaRational: esas
+     viven SOLO en su propia sección (ver pintarEvidenciaRationalHz), nunca
+     duplicadas aquí — mismo bug ya encontrado y corregido en
+     modalServicioPoliza (ver evidenciasGenerales ahí). */
+  const evidenciasGeneralesHz = () => evidenciasTmp.filter(e => !e.categoriaRational);
+  function pintarGaleriaHz(){
+    $('hzGaleriaEvidencia').innerHTML = galeriaHtmlHz(evidenciasGeneralesHz());
     $('hzGaleriaEvidencia').querySelectorAll('[data-quitar-tmp]').forEach(b=>{
       b.addEventListener('click', ()=>{
         evidenciasTmp = evidenciasTmp.filter(e => e.id !== b.dataset.quitarTmp);
         pintarGaleriaHz();
       });
     });
-    $('hzBtnAgregarFoto').disabled = evidenciasTmp.length >= EVIDENCIA_MAX_POR_HALLAZGO;
+    $('hzBtnAgregarFoto').disabled = evidenciasGeneralesHz().length >= EVIDENCIA_MAX_POR_HALLAZGO;
+  }
+  /* Certificación RATIONAL: mismo patrón de staging que modalServicioPoliza
+     — ver pintarChecklistRational()/pintarEvidenciaRational() ahí. */
+  function pintarChecklistRationalHz(){
+    const items = checklistRational();
+    const marcados = items.filter(it => hzChecklistTmp[it.id]).length;
+    $('hzChecklistRational').innerHTML = items.map(it =>
+        '<label class="casilla" style="display:block; margin-bottom:4px">'
+        + '<input type="checkbox" data-chk-rational="' + esc(it.id) + '"' + (hzChecklistTmp[it.id] ? ' checked' : '') + '> '
+        + esc(it.texto) + '</label>'
+      ).join('')
+      + '<div class="pista" style="margin-top:6px">' + marcados + ' de ' + items.length + ' puntos marcados.</div>';
+    $('hzChecklistRational').querySelectorAll('[data-chk-rational]').forEach(c=>{
+      c.addEventListener('change', ()=>{
+        if(c.checked) hzChecklistTmp[c.dataset.chkRational] = true; else delete hzChecklistTmp[c.dataset.chkRational];
+        $('hzChecklistRational').lastElementChild.textContent =
+          items.filter(it => hzChecklistTmp[it.id]).length + ' de ' + items.length + ' puntos marcados.';
+      });
+    });
+  }
+  function pintarEvidenciaRationalHz(){
+    $('hzEvidenciaRationalWrap').innerHTML = CATEGORIA_EVIDENCIA_RATIONAL.map(categ=>{
+      const fotos = evidenciasTmp.filter(e => e.categoriaRational === categ);
+      const llenaCat = fotos.length >= EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL;
+      return '<div class="fotos-unidad"><div class="fotos-unidad-titulo">' + esc(ETIQUETA_CATEGORIA_EVIDENCIA_RATIONAL[categ]) + '</div>'
+        + '<div class="galeria-evidencia">' + galeriaHtmlHz(fotos) + '</div>'
+        + '<button type="button" class="btn btn-suave btn-mini" data-agregar-categoria-rational="' + categ + '"' + (llenaCat ? ' disabled' : '') + '>'
+        + ICONO.camara + 'Agregar foto</button></div>';
+    }).join('');
+    $('hzEvidenciaRationalWrap').querySelectorAll('[data-quitar-tmp]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        evidenciasTmp = evidenciasTmp.filter(e => e.id !== b.dataset.quitarTmp);
+        pintarEvidenciaRationalHz();
+      });
+    });
+    $('hzEvidenciaRationalWrap').querySelectorAll('[data-agregar-categoria-rational]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        hzCategoriaParaSubir = b.dataset.agregarCategoriaRational;
+        $('hzArchivoEvidencia').click();
+      });
+    });
   }
   pintarGaleriaHz();
-  $('hzBtnAgregarFoto').addEventListener('click', ()=> $('hzArchivoEvidencia').click());
+  pintarChecklistRationalHz();
+  pintarEvidenciaRationalHz();
+  if(hz && $('hzBtnExportarCertificacionRational')){
+    $('hzBtnExportarCertificacionRational').addEventListener('click', ()=>{
+      abrirDocumentoCertificacionRational({
+        cliente: cli ? cli.nombre : '', sitio: l.sitioNombre || '',
+        concepto: hz.equipoNombre, marca: hz.marca, modelo: hz.modelo, serie: hz.serie,
+        fecha: l.fecha, quien: l.realizoNombre,
+        checklistResultado: hz.checklistRational, evidencias: hz.evidencias
+      });
+    });
+  }
+  /* `marca` se puede escribir DESPUÉS de abrir el modal (ver el comentario
+     junto a hzChecklistTmp) — por eso la sección se muestra/esconde en vivo
+     en vez de decidirse una sola vez al armar el HTML. */
+  $('hzMarca').addEventListener('input', ()=>{
+    $('hzZonaRational').hidden = !esMarcaRational($('hzMarca').value);
+  });
+  $('hzBtnAgregarFoto').addEventListener('click', ()=>{ hzCategoriaParaSubir = ''; $('hzArchivoEvidencia').click(); });
   $('hzArchivoEvidencia').addEventListener('change', async ev=>{
     const archivos = Array.from(ev.target.files || []);
     ev.target.value = '';
     if(!archivos.length) return;
-    const cupo = EVIDENCIA_MAX_POR_HALLAZGO - evidenciasTmp.length;
-    if(cupo <= 0){ aviso('Ya tienes ' + EVIDENCIA_MAX_POR_HALLAZGO + ' fotos. Quita alguna para agregar otra.', true); return; }
+    const subiendoCategoria = hzCategoriaParaSubir;
+    const cupo = subiendoCategoria
+      ? EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL - evidenciasTmp.filter(e => e.categoriaRational === subiendoCategoria).length
+      : EVIDENCIA_MAX_POR_HALLAZGO - evidenciasGeneralesHz().length;
+    if(cupo <= 0){
+      aviso(subiendoCategoria
+        ? 'Ya tienes ' + EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL + ' fotos en "' + ETIQUETA_CATEGORIA_EVIDENCIA_RATIONAL[subiendoCategoria] + '". Quita alguna para agregar otra.'
+        : 'Ya tienes ' + EVIDENCIA_MAX_POR_HALLAZGO + ' fotos. Quita alguna para agregar otra.', true);
+      return;
+    }
     $('hzPistaEvidencia').textContent = 'Procesando fotos…';
     for(const archivo of archivos.slice(0, cupo)){
       try{
         const img = await leerEvidencia(archivo);
         const dataUrl = comprimirEvidencia(img);
-        evidenciasTmp.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' }));
+        evidenciasTmp.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '', categoriaRational: subiendoCategoria }));
       }catch(e){ aviso(e.message, true); }
     }
     $('hzPistaEvidencia').textContent = 'Hasta ' + EVIDENCIA_MAX_POR_HALLAZGO + ' fotos. Se reducen solas para no pesar.';
     pintarGaleriaHz();
+    pintarEvidenciaRationalHz();
   });
 
   /* Igual que en modalServicioPoliza: una vez generada la solicitud, la
@@ -20538,7 +20713,8 @@ function modalHallazgo(levantamientoId, hallazgoId){
       resueltoNota: $('hzResueltoNota').value.trim(),
       evidencias: evidenciasTmp,
       cotizar,
-      cotizacionId: (cotLigada && cotLigada.id) || ''
+      cotizacionId: (cotLigada && cotLigada.id) || '',
+      checklistRational: hzChecklistTmp
     };
     const nuevoHz = normalizarHallazgo(datosHz);
 
@@ -20569,6 +20745,13 @@ function modalHallazgo(levantamientoId, hallazgoId){
     $('hzResueltoNota').value = '';
     evidenciasTmp = [];
     pintarGaleriaHz();
+    pintarEvidenciaRationalHz();
+    /* La marca se limpió arriba (hzMarca.value = ''), así que la sección ya
+       no aplica al siguiente hallazgo — mismo listener de 'input' que la
+       escondería si alguien la borrara a mano, aplicado aquí explícito. */
+    hzChecklistTmp = {};
+    pintarChecklistRationalHz();
+    $('hzZonaRational').hidden = true;
     $('hzCotizarChk').checked = false;
     $('hzCotizarZona').hidden = true;
     $('hzCotizarTexto').value = '';
@@ -26058,6 +26241,15 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
           +     '<div id="svEvidenciaRationalWrap"></div>'
           +     '<div class="pista">Hasta ' + EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL + ' fotos por categoría. No cuentan contra el cupo de "Fotos de evidencia" de arriba.</div>'
           +   '</div>'
+          /* Solo si ya está guardado: exporta la ÚLTIMA versión guardada, no
+             los cambios sin guardar de este modal — igual que el PDF de
+             Levantamiento se genera del detalle ya guardado, nunca de un
+             formulario abierto. */
+          +   (yaHecho
+                ? '<button type="button" class="btn btn-suave btn-mini" id="svBtnExportarCertificacionRational">'
+                  + ICONO.imprimir + 'Exportar PDF de certificación</button>'
+                  + '<div class="pista">Exporta lo último guardado. Si acabas de marcar o subir algo, guarda primero.</div>'
+                : '')
           + '</div>'
         : '')
 
@@ -26226,6 +26418,18 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
   pintarFotosSv();
   pintarChecklistRational();
   pintarEvidenciaRational();
+  /* Exporta la versión YA GUARDADA (det), no evidenciasTmp/checklistTmp del
+     formulario abierto — por eso solo existe el botón cuando yaHecho. */
+  if(esRational && yaHecho && $('svBtnExportarCertificacionRational')){
+    $('svBtnExportarCertificacionRational').addEventListener('click', ()=>{
+      abrirDocumentoCertificacionRational({
+        cliente: cli ? cli.nombre : '', sitio: p.sitioNombre || p.folio || '',
+        concepto: x.concepto, marca: x.marca, modelo: x.modelo, serie: det.numeroSerie || x.serie,
+        fecha: det.cuando, quien: det.quien,
+        checklistResultado: det.checklistRational, evidencias: det.evidencias
+      });
+    });
+  }
   $('svArchivoEvidencia').addEventListener('change', async ev=>{
     const archivos = Array.from(ev.target.files || []);
     ev.target.value = '';
