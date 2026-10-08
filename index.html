@@ -14474,6 +14474,7 @@ const TEMAS_AYUDA = [
         'Estatus del contrato: Borrador → Enviada (en espera de confirmar) → Activa (precios ya congelados) — o Cancelada.',
         'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción. Si el renglón tiene más de una unidad, la casilla <b>"Fotos separadas por equipo"</b> reparte la galería en una sección por unidad — útil cuando a una le pasó algo distinto a las demás; si no, una sola galería sirve para todas. Cuando dos renglones del mismo contrato comparten el nombre (ej. dos "Horno Rational" distintos), tanto la lista del mes como el modal de registro muestran además marca/modelo/serie de cada uno, para no confundir cuál se está marcando.',
         'Si la <b>marca</b> del equipo es "Rational", el registro de servicio trae además una sección de <b>Certificación RATIONAL</b>: el checklist de inspección que pide ese proveedor para certificar a Forguard, y evidencia fotográfica por categoría (orden de servicio, placa, panel eléctrico, mediciones, pruebas iCareSystem/válvulas, calidad del agua) — cada categoría con su propio cupo, aparte de las "Fotos de evidencia" generales. El botón <b>"Checklist RATIONAL"</b> de la cabecera (solo Admin/Owner) deja editar esos puntos si el proveedor cambia sus requisitos. Nada de esto —ni el checklist marcado ni esas fotos— viaja al portal de clientes: es control interno para la certificación.',
+        'El botón <b>"Refacciones RATIONAL"</b> de la cabecera abre la lista oficial de precios de ese proveedor (más de 11 mil refacciones, válida desde abril de 2025) — es solo buscador: escribe un código o parte del nombre para ver precio y pedido mínimo, y si el código ya se descontinuó, te enseña directo el código vigente que lo sustituye con su propio precio. Es para cotizar una pieza exacta, no el inventario propio de Forguard (eso vive en Proveedores → Refacciones).',
         'Haz clic en una casilla de cobro para <b>capturar el cobro</b>: quién captura, número de OC, si ya se facturó.',
         'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa) — un equipo "Responsabilidad del cliente" sale marcado ahí mismo: su fila se sombrea, su número lleva un "†", su Total sale en blanco, y una nota al final explica el símbolo y lista de nuevo cuáles son.',
         '<b>Imprimir calendario</b> (junto a Imprimir): abre solo la portada y la hoja del calendario de mantenimientos, sin la tabla de equipos, descripción de trabajos ni consideraciones — para cuando el técnico solo necesita el calendario en papel, sin las demás hojas. Sale en hoja horizontal (mejor visibilidad de las 12 columnas de mes) y con su propia portada, dejando bien claro que es SOLO el calendario, no el contrato completo.'
@@ -15392,6 +15393,9 @@ function vistaPolizas(){
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-checklist-rational" '
        +   'title="El checklist de inspección que pide RATIONAL para certificarnos como proveedor">'
        +   ICONO.cheque + 'Checklist RATIONAL</button>'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-catalogo-refacciones-rational" '
+       +   'title="Lista oficial de precios de refacciones RATIONAL México, para cotizar">'
+       +   ICONO.codigoBarras + 'Refacciones RATIONAL</button>'
      /* Las cotizaciones viejas ya existen en JSON: se cargan, no se recapturan. */
      +   (puedeEditar()
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="importar-polizas" '
@@ -23094,6 +23098,137 @@ function irAChecklistRational(){
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
+
+/* ==================== Catálogo de refacciones RATIONAL ====================
+   Pedido de Victor (08-oct-2026, tras las 4 fases de la certificación):
+   "puedes añadir este catalogo de refacciones especifico para rational,
+   donde podamos visualizarlo" — compartió la lista de precios OFICIAL de
+   RATIONAL México (PDF de 360 páginas, válida desde 1.4.2025), con 11,762
+   refacciones.
+
+   A diferencia del checklist (36 puntos, cabe entero como semilla en JS y
+   se edita a mano), esto es demasiado grande para vivir en index.html o en
+   un documento de Firestore (límite de 1MB): se transcribió UNA vez con un
+   script de línea de comandos (fuera del tablero, ver docs/datos/) a
+   docs/datos/refacciones_rational.json (~2.5MB) y esta pantalla lo trae con
+   un fetch() normal de archivo estático — no datos.*, no sincroniza con la
+   nube, no se edita aquí. Si RATIONAL publica una lista nueva, se vuelve a
+   generar ese mismo archivo y se reemplaza; no es cosa de picar y corregir
+   renglón por renglón como si fuera el catálogo de equipos propio.
+
+   Con 11,762 renglones, pintar la lista completa de una serían miles de
+   nodos en el DOM por nada — por eso es SOLO buscador: nada se muestra
+   hasta que se escribe algo, y los resultados se topan (ver TOPE_RESULTADOS_
+   REFACCIONES_RATIONAL) con un aviso de cuántos quedaron fuera. */
+const catalogoRefaccionesRational = { datos:null, cargando:false, error:'' };
+const TOPE_RESULTADOS_REFACCIONES_RATIONAL = 60;
+
+function irACatalogoRefaccionesRational(){
+  animarTarjetas = false;
+  estado.vista = 'catalogo-refacciones-rational'; estado.polizaId = null; estado.busca = '';
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+async function montarCatalogoRefaccionesRational(){
+  /* Se llama en CADA render() de esta vista (incluido cada tecleo en el
+     buscador, vía renderConservandoFoco) — por eso repinta siempre con lo
+     que ya haya, y solo dispara el fetch la primera vez. */
+  if(catalogoRefaccionesRational.datos || catalogoRefaccionesRational.cargando){
+    pintarResultadosRefaccionesRational();
+    return;
+  }
+  catalogoRefaccionesRational.cargando = true;
+  catalogoRefaccionesRational.error = '';
+  pintarResultadosRefaccionesRational();
+  try{
+    const resp = await fetch('docs/datos/refacciones_rational.json');
+    if(!resp.ok) throw new Error('HTTP ' + resp.status);
+    const json = await resp.json();
+    catalogoRefaccionesRational.datos = json.refacciones;
+  }catch(e){
+    catalogoRefaccionesRational.error = 'No se pudo cargar el catálogo: ' + (e && e.message ? e.message : 'error');
+  }finally{
+    catalogoRefaccionesRational.cargando = false;
+    pintarResultadosRefaccionesRational();
+  }
+}
+
+function pintarResultadosRefaccionesRational(){
+  const zona = $('zonaResultadosRefaccionesRational');
+  if(!zona) return;
+  if(catalogoRefaccionesRational.cargando){
+    zona.innerHTML = '<div class="vacio-chico">Cargando las 11,762 refacciones…</div>';
+    return;
+  }
+  if(catalogoRefaccionesRational.error){
+    zona.innerHTML = '<div class="aviso" style="border-left-color:var(--error)">' + ICONO.alerta
+      + '<div>' + esc(catalogoRefaccionesRational.error) + '</div></div>';
+    return;
+  }
+  const todas = catalogoRefaccionesRational.datos || [];
+  const q = estado.busca.trim().toLowerCase();
+  if(!q){
+    zona.innerHTML = '<div class="vacio-chico">Escribe un código (ej. "40.01.891") o parte de la descripción (ej. "electrodo de nivel") para buscar entre las '
+      + numero(todas.length) + ' refacciones.</div>';
+    return;
+  }
+  const encontradas = todas.filter(r => r.codigo.toLowerCase().includes(q) || r.descripcion.toLowerCase().includes(q));
+  if(!encontradas.length){
+    zona.innerHTML = '<div class="vacio-chico">Ningún código ni descripción coincide con "' + esc(estado.busca.trim()) + '".</div>';
+    return;
+  }
+  const porCodigo = new Map(todas.map(r => [r.codigo, r]));
+  const fila = r => {
+    const sustituto = r.sustitutoPor ? porCodigo.get(r.sustitutoPor) : null;
+    return '<tr>'
+      + '<td><code>' + esc(r.codigo) + '</code></td>'
+      + '<td>' + esc(r.descripcion) + '</td>'
+      + '<td class="pista">' + r.cantidadPedido + ' ' + esc(r.unidad) + '</td>'
+      + '<td>' + (
+          !r.vigente
+            ? (sustituto
+                ? 'Descontinuada → <code>' + esc(sustituto.codigo) + '</code>'
+                  + (sustituto.precio != null ? ' · ' + dineroOC(sustituto.precio)
+                    : sustituto.precioAPeticion ? ' · precio a petición' : '')
+                : 'Descontinuada, sin sustituto registrado')
+            : r.precioAPeticion ? 'Precio a petición'
+            : r.precio != null ? dineroOC(r.precio)
+            : '—'
+        ) + '</td>'
+      + '</tr>';
+  };
+  zona.innerHTML = '<div class="pista" style="margin-bottom:8px">'
+      + numero(encontradas.length) + ' ' + plural(encontradas.length,'resultado','resultados')
+      + (encontradas.length > TOPE_RESULTADOS_REFACCIONES_RATIONAL ? ' — mostrando los primeros ' + TOPE_RESULTADOS_REFACCIONES_RATIONAL + ', afina la búsqueda para ver el resto' : '')
+      + '</div>'
+    + '<div class="rodillo"><table class="tabla"><thead><tr>'
+      + '<th>Código</th><th>Descripción</th><th>Pedido mínimo</th><th>Precio (MXN, sin IVA)</th>'
+      + '</tr></thead><tbody>'
+      + encontradas.slice(0, TOPE_RESULTADOS_REFACCIONES_RATIONAL).map(fila).join('')
+      + '</tbody></table></div>';
+}
+
+function vistaCatalogoRefaccionesRational(){
+  let h = botonRegresarPolizas();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Catálogo de refacciones RATIONAL</h2>'
+     +   '<p>Lista oficial de precios de RATIONAL México, válida desde 1.4.2025 — para cotizar una refacción exacta, no es el inventario propio de Forguard.</p>'
+     + '</div></div>';
+
+  h += '<div class="aviso" style="border-left-color:var(--navy)">' + ICONO.info
+     + '<div>Precios sugeridos al público, <b>sin IVA</b>, EXW almacén RATIONAL México — sujetos a cambio sin previo aviso. '
+     + 'Un código "Descontinuada" ya no se pide así: se muestra el código vigente que lo sustituye, con su precio actual.</div></div>';
+
+  h += '<div class="campo"><label>Buscar por código o descripción</label>'
+     +   '<input type="text" id="buscaRefaccionRational" placeholder="Ej. 40.01.891, panel lateral, electrodo de nivel…" value="' + esc(estado.busca) + '" autocomplete="off"></div>';
+
+  h += '<div id="zonaResultadosRefaccionesRational"></div>';
+
+  return h;
+}
+
 /* La agenda se abre de tres lados: el botón de la portada y los dos indicadores
    de servicios. Desde los indicadores llega en «solo lo pendiente», porque eso es
    lo que la persona picó — enseñarle además tres meses de futuro entierra lo que
@@ -23213,6 +23348,7 @@ function render(){
     : estado.modulo === 'polizas'      ? (estado.vista === 'poliza' ? vistaPoliza()
                                     : estado.vista === 'precios' ? vistaPrecios()
                                     : estado.vista === 'checklist-rational' ? vistaChecklistRational()
+                                    : estado.vista === 'catalogo-refacciones-rational' ? vistaCatalogoRefaccionesRational()
                                     : estado.vista === 'agenda'  ? vistaAgenda()
                                     : vistaPolizas())
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
@@ -23515,7 +23651,10 @@ function render(){
   if(fe) fe.addEventListener('change', ()=>{ estado.encargadoFiltro = fe.value; render(); });
   const ftv = $('filtroTecnicoVisitaSel');
   if(ftv) ftv.addEventListener('change', ()=>{ estado.filtroTecnicoVisita = ftv.value; render(); });
+  const bRefR = $('buscaRefaccionRational');
+  if(bRefR) bRefR.addEventListener('input', ()=>{ estado.busca = bRefR.value; renderConservandoFoco(bRefR, 'buscaRefaccionRational'); });
   if(estado.vista === 'admin') montarAdmin();
+  if(estado.vista === 'catalogo-refacciones-rational') montarCatalogoRefaccionesRational();
   if(estado.modulo === 'visitas') montarVisitas();
   /* Ya se dibujó: los siguientes redibujados de esta misma lista son instantáneos.
      Solo cambiar de vista vuelve a prender la animación. */
@@ -30370,6 +30509,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'importar-poliza-excel'){ if(exigirPermiso()) $('archivoPolizaExcel').click(); }
     else if(a === 'ver-precios') irAPrecios();
     else if(a === 'ver-checklist-rational') irAChecklistRational();
+    else if(a === 'ver-catalogo-refacciones-rational') irACatalogoRefaccionesRational();
     else if(a === 'guardar-checklist-rational-semilla') sembrarChecklistRational();
     else if(a === 'agregar-punto-checklist-rational'){
       if(!exigirAdmin('cambiar el checklist de RATIONAL')) return;
