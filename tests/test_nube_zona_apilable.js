@@ -25,15 +25,35 @@
    botones pasan a una fila de abajo si no caben, en vez de desbordar) y
    `justify-content:flex-end` (cada fila se alinea a la derecha, igual que
    antes). Eso solo no bastaba: como único elemento de su propia línea
-   dentro de `header.app` (que ya tiene su flex-wrap desde los 840px),
-   `.nube-zona` se queda con el ancho que le pidan sus botones en vez del
-   ancho real disponible, así que su propio `flex-wrap` no tenía contra qué
-   romper línea. Por eso, dentro del mismo `@media(max-width:840px)` que ya
-   reorganiza el resto del encabezado, se agregó `flex-basis:100%` — ahí sí
-   ocupa el ancho real de su renglón y el `flex-wrap` de arriba puede
-   envolver los botones que sobren a una fila (o dos) de abajo. A 840px
-   (donde ya cabían todos en una sola fila) no cambia nada a simple vista:
-   flex-basis:100% con contenido que ya cabe se ve igual. */
+   dentro de `header.app`, `.nube-zona` se queda con el ancho que le pidan
+   sus botones en vez del ancho real disponible, así que su propio
+   `flex-wrap` no tenía contra qué romper línea — hacía falta además
+   `flex-basis:100%` para que sí ocupara el ancho real de su renglón.
+
+   SEGUNDA VUELTA el mismo día (Victor mandó otra captura mostrando esta
+   misma fila, ahora con "Ver como…"/"Admin"/"Mi cuenta" con su texto
+   completo —o sea, en una ventana de ESCRITORIO, no celular— y dijo
+   "nuevamente revisa la apilacion de esta seccion porque se estan apilando
+   de manera erronea"): el primer arreglo puso `flex-wrap` en `header.app` y
+   `flex-basis:100%` en `.nube-zona` SOLO dentro de `@media(max-width:840px)`
+   — el mismo error de fondo que ya se había corregido en el menú de
+   módulos (ver test_menu_responsivo_hamburguesa.js): un ancho fijo, no el
+   desborde real. Entre 841px y ~990px (comprobado con nombre+permiso+nube+
+   notificaciones con número+pendientes con número+3 botones de texto) la
+   fila de la cuenta YA NO cabía en una sola línea, pero `header.app` seguía
+   en `nowrap` (nada por debajo de 840px) y `.nube-zona` sin su
+   `flex-basis:100%` — mismo bug original: desborde horizontal silencioso,
+   sin aviso, en una ventana de escritorio en vez de un celular.
+
+   Arreglo real: la clase `.header-apilada` (mismo patrón que
+   `.nav-colapsada`) la pone/quita `actualizarColapsoNav()` por desborde
+   real de `header.app` (`scrollWidth` contra `clientWidth`, medido DESPUÉS
+   de resolver si el menú de módulos ya colapsó a hamburguesa, porque eso
+   cambia cuánto espacio le queda a la fila de la cuenta) — el `flex-wrap`
+   de `header.app` y el `flex-basis:100%` de `.nube-zona` ahora cuelgan de
+   esa clase en vez del media query de 840px, así que el apilado ocurre al
+   ancho EXACTO donde la fila deja de caber, sea celular o una ventana de
+   escritorio de cualquier tamaño. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -44,7 +64,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   const browser = await chromium.launch(OPCIONES_NAVEGADOR);
   const errores = [];
 
-  async function arrancar(width){
+  async function arrancar(width, opciones){
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     page.on('pageerror', e => errores.push('PAGEERROR (' + width + 'px): ' + e.message));
     await page.route('**identitytoolkit.googleapis.com/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
@@ -52,12 +72,18 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     await page.route('**firestore.googleapis.com/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
     await page.goto(URL_BASE + '/index.html');
     await page.waitForTimeout(400);
-    await page.evaluate(() => {
+    await page.evaluate((conBadges) => {
       sesion.correo='victor.mejia@platoexpress.com'; sesion.uid='u-owner'; sesion.idToken='FAKE'; sesion.refreshToken='F2';
       sesion.expira=Date.now()+3600000; sesion.rol='owner'; sesion.nombre='Víctor Mejía Chávez';
       ocultarAcceso();
       render(); // ocultarAcceso() por sí sola no vuelve a pintar la cabecera.
-    });
+      // Nombre largo + notificaciones/pendientes CON número son justo lo que
+      // le faltaba de ancho a la fila real de Victor en la segunda vuelta.
+      if(conBadges){
+        const pn = document.getElementById('puntoNotificaciones'); if(pn){ pn.hidden = false; pn.textContent = '3'; }
+        const pp = document.getElementById('puntoPendientes'); if(pp){ pp.hidden = false; pp.textContent = '5'; }
+      }
+    }, (opciones && opciones.conBadges) || false);
     await page.waitForTimeout(400);
     return page;
   }
@@ -102,6 +128,29 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('320px: sin desborde horizontal ni en el caso más angosto común', await sinDesborde(extremo));
   chkF('320px: "Log out" sigue visible (apilado en una tercera fila si hace falta)', await extremo.locator('#btnSalir').isVisible());
   await extremo.close();
+
+  // --------- 5) Ventana de ESCRITORIO mediana (950px), con notificaciones y
+  // --------- pendientes con número: el caso real reportado por Victor en la
+  // --------- segunda vuelta — más ancho que el viejo breakpoint de 840px,
+  // --------- con texto completo en los botones, pero sin espacio real para
+  // --------- toda la fila junta en una sola línea. ---------
+  const escritorioMedio = await arrancar(950, { conBadges: true });
+  chkF('950px (escritorio, no celular): sin desborde horizontal — antes se salía en silencio', await sinDesborde(escritorioMedio));
+  chkF('950px: el encabezado SÍ se apiló (header-apilada), el menú de módulos ya era hamburguesa por su cuenta',
+    await escritorioMedio.evaluate(() => document.querySelector('header.app').classList.contains('header-apilada')));
+  chkF('950px: "Log out" sigue siendo alcanzable y visible', await escritorioMedio.locator('#btnSalir').isVisible());
+  const cajaSalirMedio = await escritorioMedio.locator('#btnSalir').boundingBox();
+  chkF('950px: "Log out" queda DENTRO del ancho de la ventana', cajaSalirMedio && (cajaSalirMedio.x + cajaSalirMedio.width) <= 950);
+  await escritorioMedio.close();
+
+  // --------- 6) Resize EN VIVO a esa misma zona (sin recargar la página) ---------
+  const resizeMedio = await arrancar(1400);
+  chkF('Resize: arranca ancha, sin apilar', !(await resizeMedio.evaluate(() => document.querySelector('header.app').classList.contains('header-apilada'))));
+  await resizeMedio.setViewportSize({ width: 950, height: 900 });
+  await resizeMedio.waitForTimeout(400);
+  chkF('Resize: al angostar a 950px (sin recargar), se apila sola', await resizeMedio.evaluate(() => document.querySelector('header.app').classList.contains('header-apilada')));
+  chkF('Resize: sin desborde horizontal tras el resize', await sinDesborde(resizeMedio));
+  await resizeMedio.close();
 
   console.log('Errores capturados:', JSON.stringify(errores));
   chkF('No hubo errores de página en ningún ancho', errores.length === 0);

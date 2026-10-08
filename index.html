@@ -286,7 +286,7 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
    (flex-basis:100% fuerza el salto de línea) porque ahí ya ni boca a boca con
    el resto del encabezado cabe cómodo. */
 @media (max-width:840px){
-  header.app{padding:12px 16px; gap:10px; flex-wrap:wrap;}
+  header.app{padding:12px 16px; gap:10px;}
   header.app .sub{display:none;}
   .modulos{gap:1px;}
   .modulos .mod{padding:5px 6px; font-size:11.5px;}
@@ -295,21 +295,33 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
      .nav-colapsada más arriba, que actualizarColapsoNav() aplica por
      desborde real medido en JS, no por este ancho fijo. Lo que sigue
      aplicando aquí es el resto del reacomodo del encabezado en pantallas
-     angostas (este bloque es más chico que antes a propósito). */
-  /* flex-basis:100% le da a .nube-zona el ancho REAL de su propio renglón
-     (cuando comparte el de arriba con el logo y la hamburguesa igual le
-     sobra, se ve exactamente igual) — sin esto, como único elemento de su
-     renglón, el navegador la deja del ancho que le pidan sus botones
-     (flex-wrap:wrap de arriba hacia abajo), y ESE ancho podía pasarse de la
-     pantalla sin que su propio flex-wrap (ver la regla base) tuviera contra
-     qué romper línea: el botón "Log out" se quedaba afuera, sin scroll ni
-     aviso, en celulares angostos de verdad. */
-  .nube-zona{gap:6px; flex-basis:100%;}
+     angostas (este bloque es más chico que antes a propósito): el
+     flex-wrap del encabezado y el flex-basis:100% de .nube-zona TAMBIÉN se
+     movieron a la clase .header-apilada (ver más abajo), por la misma razón
+     que .nav-colapsada — un ancho fijo (840px) dejaba el mismo bug original
+     vivo en cualquier ventana de escritorio más ancha que eso pero sin
+     espacio real para nombre+permiso+nube+botones en una sola fila. */
+  .nube-zona{gap:6px;}
   /* Mismo criterio que ya usa .pastilla: con el icono basta, el texto ("Admin",
      "Mi cuenta", "Log out") solo hace bulto en una pantalla angosta. */
   .btn-cabeza .txt{display:none;}
   .btn-cabeza{padding:7px 9px;}
 }
+/* .header-apilada: igual que .nav-colapsada, la pone/quita en JS
+   actualizarColapsoNav() por DESBORDE REAL de header.app (logo + menú de
+   módulos ya resuelto + nombre/permiso/nube/botones), no por un ancho fijo
+   — pedido de Victor, 08-oct-2026, con una captura real mostrando la fila
+   de la cuenta ya apilada "de manera erronea": el primer arreglo (solo
+   ≤840px) dejaba el mismo bug original —desborde horizontal silencioso,
+   "Log out" empujado fuera de la pantalla sin aviso— vivo en cualquier
+   ancho de escritorio mayor a 840px donde esa fila de todos modos no
+   cupiera completa (ej. un nombre largo + "Actualizando…" + 7 botones).
+   flex-wrap en el encabezado deja que .nube-zona cuente con su propio
+   renglón cuando hace falta; flex-basis:100% le da el ancho REAL de ese
+   renglón para que, a su vez, SU PROPIO flex-wrap (ver la regla base de
+   .nube-zona) tenga contra qué romper línea en vez de desbordar. */
+header.app.header-apilada{flex-wrap:wrap;}
+header.app.header-apilada .nube-zona{flex-basis:100%;}
 
 /* ---------- Contenedor ---------- */
 .wrap{max-width:1180px; margin:0 auto; padding:26px 24px 90px;}
@@ -23604,6 +23616,25 @@ function actualizarColapsoNav(){
       zona.classList.remove('nav-colapsada');
       const desborda = nav.scrollWidth > nav.clientWidth + 1;
       zona.classList.toggle('nav-colapsada', desborda);
+
+      /* Con el menú de módulos ya resuelto (colapsado a hamburguesa o no —
+         eso cambia cuánto espacio le queda al resto), medir si el
+         encabezado COMPLETO (logo + menú + nombre/permiso/nube/botones)
+         sigue sin caber en una sola fila. Si no cabe, .header-apilada deja
+         que .nube-zona tome su propio renglón (ver el CSS) y, dentro de
+         ese renglón, se apile ella misma en más de una fila en vez de
+         desbordar la pantalla por la derecha sin aviso — mismo bug que
+         .nav-colapsada, aplicado aquí (pedido de Victor, 08-oct-2026, con
+         una segunda captura mostrando esta fila ya apilada "de manera
+         erronea": el primer arreglo, un media query fijo a 840px, dejaba
+         vivo el mismo desborde silencioso en cualquier ventana más ancha
+         que eso pero sin espacio real para todo). */
+      const header = document.querySelector('header.app');
+      if(header){
+        header.classList.remove('header-apilada');
+        const desbordaHeader = header.scrollWidth > header.clientWidth + 1;
+        header.classList.toggle('header-apilada', desbordaHeader);
+      }
     });
   });
 }
