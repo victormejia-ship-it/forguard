@@ -257,6 +257,29 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
    padding/gap que el resto) en vez de quedar anidados un nivel de más. */
 .mas-grupo-ancho{display:none;}
 .mas-separador{border-top:1px solid var(--line); margin:4px 6px;}
+/* Colapso de la fila de pestañas por DESBORDE real, no por un ancho de
+   pantalla fijo (pedido de Victor, 08-oct-2026: "en celular si, en el sitio
+   web no me aparece de esa manera" — abajo de 840px el colapso de abajo ya
+   funcionaba, pero entre 840px y lo que hiciera falta para que cupieran las
+   10 pestañas completas, #selectorModulo seguía con su scroll horizontal
+   escondido de antes: mismo bug original, solo que a un ancho distinto).
+   actualizarColapsoNav() mide si #selectorModulo desborda de verdad (su
+   scrollWidth contra su clientWidth) y pone/quita esta clase en #zonaModulos
+   — nada de media query aquí: el colapso ocurre al ancho exacto donde las
+   pestañas dejan de caber, sea celular, una ventana angosta de escritorio o
+   cualquier otro caso (menos módulos permitidos por rol, fuente más grande,
+   etc.) que cambie cuánto espacio hace falta. */
+#zonaModulos.nav-colapsada #selectorModulo{display:none;}
+#zonaModulos.nav-colapsada .mod-mas-txt,
+#zonaModulos.nav-colapsada .mod-mas-chevron{display:none;}
+#zonaModulos.nav-colapsada .mod-mas-hamburguesa{display:block;}
+#zonaModulos.nav-colapsada .mas-grupo-ancho{display:contents;}
+#zonaModulos.nav-colapsada .mod-mas{padding:0 8px; font-size:11.5px;}
+/* Mismo bug de posicionamiento ya documentado abajo para pantallas angostas,
+   aplicado aquí por la misma razón: con #selectorModulo escondido,
+   .modulos-zona se encoge a solo el botón, pegado al logo (borde IZQUIERDO
+   del encabezado), y el right:0 de .mas-panel lo sacaría de la pantalla. */
+#zonaModulos.nav-colapsada .mas-panel{left:0; right:auto;}
 
 /* Bajo los 840px, además de lo de arriba, el encabezado entero se parte en dos
    renglones: el selector de módulo se va completo a su propio renglón
@@ -267,25 +290,12 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
   header.app .sub{display:none;}
   .modulos{gap:1px;}
   .modulos .mod{padding:5px 6px; font-size:11.5px;}
-  /* La fila de pestañas se esconde entera — "Más" (ahora ícono de
-     hamburguesa) pasa a ser el único punto de entrada, con TODOS los
-     módulos adentro (ver el grupo duplicado en el HTML). Ya no hace falta
-     forzar a .modulos-zona a su propio renglón completo (antes necesario
-     para que la fila larga de pestañas tuviera dónde scrollear): ahora es
-     solo un botón compacto, cabe junto al logo igual que el resto del
-     encabezado. */
-  #selectorModulo{display:none;}
-  .mod-mas-txt, .mod-mas-chevron{display:none;}
-  .mod-mas-hamburguesa{display:block;}
-  .mas-grupo-ancho{display:contents;}
-  .mod-mas{padding:0 8px; font-size:11.5px;}
-  /* .mas-panel se ancla con right:0 contra .modulos-zona — con la fila de
-     pestañas visible, .modulos-zona ocupaba casi todo el encabezado y ese
-     borde derecho caía cerca del borde derecho de la pantalla. Ahora que
-     .modulos-zona es solo el botón de hamburguesa, pegado al logo (borde
-     IZQUIERDO del encabezado), ese mismo right:0 sacaba el panel entero de
-     la pantalla por la izquierda. Aquí se ancla al revés. */
-  .mas-panel{left:0; right:auto;}
+  /* El colapso de la fila de pestañas (esconder #selectorModulo, hamburguesa,
+     grupo duplicado, posición de .mas-panel) ya NO vive aquí — ver la clase
+     .nav-colapsada más arriba, que actualizarColapsoNav() aplica por
+     desborde real medido en JS, no por este ancho fijo. Lo que sigue
+     aplicando aquí es el resto del reacomodo del encabezado en pantallas
+     angostas (este bloque es más chico que antes a propósito). */
   .nube-zona{gap:6px;}
   /* Mismo criterio que ya usa .pastilla: con el icono basta, el texto ("Admin",
      "Mi cuenta", "Log out") solo hace bulto en una pantalla angosta. */
@@ -1815,17 +1825,23 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
        visible pegado al borde derecho; lo único que se angosta y scrollea es
        la fila de arriba (flex:1 1 auto; min-width:0). -->
   <div class="modulos-zona" id="zonaModulos">
+    <!-- Orden: "Mi agenda" (técnico) y "Resultados" fijos primero —pedido de
+         Victor, 08-oct-2026: "acomodalos en orden alfabetico, con la
+         excepcion de que resultados siempre sea el primero"— nunca compiten
+         por el mismo lugar porque modulosPermitidos() jamás da los dos a la
+         misma cuenta (un técnico tiene mi-agenda pero no resultados, ver esa
+         función). El resto, alfabético. -->
     <nav class="modulos" id="selectorModulo" role="tablist" aria-label="Módulo">
       <button type="button" class="mod" data-modulo="mi-agenda" role="tab" aria-selected="false">Mi agenda</button>
       <button type="button" class="mod" data-modulo="resultados" role="tab" aria-selected="false">Resultados</button>
       <button type="button" class="mod" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
-      <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="false">Forpass</button>
-      <button type="button" class="mod" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
       <button type="button" class="mod" data-modulo="cocinas" role="tab" aria-selected="false">Cocinas</button>
-      <button type="button" class="mod" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
-      <button type="button" class="mod" data-modulo="visitas" role="tab" aria-selected="false">Visitas</button>
-      <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
       <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
+      <button type="button" class="mod" data-modulo="forpass" role="tab" aria-selected="false">Forpass</button>
+      <button type="button" class="mod" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
+      <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
+      <button type="button" class="mod" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
+      <button type="button" class="mod" data-modulo="visitas" role="tab" aria-selected="false">Visitas</button>
     </nav>
     <button type="button" class="mod-mas" id="btnMasModulos" aria-haspopup="true" aria-expanded="false" aria-selected="false">
       <svg class="mod-mas-hamburguesa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
@@ -1857,21 +1873,21 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
         <button type="button" class="mas-item" data-modulo="mi-agenda" role="tab" aria-selected="false">Mi agenda</button>
         <button type="button" class="mas-item" data-modulo="resultados" role="tab" aria-selected="false">Resultados</button>
         <button type="button" class="mas-item" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
-        <button type="button" class="mas-item" data-modulo="forpass" role="tab" aria-selected="false">Forpass</button>
-        <button type="button" class="mas-item" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
         <button type="button" class="mas-item" data-modulo="cocinas" role="tab" aria-selected="false">Cocinas</button>
-        <button type="button" class="mas-item" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
-        <button type="button" class="mas-item" data-modulo="visitas" role="tab" aria-selected="false">Visitas</button>
-        <button type="button" class="mas-item" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
         <button type="button" class="mas-item" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
+        <button type="button" class="mas-item" data-modulo="forpass" role="tab" aria-selected="false">Forpass</button>
+        <button type="button" class="mas-item" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
+        <button type="button" class="mas-item" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
+        <button type="button" class="mas-item" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
+        <button type="button" class="mas-item" data-modulo="visitas" role="tab" aria-selected="false">Visitas</button>
         <div class="mas-separador"></div>
       </div>
       <button type="button" class="mas-item" data-modulo="activos" role="tab" aria-selected="false">Activos</button>
-      <button type="button" class="mas-item" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
-      <button type="button" class="mas-item" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
-      <button type="button" class="mas-item" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
-      <button type="button" class="mas-item" data-modulo="equipos" role="tab" aria-selected="false">Catálogo de equipos</button>
       <button type="button" class="mas-item" data-modulo="ayuda" role="tab" aria-selected="false">Ayuda</button>
+      <button type="button" class="mas-item" data-modulo="equipos" role="tab" aria-selected="false">Catálogo de equipos</button>
+      <button type="button" class="mas-item" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
+      <button type="button" class="mas-item" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
+      <button type="button" class="mas-item" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
     </div>
   </div>
   <div class="nube-zona">
@@ -23282,6 +23298,43 @@ function cerrarPanelMasModulos(){
   $('btnMasModulos').setAttribute('aria-expanded', 'false');
 }
 
+/* Colapsa la fila de pestañas a "Más"/hamburguesa por DESBORDE real, no por
+   un ancho de pantalla fijo (pedido de Victor, 08-oct-2026: "en celular si,
+   en el sitio web no me aparece de esa manera" — el arreglo anterior, un
+   media query a 840px, dejaba el mismo bug original —scroll horizontal
+   escondido, pestañas invisibles de facto— vivo en cualquier ancho mayor que
+   no alcanzara para las 10 pestañas completas, como una ventana de
+   escritorio angosta). Se llama al cargar, en cada resize y al final de
+   pintarCabecera() (cambiar qué pestañas están permitidas por rol también
+   cambia cuánto espacio hace falta). */
+function actualizarColapsoNav(){
+  /* Medir en el mismo tick síncrono en que se llama (p.ej. desde dentro de
+     pintarCabecera(), a mitad de un login que todavía va a tocar más cosas
+     del encabezado en la misma pasada) da un ancho todavía no definitivo —
+     comprobado: llamarla ahí mismo medía un sobrante de ~90px que, un
+     instante después, ya no existía. requestAnimationFrame la corre después
+     de que termine TODO el trabajo síncrono en curso (incluyendo el resto
+     de la función que la llamó) y el navegador ya recalculó el layout real,
+     justo antes de pintar — ahí el ancho medido es el de verdad. */
+  /* Un solo requestAnimationFrame no siempre alcanzó en la práctica (visto en
+     la suite de pruebas bajo carga): dos anidados —patrón estándar para
+     "esperar a que el layout de este batch de cambios ya esté pintado"— le
+     da un respiro extra sin que se note (un frame más, ~16ms). */
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      const zona = $('zonaModulos');
+      const nav = $('selectorModulo');
+      if(!zona || !nav) return;
+      /* Hay que quitar el colapso ANTES de medir: con #selectorModulo en
+         display:none (la clase puesta en la vuelta anterior) su scrollWidth
+         siempre da 0, y nunca se detectaría que ya volvió a caber. */
+      zona.classList.remove('nav-colapsada');
+      const desborda = nav.scrollWidth > nav.clientWidth + 1;
+      zona.classList.toggle('nav-colapsada', desborda);
+    });
+  });
+}
+
 function pintarCabecera(){
   const dentro = HAY_NUBE && haySesion();
   const nom = $('nombreSesion');
@@ -23344,6 +23397,10 @@ function pintarCabecera(){
   const btnMas = $('btnMasModulos');
   btnMas.style.display = GRUPO_MAS.some(m => permitidos.includes(m)) ? '' : 'none';
   btnMas.setAttribute('aria-selected', GRUPO_MAS.includes(estado.modulo) ? 'true' : 'false');
+  /* Ocultar/mostrar pestañas por rol cambia cuánto espacio hace falta en la
+     fila —p.ej. un técnico con 7 módulos desborda a un ancho distinto que un
+     Owner con 10— así que el colapso por desborde se vuelve a medir aquí. */
+  actualizarColapsoNav();
 
   /* El logo solo funciona como atajo cuando hay a dónde volver — a la
      pantalla principal DE VERDAD (ver irAInicio()), no solo a la portada
@@ -31824,6 +31881,16 @@ $('panelMasModulos').addEventListener('click', ev=>{
   if(!b) return;
   irAModulo(b.dataset.modulo);
   cerrarPanelMasModulos();
+});
+
+/* El colapso por desborde (ver actualizarColapsoNav()) también depende del
+   ancho de ventana, no solo de qué pestañas están permitidas — hace falta
+   volver a medir en cada resize. Debounced: medir de más en cada pixel que
+   se arrastra la ventana no aporta nada y sí cuesta. */
+let temporizadorResizeNav = null;
+window.addEventListener('resize', ()=>{
+  clearTimeout(temporizadorResizeNav);
+  temporizadorResizeNav = setTimeout(actualizarColapsoNav, 120);
 });
 
 /* Con trackpad, deslizar dos dedos manda deltaX real y .modulos se mueve
