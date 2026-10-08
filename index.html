@@ -1447,6 +1447,14 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 .c-tecnico  {background:#FCEFDD; color:#9A5B12; border-color:#F0D9B4;}
 .c-reportero{background:#F1EAFB; color:#6A3FA0; border-color:#DCC9F2;}
 table.tabla select.sel-rol{font-weight:600;}
+/* Punto del checklist de certificación RATIONAL, editable directo en la
+   tabla (ver vistaChecklistRational) — mismo criterio que "Categoría" en
+   Lista de precios: un documento único, se edita línea por línea sin abrir
+   un modal por renglón. */
+table.tabla input[type="text"][data-texto-checklist]{
+  width:100%; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px;
+  background:var(--campo-bg); color:inherit;
+}
 
 /* Vista previa de rol (solo Owner, ver modalVistaPrevia()): la etiqueta junto
    al nombre en el encabezado y la franja de abajo usan el mismo ámbar de
@@ -2579,6 +2587,98 @@ const CATALOGO_SEMILLA = [
 function catalogo(){ return datos.catalogo.length ? datos.catalogo : CATALOGO_SEMILLA.map(normalizarEquipo); }
 const equipoDeCatalogo = id => catalogo().find(e => e.id === id) || null;
 
+/* ==================== Certificación RATIONAL ====================
+   Pedido de Victor, 08-oct-2026, con un reporte real de Euromex Service para
+   un iCombi Pro (serie E22SJ24073155686): Forguard está buscando certificarse
+   como proveedor autorizado de RATIONAL, que exige una inspección con un
+   checklist de actividades muy específico del equipo y evidencia fotográfica
+   categorizada (no una galería suelta). Aplica a CUALQUIER equipo cuya marca
+   sea "Rational" —decisión confirmada con Victor—, en cualquier lugar donde
+   se le da servicio o se inspecciona (Pólizas y Levantamientos, los dos
+   únicos lugares con un campo `marca` propio por equipo). */
+function esMarcaRational(marca){ return /^rational$/i.test((marca || '').trim()); }
+
+/* Semilla del checklist, transcrita tal cual del PDF de Euromex (sección
+   "ACTIVIDADES REALIZADAS") — Victor pidió que SÍ se pudiera editar después
+   (por si RATIONAL cambia sus requisitos), así que esto es solo el punto de
+   partida: datos.checklistRational es lo que de verdad manda en cuanto
+   alguien lo guarda una vez, igual que CATALOGO_SEMILLA con la lista de
+   precios (ver sembrarCatalogo). */
+const CHECKLIST_RATIONAL_SEMILLA = [
+  'Ajuste de temperatura - tiempo',
+  'Revisión de bomba vaciado SC M4, revisión del impeler, tubo de vaciado y conexión en T',
+  'Revisión de cámara de cocción',
+  'Desmontaje y revisión de electrodo de nivel S2',
+  'Revisión del estado de las mangueras internas de distribución del agua',
+  'Revisión de las funciones en modo Vapor y Aire Caliente',
+  'Funcionamiento del zumbador T2',
+  'Junta de la puerta vista en funcionamiento con vapor',
+  'Revisión de mando giratorio y potenciómetro',
+  'Revisión de motor drenaje M7 y switch S12',
+  'Revisión de parte electrónica libre de insectos',
+  'Rejilla del drenaje correctamente insertada',
+  'Resistencia de vapor en buen estado',
+  'Revisión de sistema de iluminación (foco, socket, cristal)',
+  'Revisión de solenoide enfriamiento Y2 y Quenching',
+  'Revisión de solenoide llenado Y1',
+  'Revisión de sujeción del cristal interior y puerta',
+  'Revisión de termopares B1 y B4',
+  'Revisión de termopares B5',
+  'Verificación de bomba limpieza M6 y tubos de limpieza en buen estado',
+  'Revisión de cable control SSR',
+  'Revisión de conexión del drenaje de acuerdo a especificaciones',
+  'Entrega funcional en vapor, calor y sistema de lavado',
+  'Revisión del estado del sensor CDS S11',
+  'Funcionamiento de ducha de mano y dispositivo retráctil',
+  'Hermeticidad y limpieza de la válvula clima c/ducto',
+  'Junta y lámina del panel de control en buen estado',
+  'Mecanismo de cierre y tapón del panel',
+  'Revisión de motor principal M1',
+  'Prueba de funcionamiento del equipo instalado',
+  'Resistencia de aire caliente en buen estado',
+  'Revisión de tarjeta interface',
+  'Revisión de solenoide care Y4 y bomba care M12',
+  'Revisión de solenoide humidificación Y3 e inyector de agua',
+  'Revisión de sonda núcleo y puntos de medición',
+  'Revisión de tambor y gozne de la puerta'
+];
+/* Categorías de EVIDENCIA que pide la certificación (ver el PDF de Euromex:
+   Orden de servicio, Placa, panel eléctrico, mediciones con multímetro,
+   capturas de pantalla del autodiagnóstico del propio equipo —pruebas
+   "iCareSystem" y "Válvulas"— y una prueba de calidad del agua) — en vez de
+   inventar un mecanismo nuevo, es un valor más de `categoriaRational` en
+   normalizarEvidencia(), reusando TODO el pipeline de compresión/subida a
+   Storage que ya existe. '' sigue siendo "evidencia general", igual que en
+   el resto de la app. */
+const CATEGORIA_EVIDENCIA_RATIONAL = ['ordenServicio', 'placa', 'panelElectrico', 'medicion', 'icareSystem', 'valvulas', 'calidadAgua'];
+const ETIQUETA_CATEGORIA_EVIDENCIA_RATIONAL = {
+  ordenServicio: 'Orden de servicio', placa: 'Placa del equipo', panelElectrico: 'Panel eléctrico',
+  medicion: 'Mediciones (multímetro)', icareSystem: 'Prueba iCareSystem', valvulas: 'Prueba de válvulas',
+  calidadAgua: 'Calidad del agua'
+};
+
+function normalizarItemChecklistRational(x){
+  return { id: (x && x.id) || nuevoId(), texto: (x && x.texto ? String(x.texto) : '').trim().slice(0, 200) };
+}
+/* El checklist vivo: igual que catalogo(), sale del servidor y cae a la
+   semilla si todavía no hay nada guardado. */
+function checklistRational(){
+  return datos.checklistRational.length
+    ? datos.checklistRational
+    : CHECKLIST_RATIONAL_SEMILLA.map(texto => normalizarItemChecklistRational({ texto }));
+}
+/* Qué quedó marcado de ESE checklist en UN servicio/hallazgo en particular —
+   se guarda denso (solo los ids en true) para no arrastrar un mapa con
+   36+ entradas en falso por cada registro. Mismo molde que normalizarEvidencia:
+   lee y sanea, nunca inventa ids que no le dieron. */
+function normalizarChecklistResultado(x){
+  const limpio = {};
+  if(x && typeof x === 'object' && !Array.isArray(x)){
+    Object.keys(x).forEach(id => { if(x[id]) limpio[id] = true; });
+  }
+  return limpio;
+}
+
 /* Categoría de un equipo, para armar SOLA la calendarización inicial de una
    póliza (pedido explícito): caliente, frío y equipo menor se sirven cada
    uno en su propio mes —así el técnico atiende toda la línea caliente en una
@@ -2824,7 +2924,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[] };
 
 function cargar(){
   try{
@@ -2871,7 +2971,8 @@ function cargar(){
            defensivo que las demás colecciones: un respaldo de antes de que
            existiera Visitas no es un archivo roto, se abre con la lista
            vacía y sigue. */
-        visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita) };
+        visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
+        checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -2993,7 +3094,8 @@ async function restaurarSnapshotIndexedDB(){
       /* Mismo fix que cargar() (veredicto de auditoría, 21-sep-2026): sin
          esta llave, datos.visitas queda undefined y el módulo Visitas
          truena en cuanto se recorre. */
-      visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita) };
+      visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
+      checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -3200,6 +3302,11 @@ const EVIDENCIA_MAX_POR_SERVICIO = 8;
    daño — mismo cupo que un reporte, porque un activo también acumula
    evidencia a lo largo de su vida (no solo al darlo de alta). */
 const EVIDENCIA_MAX_POR_ACTIVO = 6;
+/* Certificación RATIONAL: cada categoría de evidencia (placa, mediciones,
+   pruebas...) tiene SU PROPIO cupo, aparte del general de arriba — si
+   compartieran el mismo tope, subir varias fotos de mediciones le quitaría
+   lugar a la placa o a la calidad del agua. Ver normalizarListaEvidencias(). */
+const EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL = 4;
 
 /* ---- Respaldo de costo de una cotización (cotización de un proveedor
    externo que sustenta el costo interno mostrado) ----
@@ -3452,8 +3559,16 @@ function datosClientePoliza(p){
     const porMes = p.hechos[partidaId] || {};
     hechosLigeros[partidaId] = {};
     Object.keys(porMes).forEach(mes=>{
-      const evidenciasLigeras = (porMes[mes].evidencias || []).filter(e => e.dataUrl && e.dataUrl.startsWith('http'));
-      hechosLigeros[partidaId][mes] = Object.assign({}, porMes[mes], { evidencias: evidenciasLigeras });
+      /* La evidencia de la certificación RATIONAL (placa, panel eléctrico,
+         mediciones, pruebas del propio equipo) es control interno para el
+         certificador, no algo pensado para el cliente — misma lógica que
+         modelo/serie/código más abajo. Se filtra por categoriaRational, no
+         solo por el tipo de foto: una general sigue viajando igual que
+         siempre. */
+      const evidenciasLigeras = (porMes[mes].evidencias || [])
+        .filter(e => e.dataUrl && e.dataUrl.startsWith('http') && !e.categoriaRational);
+      hechosLigeros[partidaId][mes] = Object.assign({}, porMes[mes],
+        { evidencias: evidenciasLigeras, checklistRational: {} });
     });
   });
   return Object.assign({}, p, {
@@ -4100,7 +4215,7 @@ function limpiarSesionYDatos(){
      undefined hasta que bajarDeLaNube() alcanzara a repoblarlas, y un
      render() de por medio —con cola pendiente o sin internet— tronaba con
      cualquier vista que las tocara.) */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[] };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -4797,7 +4912,7 @@ async function bajarDeLaNube(soloColecciones){
   /* Si no se pidió una colección en este refresco, ni se intenta leerla —
      null de una vez, en vez de disparar la red y tirar la respuesta. */
   const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr] = await Promise.all([
     p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
     p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
     p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
@@ -4815,7 +4930,8 @@ async function bajarDeLaNube(soloColecciones){
     p('gastosProveedor', () => listarNubeSuave('gastosProveedor', 100)),
     p('refacciones', () => listarNubeSuave('refacciones', 100)),
     p('ordenesCompra', () => listarNubeSuave('ordenesCompra', 100)),
-    p('visitas', () => listarNubeSuave('visitas', 100))
+    p('visitas', () => listarNubeSuave('visitas', 100)),
+    p('checklistRational', () => leerChecklistRational())
   ]);
   if(!soloColecciones && !cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -4854,7 +4970,8 @@ async function bajarDeLaNube(soloColecciones){
             gastosProveedor: (gp === null ? datos.gastosProveedor : gp.map(normalizarGastoProveedor)),
             refacciones: (rf === null ? datos.refacciones : rf.map(normalizarRefaccion)),
             ordenesCompra: (oc === null ? datos.ordenesCompra : oc.map(normalizarOrdenCompra)),
-            visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)) };
+            visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)),
+            checklistRational: cr === null ? datos.checklistRational : cr };
   /* Veredicto de auditoría (21-sep-2026): un registro con un rechazo
      definitivo pendiente (ver colaRechazada arriba) nunca llegó a existir
      del lado del servidor, así que el reemplazo de arriba lo deja fuera sin
@@ -4909,6 +5026,33 @@ function sembrarCatalogo(){
   guardarCatalogo('siembra inicial de las cotizaciones de MXGT01, MXNL02, INOAC y NGK');
   render();
   aviso('Lista de precios guardada con ' + datos.catalogo.length + ' equipos.');
+}
+
+/* Mismo molde exacto que /catalogo — un documento único con un arreglo
+   adentro — para el checklist de la certificación RATIONAL. */
+async function leerChecklistRational(){
+  try{
+    const d = await pedirNube('/checklistRational/lista', { method:'GET' }, true);
+    return ((d && d.fields) ? (deCampos(d.fields).items || []) : []).map(normalizarItemChecklistRational);
+  }catch(e){
+    console.warn('No se pudo leer el checklist de RATIONAL; se usa la de arranque:', String(e.message || e));
+    return [];
+  }
+}
+function guardarChecklistRational(detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'checklistRational', id:'lista', obj:{ items: datos.checklistRational } });
+  anotar('actualizó', 'checklist de certificación RATIONAL', datos.checklistRational.length + ' puntos', detalle);
+}
+/* Misma razón que sembrarCatalogo(): la semilla se sube cuando alguien lo
+   pide, nunca sola al arrancar. */
+function sembrarChecklistRational(){
+  if(!exigirAdmin('guardar el checklist de RATIONAL')) return;
+  if(datos.checklistRational.length){ aviso('El checklist ya está guardado en el servidor.'); return; }
+  datos.checklistRational = CHECKLIST_RATIONAL_SEMILLA.map(texto => normalizarItemChecklistRational({ texto }));
+  guardarChecklistRational('siembra inicial del checklist del reporte de Euromex Service');
+  render();
+  aviso('Checklist de RATIONAL guardado con ' + datos.checklistRational.length + ' puntos.');
 }
 
 /* Carga masiva de costos (insumos + mano de obra) desde un JSON —
@@ -5583,8 +5727,27 @@ function normalizarEvidencia(e){
        y se activa "Fotos separadas por equipo": 0 = sin asignar/compartida,
        1..cantidad = a cuál unidad pertenece. En todo el resto de la app
        (Reportes, Levantamientos, Proyectos de Imagen) siempre queda en 0. */
-    unidad: (e && Number.isInteger(e.unidad) && e.unidad > 0) ? e.unidad : 0
+    unidad: (e && Number.isInteger(e.unidad) && e.unidad > 0) ? e.unidad : 0,
+    /* Solo relevante cuando el equipo es marca Rational (ver
+       CATEGORIA_EVIDENCIA_RATIONAL): a cuál de las categorías de evidencia
+       que pide la certificación de RATIONAL pertenece esta foto. '' =
+       evidencia general, igual que siempre en el resto de la app. */
+    categoriaRational: (e && CATEGORIA_EVIDENCIA_RATIONAL.includes(e.categoriaRational)) ? e.categoriaRational : ''
   };
+}
+/* Antes un tope plano (EVIDENCIA_MAX_POR_SERVICIO) alcanzaba porque todo
+   era una sola galería. Con la certificación RATIONAL, cada categoría de
+   evidencia (placa, mediciones, pruebas...) necesita su propio cupo aparte
+   — si compartieran el mismo tope, subir varias fotos de mediciones le
+   quitaría lugar a la placa o al agua. Se topa cada "cajón" (general + cada
+   categoría Rational) por su cuenta y se vuelven a juntar en un solo
+   arreglo, en el mismo orden en que ya venían. */
+function normalizarListaEvidencias(lista){
+  const crudas = (Array.isArray(lista) ? lista : []).map(normalizarEvidencia).filter(e => e.dataUrl);
+  const generales = crudas.filter(e => !e.categoriaRational).slice(0, EVIDENCIA_MAX_POR_SERVICIO);
+  const categorizadas = CATEGORIA_EVIDENCIA_RATIONAL.flatMap(cat =>
+    crudas.filter(e => e.categoriaRational === cat).slice(0, EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL));
+  return generales.concat(categorizadas);
 }
 
 /* Un respaldo de costo: la cotización de un proveedor externo que sustenta
@@ -9665,8 +9828,7 @@ function normalizarPoliza(p){
           quien:  d.quien ? String(d.quien) : '',
           nota:   d.nota  ? String(d.nota)  : '',
           hechas,
-          evidencias: (Array.isArray(d.evidencias) ? d.evidencias : [])
-            .map(normalizarEvidencia).filter(e => e.dataUrl).slice(0, EVIDENCIA_MAX_POR_SERVICIO),
+          evidencias: normalizarListaEvidencias(d.evidencias),
           /* La refacción que este servicio necesitó, y la cotización (borrador)
              que se generó sola para pedirla — ver modalServicioPoliza(). La
              liga se pone UNA sola vez, la primera vez que se guarda con texto:
@@ -9680,7 +9842,10 @@ function normalizarPoliza(p){
              a propósito —letras, números y guión, nada más— porque así vienen
              las placas de serie y así se van a copiar del equipo, no a
              redactar. */
-          numeroSerie: (d.numeroSerie ? String(d.numeroSerie) : '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 40)
+          numeroSerie: (d.numeroSerie ? String(d.numeroSerie) : '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 40),
+          /* Solo tiene algo cuando x.marca es Rational (ver modalServicioPoliza)
+             — en cualquier otro servicio se queda en {} para siempre. */
+          checklistRational: normalizarChecklistResultado(d.checklistRational)
         };
         if(hechas < tope && d.motivo) reg.motivo = String(d.motivo);
         limpio[String(m)] = reg;
@@ -14233,6 +14398,7 @@ const TEMAS_AYUDA = [
         'El <b>Alcance</b> de cada equipo marca si esa actividad está "Dentro de nuestro alcance" o es "Responsabilidad del cliente" (por ejemplo, una fuga de gas o una instalación eléctrica que le toca a un especialista certificado, no al mantenimiento preventivo) — se ve como una etiqueta bajo el nombre del equipo, tanto al capturar como en el detalle del contrato. Un equipo "Responsabilidad del cliente" NO se suma al Precio Anual ni al Costo Anual del contrato: su monto se separa aparte, así nunca se le cobra al cliente algo que no es trabajo de Forguard.',
         'Estatus del contrato: Borrador → Enviada (en espera de confirmar) → Activa (precios ya congelados) — o Cancelada.',
         'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción. Si el renglón tiene más de una unidad, la casilla <b>"Fotos separadas por equipo"</b> reparte la galería en una sección por unidad — útil cuando a una le pasó algo distinto a las demás; si no, una sola galería sirve para todas. Cuando dos renglones del mismo contrato comparten el nombre (ej. dos "Horno Rational" distintos), tanto la lista del mes como el modal de registro muestran además marca/modelo/serie de cada uno, para no confundir cuál se está marcando.',
+        'Si la <b>marca</b> del equipo es "Rational", el registro de servicio trae además una sección de <b>Certificación RATIONAL</b>: el checklist de inspección que pide ese proveedor para certificar a Forguard, y evidencia fotográfica por categoría (orden de servicio, placa, panel eléctrico, mediciones, pruebas iCareSystem/válvulas, calidad del agua) — cada categoría con su propio cupo, aparte de las "Fotos de evidencia" generales. El botón <b>"Checklist RATIONAL"</b> de la cabecera (solo Admin/Owner) deja editar esos puntos si el proveedor cambia sus requisitos. Nada de esto —ni el checklist marcado ni esas fotos— viaja al portal de clientes: es control interno para la certificación.',
         'Haz clic en una casilla de cobro para <b>capturar el cobro</b>: quién captura, número de OC, si ya se facturó.',
         'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa) — un equipo "Responsabilidad del cliente" sale marcado ahí mismo: su fila se sombrea, su número lleva un "†", su Total sale en blanco, y una nota al final explica el símbolo y lista de nuevo cuáles son.',
         '<b>Imprimir calendario</b> (junto a Imprimir): abre solo la portada y la hoja del calendario de mantenimientos, sin la tabla de equipos, descripción de trabajos ni consideraciones — para cuando el técnico solo necesita el calendario en papel, sin las demás hojas. Sale en hoja horizontal (mejor visibilidad de las 12 columnas de mes) y con su propia portada, dejando bien claro que es SOLO el calendario, no el contrato completo.'
@@ -15148,6 +15314,9 @@ function vistaPolizas(){
             + 'title="Qué mantenimientos tocan, en todas las pólizas">' + ICONO.calendario + 'Agenda</button>'
           : '')
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-precios">' + ICONO.credencial + 'Lista de precios</button>'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-checklist-rational" '
+       +   'title="El checklist de inspección que pide RATIONAL para certificarnos como proveedor">'
+       +   ICONO.cheque + 'Checklist RATIONAL</button>'
      /* Las cotizaciones viejas ya existen en JSON: se cargan, no se recapturan. */
      +   (puedeEditar()
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="importar-polizas" '
@@ -22246,6 +22415,86 @@ function vistaPrecios(){
   return h;
 }
 
+/* ---------------------- Vista: checklist de certificación RATIONAL ----------------------
+   Mismo molde que "Lista de precios": un documento único en Firestore, lo ve
+   todo el equipo (un técnico lo necesita para marcar los puntos al dar
+   servicio), solo Owner/Admin lo edita. A diferencia de la lista de precios
+   —una fila por equipo, cada una con su propio modal "Editar"— aquí cada
+   punto es una sola línea de texto, así que se edita LÍNEA POR LÍNEA directo
+   en la tabla (como ya hace "Categoría" en Lista de precios) en vez de abrir
+   un modal por punto; "Guardar lista" sube todos los cambios juntos de una
+   vez, igual que el catálogo es "un documento, no uno por equipo".
+   estado.borradorChecklistRational es la copia de trabajo: permite agregar/
+   quitar/reordenar puntos sin tocar datos.checklistRational hasta que se
+   guarde de verdad (o se pierde si se sale sin guardar, a propósito — un
+   botón "Guardar" que no guarda nada no tiene caso). ------------------------------- */
+function vistaChecklistRational(){
+  const puede = esAdmin();
+  if(!estado.borradorChecklistRational) estado.borradorChecklistRational = checklistRational().map(it => Object.assign({}, it));
+  const items = estado.borradorChecklistRational;
+  /* "Guardar lista"/"Descartar" quedan SIEMPRE visibles, sin distinguir si
+     de verdad hay cambios: editar el texto de un punto no dispara un
+     render() (perdería el foco a media edición, ver el listener de
+     'change' más abajo), así que un botón que solo se habilitara "si hay
+     cambios" se quedaría apagado para siempre después de editar texto sin
+     tocar nada más. Guardar sin cambios reales es inofensivo. */
+
+  let h = botonRegresarPolizas();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Checklist de certificación RATIONAL</h2>'
+     +   '<p>' + numero(items.length) + ' ' + plural(items.length,'punto','puntos')
+     +   (puede ? ' · aparece al dar servicio a cualquier equipo con marca "Rational", en Pólizas y Levantamientos'
+              : ' · solo un Admin puede cambiarlo') + '</p>'
+     + '</div></div>';
+
+  h += '<div class="aviso" style="border-left-color:var(--navy)">' + ICONO.info
+     + '<div>RATIONAL pide esta inspección con parámetros y evidencia específicos para certificar a Forguard como proveedor '
+     + 'autorizado. Esta lista arrancó transcrita tal cual del reporte de referencia (Euromex Service, iCombi Pro) y se puede '
+     + 'ajustar aquí si RATIONAL cambia sus requisitos — no hace falta tocar código.</div></div>';
+
+  if(!datos.checklistRational.length){
+    h += '<div class="aviso" style="border-left-color:var(--gray)">' + ICONO.info
+       + '<div>Este checklist todavía no está guardado en el servidor: es el de arranque, transcrito del reporte de Euromex. '
+       + (puede ? 'Guárdalo para que lo vea todo el equipo, o edítalo y se guarda con los cambios.' : 'Un Admin lo va a guardar.')
+       + (puede ? '<div style="margin-top:9px"><button type="button" class="btn btn-verde btn-mini" data-accion="guardar-checklist-rational-semilla">'
+                  + ICONO.cheque + 'Guardar la lista en el servidor</button></div>' : '')
+       + '</div></div>';
+  }
+
+  h += '<div class="bloque"><div class="rodillo"><table class="tabla"><thead><tr>'
+     +   '<th>#</th><th>Punto del checklist</th>' + (puede ? '<th class="acciones">Acciones</th>' : '')
+     + '</tr></thead><tbody id="cuerpoChecklistRational">'
+     +   (items.length ? items.map((it,i)=>
+           '<tr data-fila-checklist="' + esc(it.id) + '">'
+         +   '<td class="pista">' + (i+1) + '</td>'
+         +   '<td>' + (puede
+               ? '<input type="text" data-texto-checklist="' + esc(it.id) + '" value="' + esc(it.texto) + '" maxlength="200">'
+               : esc(it.texto)) + '</td>'
+         +   (puede
+               ? '<td class="acciones">'
+                 + '<button type="button" class="btn btn-suave btn-mini" data-accion="subir-checklist-rational" data-id="' + esc(it.id) + '" title="Subir"' + (i===0 ? ' disabled' : '') + '>↑</button>'
+                 + '<button type="button" class="btn btn-suave btn-mini" data-accion="bajar-checklist-rational" data-id="' + esc(it.id) + '" title="Bajar"' + (i===items.length-1 ? ' disabled' : '') + '>↓</button>'
+                 + '<button type="button" class="btn btn-suave btn-mini" data-accion="borrar-checklist-rational" data-id="' + esc(it.id) + '" title="Quitar este punto">' + ICONO.basura + '</button>'
+                 + '</td>'
+               : '')
+         + '</tr>'
+         ).join('')
+         : '<tr><td colspan="' + (puede ? 3 : 2) + '"><span class="pista">Sin puntos todavía.</span></td></tr>')
+     + '</tbody></table></div>'
+     + (puede
+         ? '<div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">'
+           + '<button type="button" class="btn btn-suave btn-mini" data-accion="agregar-punto-checklist-rational">' + ICONO.mas + 'Agregar punto</button>'
+           + '<button type="button" class="btn btn-verde btn-mini" data-accion="guardar-checklist-rational-cambios">' + ICONO.cheque + 'Guardar lista</button>'
+           + '<button type="button" class="btn btn-suave btn-mini" data-accion="descartar-checklist-rational-cambios">Descartar cambios</button>'
+           + '</div>'
+           + '<div class="pista" style="margin-top:10px">Es un solo documento: si dos administradores lo editan al mismo tiempo, gana el último que guarde.</div>'
+         : '')
+     + '</div>';
+
+  return h;
+}
+
 /* ID nuevo y único para un equipo del catálogo, a partir de su nombre. Antes
    se armaba en línea dentro de cerrarModalActual con este mismo slug, sin
    checar si ya existía — inofensivo mientras solo servía para "Agregar
@@ -22644,6 +22893,12 @@ function irAPrecios(){
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
+function irAChecklistRational(){
+  animarTarjetas = false;
+  estado.vista = 'checklist-rational'; estado.polizaId = null;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
 /* La agenda se abre de tres lados: el botón de la portada y los dos indicadores
    de servicios. Desde los indicadores llega en «solo lo pendiente», porque eso es
    lo que la persona picó — enseñarle además tres meses de futuro entierra lo que
@@ -22762,6 +23017,7 @@ function render(){
     : estado.modulo === 'mi-agenda'    ? vistaMiAgenda()
     : estado.modulo === 'polizas'      ? (estado.vista === 'poliza' ? vistaPoliza()
                                     : estado.vista === 'precios' ? vistaPrecios()
+                                    : estado.vista === 'checklist-rational' ? vistaChecklistRational()
                                     : estado.vista === 'agenda'  ? vistaAgenda()
                                     : vistaPolizas())
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
@@ -24302,6 +24558,18 @@ $('vista').addEventListener('change', async ev=>{
     return;
   }
 
+  /* Editar el texto de un punto del checklist RATIONAL: se guarda en el
+     BORRADOR (estado.borradorChecklistRational), no en datos.checklistRational
+     directo — "Guardar lista" sube todos los cambios juntos. Sin render():
+     perdería el foco a media edición, y total no hace falta repintar nada
+     más (ni el conteo de "cambios sin guardar" se ve mientras se escribe). */
+  const txtChk = ev.target.closest('[data-texto-checklist]');
+  if(txtChk){
+    const it = (estado.borradorChecklistRational || []).find(x => x.id === txtChk.dataset.textoChecklist);
+    if(it) it.texto = txtChk.value.slice(0, 200);
+    return;
+  }
+
   const sel = ev.target.closest('[data-rol]');
   if(!sel) return;
   const uid = sel.dataset.rol, rol = sel.value;
@@ -25632,6 +25900,14 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
   const det = servicioDetalle(p, x, mes);
   const yaHecho = !!det;
   let evidenciasTmp = (det && Array.isArray(det.evidencias)) ? det.evidencias.slice() : [];
+  /* Certificación RATIONAL (pedido de Victor, 08-oct-2026, con un reporte
+     real de Euromex Service para un iCombi Pro): cualquier equipo con marca
+     "Rational" trae además un checklist y evidencia categorizada que pide
+     ese certificador — ver checklistRational()/CATEGORIA_EVIDENCIA_RATIONAL.
+     checklistTmp es el mismo patrón de staging que evidenciasTmp: se edita
+     en memoria y solo se guarda de verdad al picar "Marcar como hecho". */
+  const esRational = esMarcaRational(x.marca);
+  let checklistTmp = Object.assign({}, det && det.checklistRational);
   const conCuenta = HAY_NUBE && haySesion();
   const cli = clientePorId(p.clienteId);
   const enCalendario = x.mesesServicio.includes(mes);
@@ -25734,6 +26010,26 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     +   '<div class="pista" id="svPistaEvidencia">Hasta ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos en total. Se reducen solas para no pesar.</div>'
     + '</div>'
 
+    /* Certificación RATIONAL: solo aparece cuando x.marca es "Rational" (ver
+       esMarcaRational). El checklist y la evidencia categorizada viven en un
+       bloque aparte, no mezclados con "Fotos de evidencia" de arriba —son
+       control interno para el certificador, no evidencia general del
+       servicio (ver datosClientePoliza(), que los esconde del portal). */
+    + (esRational
+        ? '<div class="bloque" id="svZonaRational">'
+          +   '<div class="bloque-cabeza"><div><h3>Certificación RATIONAL</h3>'
+          +     '<p>Checklist y evidencia que pide RATIONAL para certificar este servicio. '
+          +     'Si el checklist cambió, se ajusta desde "Checklist RATIONAL" en Pólizas — aquí solo se marca.</p></div></div>'
+          +   '<div class="campo"><label>Checklist de inspección</label>'
+          +     '<div id="svChecklistRational"></div>'
+          +   '</div>'
+          +   '<div class="campo"><label>Evidencia categorizada (opcional)</label>'
+          +     '<div id="svEvidenciaRationalWrap"></div>'
+          +     '<div class="pista">Hasta ' + EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL + ' fotos por categoría. No cuentan contra el cupo de "Fotos de evidencia" de arriba.</div>'
+          +   '</div>'
+          + '</div>'
+        : '')
+
     + '<div class="campo"><label class="casilla"><input type="checkbox" id="svRefaccionChk"'
     +     ((det && det.refaccion) ? ' checked' : '') + '> ¿Necesita alguna refacción?</label>'
     +   '<div id="svRefaccionZona"' + ((det && det.refaccion) ? '' : ' hidden') + '>'
@@ -25795,26 +26091,36 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
      sin asignar) en vez de una sola galería — activar/desactivar la casilla
      no mueve ni borra ninguna foto, solo cambia cómo se ven. */
   let unidadParaSubir = 0;
+  /* Certificación RATIONAL: a cuál categoría de evidencia pertenece la
+     próxima foto que se suba — '' cuando es una foto general (botón de
+     "Fotos de evidencia" de arriba), un valor de CATEGORIA_EVIDENCIA_RATIONAL
+     cuando viene de uno de los botones de "Evidencia categorizada". */
+  let categoriaParaSubir = '';
   function galeriaHtml(lista){
     return lista.map(e =>
       '<div class="evidencia-foto"><img src="' + esc(e.dataUrl) + '" alt="Evidencia">'
       + '<button type="button" class="evidencia-quitar" data-quitar-tmp="' + esc(e.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
     ).join('');
   }
+  /* Evidencia GENERAL de esta galería (lo que siempre existió) — excluye a
+     propósito cualquier foto ya etiquetada con categoriaRational: esas viven
+     SOLO en su propia sección de "Evidencia categorizada" (ver
+     pintarEvidenciaRational), nunca duplicadas aquí también. */
+  const evidenciasGenerales = () => evidenciasTmp.filter(e => !e.categoriaRational);
   function pintarFotosSv(){
     const separadas = x.cantidad > 1 && $('svFotosSeparadas') && $('svFotosSeparadas').checked;
-    const llena = evidenciasTmp.length >= EVIDENCIA_MAX_POR_SERVICIO;
+    const llena = evidenciasGenerales().length >= EVIDENCIA_MAX_POR_SERVICIO;
     const botonFoto = unidad => '<button type="button" class="btn btn-suave btn-mini" data-agregar-unidad="' + unidad + '"'
       + (llena ? ' disabled' : '') + '>' + ICONO.camara + (unidad ? 'Foto de la unidad ' + unidad : 'Tomar o elegir foto') + '</button>';
     if(!separadas){
-      $('svFotosWrap').innerHTML = '<div class="galeria-evidencia">' + galeriaHtml(evidenciasTmp) + '</div>' + botonFoto(0);
+      $('svFotosWrap').innerHTML = '<div class="galeria-evidencia">' + galeriaHtml(evidenciasGenerales()) + '</div>' + botonFoto(0);
     }else{
       const activas = Array.from($('svUnidades').querySelectorAll('.sv-uni'))
         .map((b,i)=> b.classList.contains('activa') ? i+1 : 0).filter(Boolean);
-      const generales = evidenciasTmp.filter(e => !e.unidad);
+      const generales = evidenciasGenerales().filter(e => !e.unidad);
       $('svFotosWrap').innerHTML = activas.map(j =>
           '<div class="fotos-unidad"><div class="fotos-unidad-titulo">Unidad ' + j + '</div>'
-          + '<div class="galeria-evidencia">' + galeriaHtml(evidenciasTmp.filter(e => e.unidad === j)) + '</div>'
+          + '<div class="galeria-evidencia">' + galeriaHtml(evidenciasGenerales().filter(e => e.unidad === j)) + '</div>'
           + botonFoto(j) + '</div>'
         ).join('')
         + (generales.length
@@ -25831,27 +26137,89 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     $('svFotosWrap').querySelectorAll('[data-agregar-unidad]').forEach(b=>{
       b.addEventListener('click', ()=>{
         unidadParaSubir = +b.dataset.agregarUnidad;
+        categoriaParaSubir = '';
+        $('svArchivoEvidencia').click();
+      });
+    });
+  }
+  /* Certificación RATIONAL: mismo patrón de staging que pintarFotosSv(),
+     pero cada categoría (placa, mediciones, pruebas...) tiene su PROPIO
+     cupo y su propio botón de subir — ver EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL.
+     Comparten evidenciasTmp y galeriaHtml() con la galería general de
+     arriba; lo único nuevo es que cada "cajón" se filtra por
+     e.categoriaRational en vez de ser una sola lista. */
+  function pintarChecklistRational(){
+    if(!esRational) return;
+    const items = checklistRational();
+    const marcados = items.filter(it => checklistTmp[it.id]).length;
+    $('svChecklistRational').innerHTML = items.map(it =>
+        '<label class="casilla" style="display:block; margin-bottom:4px">'
+        + '<input type="checkbox" data-chk-rational="' + esc(it.id) + '"' + (checklistTmp[it.id] ? ' checked' : '') + '> '
+        + esc(it.texto) + '</label>'
+      ).join('')
+      + '<div class="pista" style="margin-top:6px">' + marcados + ' de ' + items.length + ' puntos marcados.</div>';
+    $('svChecklistRational').querySelectorAll('[data-chk-rational]').forEach(c=>{
+      c.addEventListener('change', ()=>{
+        if(c.checked) checklistTmp[c.dataset.chkRational] = true; else delete checklistTmp[c.dataset.chkRational];
+        /* Solo se repinta el contador de abajo, no toda la lista: así no se
+           pierde el scroll a media calificación de 36 puntos. */
+        $('svChecklistRational').lastElementChild.textContent =
+          items.filter(it => checklistTmp[it.id]).length + ' de ' + items.length + ' puntos marcados.';
+      });
+    });
+  }
+  function pintarEvidenciaRational(){
+    if(!esRational) return;
+    $('svEvidenciaRationalWrap').innerHTML = CATEGORIA_EVIDENCIA_RATIONAL.map(cat=>{
+      const fotos = evidenciasTmp.filter(e => e.categoriaRational === cat);
+      const llenaCat = fotos.length >= EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL;
+      return '<div class="fotos-unidad"><div class="fotos-unidad-titulo">' + esc(ETIQUETA_CATEGORIA_EVIDENCIA_RATIONAL[cat]) + '</div>'
+        + '<div class="galeria-evidencia">' + galeriaHtml(fotos) + '</div>'
+        + '<button type="button" class="btn btn-suave btn-mini" data-agregar-categoria-rational="' + cat + '"' + (llenaCat ? ' disabled' : '') + '>'
+        + ICONO.camara + 'Agregar foto</button></div>';
+    }).join('');
+    $('svEvidenciaRationalWrap').querySelectorAll('[data-quitar-tmp]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        evidenciasTmp = evidenciasTmp.filter(e => e.id !== b.dataset.quitarTmp);
+        pintarEvidenciaRational();
+      });
+    });
+    $('svEvidenciaRationalWrap').querySelectorAll('[data-agregar-categoria-rational]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        categoriaParaSubir = b.dataset.agregarCategoriaRational;
+        unidadParaSubir = 0;
         $('svArchivoEvidencia').click();
       });
     });
   }
   pintarFotosSv();
+  pintarChecklistRational();
+  pintarEvidenciaRational();
   $('svArchivoEvidencia').addEventListener('change', async ev=>{
     const archivos = Array.from(ev.target.files || []);
     ev.target.value = '';
     if(!archivos.length) return;
-    const cupo = EVIDENCIA_MAX_POR_SERVICIO - evidenciasTmp.length;
-    if(cupo <= 0){ aviso('Ya tienes ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos. Quita alguna para agregar otra.', true); return; }
+    const subiendoCategoria = categoriaParaSubir;
+    const cupo = subiendoCategoria
+      ? EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL - evidenciasTmp.filter(e => e.categoriaRational === subiendoCategoria).length
+      : EVIDENCIA_MAX_POR_SERVICIO - evidenciasGenerales().length;
+    if(cupo <= 0){
+      aviso(subiendoCategoria
+        ? 'Ya tienes ' + EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL + ' fotos en "' + ETIQUETA_CATEGORIA_EVIDENCIA_RATIONAL[subiendoCategoria] + '". Quita alguna para agregar otra.'
+        : 'Ya tienes ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos. Quita alguna para agregar otra.', true);
+      return;
+    }
     $('svPistaEvidencia').textContent = 'Procesando fotos…';
     for(const archivo of archivos.slice(0, cupo)){
       try{
         const img = await leerEvidencia(archivo);
         const dataUrl = comprimirEvidencia(img);
-        evidenciasTmp.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '', unidad: unidadParaSubir }));
+        evidenciasTmp.push(normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '', unidad: unidadParaSubir, categoriaRational: subiendoCategoria }));
       }catch(e){ aviso(e.message, true); }
     }
     $('svPistaEvidencia').textContent = 'Hasta ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos en total. Se reducen solas para no pesar.';
     pintarFotosSv();
+    pintarEvidenciaRational();
   });
 
   /* Si ya existe una solicitud generada, el texto queda de solo lectura: no
@@ -25939,7 +26307,7 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     }
 
     marcarServicio(p, partidaId, mes, Object.assign({ cuando, quien, nota, hechas, evidencias: evidenciasTmp, numeroSerie,
-      refaccion, refaccionCotizacionId: (cotOrigenExistente && cotOrigenExistente.id) || '' },
+      refaccion, refaccionCotizacionId: (cotOrigenExistente && cotOrigenExistente.id) || '', checklistRational: checklistTmp },
       motivo ? { motivo } : {}));
     if(!conCuenta) recordarCapturador(quien);
 
@@ -29766,6 +30134,48 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'importar-polizas'){ if(exigirPermiso()) $('archivoPolizas').click(); }
     else if(a === 'importar-poliza-excel'){ if(exigirPermiso()) $('archivoPolizaExcel').click(); }
     else if(a === 'ver-precios') irAPrecios();
+    else if(a === 'ver-checklist-rational') irAChecklistRational();
+    else if(a === 'guardar-checklist-rational-semilla') sembrarChecklistRational();
+    else if(a === 'agregar-punto-checklist-rational'){
+      if(!exigirAdmin('cambiar el checklist de RATIONAL')) return;
+      estado.borradorChecklistRational.push(normalizarItemChecklistRational({ texto:'' }));
+      render();
+      /* El punto nuevo siempre cae al final: se enfoca su input para escribir
+         de una vez, sin tener que ir a buscarlo en la tabla. */
+      const filas = $('cuerpoChecklistRational').querySelectorAll('[data-texto-checklist]');
+      if(filas.length) filas[filas.length - 1].focus();
+    }
+    else if(a === 'subir-checklist-rational' || a === 'bajar-checklist-rational'){
+      if(!exigirAdmin('cambiar el checklist de RATIONAL')) return;
+      const items = estado.borradorChecklistRational;
+      const i = items.findIndex(it => it.id === acc.dataset.id);
+      const j = a === 'subir-checklist-rational' ? i - 1 : i + 1;
+      if(i < 0 || j < 0 || j >= items.length) return;
+      [items[i], items[j]] = [items[j], items[i]];
+      render();
+    }
+    else if(a === 'borrar-checklist-rational'){
+      if(!exigirAdmin('cambiar el checklist de RATIONAL')) return;
+      estado.borradorChecklistRational = estado.borradorChecklistRational.filter(it => it.id !== acc.dataset.id);
+      render();
+    }
+    else if(a === 'descartar-checklist-rational-cambios'){
+      estado.borradorChecklistRational = checklistRational().map(it => Object.assign({}, it));
+      render();
+    }
+    else if(a === 'guardar-checklist-rational-cambios'){
+      if(!exigirAdmin('cambiar el checklist de RATIONAL')) return;
+      const limpios = estado.borradorChecklistRational.map(normalizarItemChecklistRational).filter(it => it.texto);
+      if(!limpios.length){
+        aviso('El checklist no puede quedar vacío: agrega al menos un punto, o deja los que ya había.', true);
+        return;
+      }
+      datos.checklistRational = limpios;
+      estado.borradorChecklistRational = limpios.map(it => Object.assign({}, it));
+      guardarChecklistRational('editó el checklist de certificación RATIONAL (' + limpios.length + ' ' + plural(limpios.length,'punto','puntos') + ')');
+      render();
+      aviso('Checklist de RATIONAL guardado.');
+    }
     else if(a === 'ver-agenda') irAAgenda(false);
     else if(a === 'ver-agenda-pendiente') irAAgenda(true);
     else if(a === 'nuevo-equipo') modalEquipo(null);
@@ -31621,7 +32031,7 @@ function salirSilencioso(tambienLosDatos){
     /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
        21-sep-2026): faltaban proveedores/gastosProveedor/refacciones/
        ordenesCompra. */
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;

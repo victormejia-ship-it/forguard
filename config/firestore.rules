@@ -557,6 +557,16 @@ service cloud.firestore {
       allow write: if esAdmin();
     }
 
+    /* --- Checklist de certificación RATIONAL ---
+       Mismo molde que /catalogo y /segmentos: un documento único con un
+       arreglo adentro. Un técnico necesita LEERLO para marcar los puntos al
+       dar servicio a un equipo Rational; solo Owner o Admin lo edita (por si
+       RATIONAL cambia sus requisitos). */
+    match /checklistRational/{doc} {
+      allow read:  if conAcceso() && !esCliente();
+      allow write: if esAdmin();
+    }
+
     /* --- Historial: cualquiera con acceso lo escribe, solo admin lo lee,
            y nadie lo puede modificar ni borrar. --- */
     match /bitacora/{id} {
