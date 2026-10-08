@@ -63,7 +63,14 @@
    todo el encabezado (su borde derecho caía cerca del borde derecho de la
    pantalla) — al encogerse a solo el botón de hamburguesa, pegado al logo,
    ese right:0 sacaba el panel entero de la pantalla por la izquierda.
-   Colapsada, se ancla con left:0. */
+   Colapsada, se ancla con left:0.
+
+   Los conteos de arriba ("15 módulos", "6 de siempre") son del 08-oct-2026:
+   el mismo día, más tarde, se sumó un 7º módulo a "Más" (RATIONAL, su propio
+   módulo de certificación — ver test_catalogo_refacciones_rational.js), así
+   que MODULOS/ORDEN_GRUPO_MAS crecieron en 1 — las aserciones de abajo ya
+   comparan contra ORDEN_GRUPO_MAS.length/MODULOS.length en vez de un número
+   fijo, para no volver a quedar obsoletas la próxima vez que se agregue uno. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -71,7 +78,10 @@ let fallas = 0;
 const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
 
 const ORDEN_PRINCIPAL = ['mi-agenda','resultados','clientes','cocinas','cotizaciones','forpass','levantamientos','polizas','reportes','visitas'];
-const ORDEN_GRUPO_MAS = ['activos','ayuda','equipos','imagen','organigrama','proveedores'];
+/* 'rational' se sumó al final el 08-oct-2026 (módulo propio de certificación
+   RATIONAL, antes colgado de Pólizas — ver test_catalogo_refacciones_rational.js)
+   — alfabéticamente cae después de "proveedores", así que va al final. */
+const ORDEN_GRUPO_MAS = ['activos','ayuda','equipos','imagen','organigrama','proveedores','rational'];
 
 (async () => {
   const browser = await chromium.launch(OPCIONES_NAVEGADOR);
@@ -112,9 +122,9 @@ const ORDEN_GRUPO_MAS = ['activos','ayuda','equipos','imagen','organigrama','pro
   await ancho.click('#btnMasModulos');
   await ancho.waitForTimeout(150);
   const modulosAncho = await visibles(ancho, '#panelMasModulos [data-modulo]');
-  chkF('Ancho: "Más" sigue agrupando SOLO los 6 de siempre (sin el grupo duplicado)',
-    modulosAncho.length === 6 && modulosAncho.includes('activos') && modulosAncho.includes('ayuda') && !modulosAncho.includes('resultados'));
-  chkF('Ancho: esos 6 de "Más" están en orden alfabético', JSON.stringify(modulosAncho) === JSON.stringify(ORDEN_GRUPO_MAS));
+  chkF('Ancho: "Más" sigue agrupando SOLO los de siempre (sin el grupo duplicado)',
+    modulosAncho.length === ORDEN_GRUPO_MAS.length && modulosAncho.includes('activos') && modulosAncho.includes('ayuda') && !modulosAncho.includes('resultados'));
+  chkF('Ancho: esos de "Más" están en orden alfabético', JSON.stringify(modulosAncho) === JSON.stringify(ORDEN_GRUPO_MAS));
   await ancho.close();
 
   // --------- 2) Pantalla MEDIANA (900px): el bug real reportado por Victor
@@ -144,8 +154,11 @@ const ORDEN_GRUPO_MAS = ['activos','ayuda','equipos','imagen','organigrama','pro
   const modulosAngosto = await visibles(angosto, '#panelMasModulos [data-modulo]');
   chkF('Angosto: los 9 módulos que antes vivían SOLO en la fila (invisible) ahora están en el panel',
     ['resultados','clientes','forpass','reportes','cocinas','levantamientos','visitas','polizas','cotizaciones'].every(m => modulosAngosto.includes(m)));
-  chkF('Angosto: los 6 de siempre ("Más") SIGUEN ahí también', ORDEN_GRUPO_MAS.every(m => modulosAngosto.includes(m)));
-  chkF('Angosto: en total son los 15 módulos de MODULOS, ninguno de más ni de menos', modulosAngosto.length === 15);
+  chkF('Angosto: los de siempre ("Más") SIGUEN ahí también', ORDEN_GRUPO_MAS.every(m => modulosAngosto.includes(m)));
+  // Owner ve MODULOS completo menos 'mi-agenda' (técnico-only, nunca convive
+  // con 'resultados' en la misma cuenta — ver modulosPermitidos()).
+  chkF('Angosto: en total son los módulos de MODULOS (menos mi-agenda), ninguno de más ni de menos',
+    modulosAngosto.length === (await angosto.evaluate(() => MODULOS.length)));
   // El Owner no tiene "mi-agenda" permitido (es técnico-only, ver
   // modulosPermitidos()), así que de los 10 del grupo duplicado solo 9 se
   // ven — mismo orden alfabético, nada más sin ese primero.

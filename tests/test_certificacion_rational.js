@@ -69,9 +69,9 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.waitForTimeout(300);
 
   // --------- 1) El checklist, como admin: ver, editar, agregar, borrar ---------
-  await page.evaluate(() => irAModulo('polizas'));
-  await page.waitForTimeout(150);
-  await page.click('[data-accion="ver-checklist-rational"]');
+  // Módulo propio "RATIONAL" desde el 08-oct-2026 (antes vivía dentro de
+  // Pólizas) — su pantalla de arranque YA ES el checklist.
+  await page.evaluate(() => irAModulo('rational'));
   await page.waitForTimeout(150);
   chkF('El checklist arranca con los 36 puntos del PDF de Euromex (semilla)', await page.locator('#cuerpoChecklistRational tr').count() === 36);
   const primerPunto = await page.locator('#cuerpoChecklistRational input[data-texto-checklist]').first().inputValue();

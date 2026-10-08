@@ -19,7 +19,14 @@
    de este catálogo — son cosas totalmente distintas (uno es inventario
    propio, este es la lista de precios de un proveedor externo), por eso la
    vista nueva se llama "Catálogo de refacciones RATIONAL"
-   (catalogo-refacciones-rational) y no comparte ningún estado con la otra. */
+   (catalogo-refacciones-rational) y no comparte ningún estado con la otra.
+
+   Migrado a su propio módulo "RATIONAL" del menú principal el mismo
+   08-oct-2026, poco después de esta primera entrega (pedido de Victor:
+   "crea un modulo especifico para rational... seria ideal tenerlo en un
+   modulo especifico") — antes vivía colgado de Pólizas junto con el
+   checklist. Ver test_certificacion_rational.js para la pantalla de
+   arranque del módulo (el checklist); esta es su sub-vista. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -41,12 +48,13 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     sesion.correo='owner@a.com'; sesion.uid='u-owner'; sesion.idToken='FAKE'; sesion.refreshToken='F2';
     sesion.expira=Date.now()+3600000; sesion.rol='owner'; sesion.nombre='Victor Owner';
     ocultarAcceso();
-    irAModulo('polizas');
+    irAModulo('rational');
   });
   await page.waitForTimeout(150);
 
-  // --------- 1) El botón vive en la cabecera de Pólizas, junto a "Checklist RATIONAL" ---------
-  chkF('El botón "Refacciones RATIONAL" está en Pólizas', await page.locator('[data-accion="ver-catalogo-refacciones-rational"]').count() === 1);
+  // --------- 1) El botón vive en la cabecera del checklist (pantalla de arranque del módulo) ---------
+  chkF('Entra al módulo en el checklist (su pantalla de arranque)', await page.locator('h2:has-text("Checklist de certificación RATIONAL")').count() === 1);
+  chkF('El botón "Refacciones RATIONAL" está ahí, junto al checklist', await page.locator('[data-accion="ver-catalogo-refacciones-rational"]').count() === 1);
   await page.click('[data-accion="ver-catalogo-refacciones-rational"]');
   await page.waitForTimeout(150);
   chkF('Entra a la pantalla del catálogo', await page.locator('h2:has-text("Catálogo de refacciones RATIONAL")').count() === 1);
@@ -103,12 +111,18 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Con muchos resultados, avisa que se topó la lista (no intenta pintar miles de filas)', resumenTornillo.includes('mostrando los primeros'));
   chkF('El tope real de filas en el DOM es el prometido (60), no todas las que hay', await page.locator('#zonaResultadosRefaccionesRational tbody tr').count() === 60);
 
-  // --------- 8) Volver a Pólizas funciona (mismo patrón que "Checklist RATIONAL") ---------
-  await page.click('[data-accion="ir-polizas"]');
+  // --------- 8) "Regresar a RATIONAL" vuelve al checklist, sin salirse del módulo ---------
+  await page.click('[data-accion="ver-checklist-rational"]');
   await page.waitForTimeout(150);
-  chkF('"Regresar a pólizas" sí regresa a la lista de pólizas', await page.locator('h2:has-text("Pólizas de mantenimiento")').count() === 1);
+  chkF('"Regresar a RATIONAL" sí regresa al checklist (no a Pólizas)', await page.locator('h2:has-text("Checklist de certificación RATIONAL")').count() === 1);
 
-  // --------- 9) El módulo de inventario propio ("Refacciones", Proveedores) sigue intacto ---------
+  // --------- 9) Pólizas ya NO trae estos botones — se migraron por completo ---------
+  await page.evaluate(() => irAModulo('polizas'));
+  await page.waitForTimeout(150);
+  chkF('El botón "Checklist RATIONAL" ya no vive en Pólizas', await page.locator('[data-accion="ver-checklist-rational"]').count() === 0);
+  chkF('El botón "Refacciones RATIONAL" tampoco', await page.locator('[data-accion="ver-catalogo-refacciones-rational"]').count() === 0);
+
+  // --------- 10) El módulo de inventario propio ("Refacciones", Proveedores) sigue intacto ---------
   // Nombre parecido a propósito ("Refacciones RATIONAL" vs "Refacciones") —
   // confirma que NO se pisaron entre sí (ids de vista y de botón distintos).
   chkF('No hubo errores de página en todo el escenario', errores.length === 0);

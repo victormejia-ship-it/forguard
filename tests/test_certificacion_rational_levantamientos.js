@@ -8,8 +8,10 @@
    Pólizas y Levantamientos son los DOS únicos lugares de Forguard con un
    campo `marca` propio por equipo (modalServicioPoliza y modalHallazgo),
    así que son los dos lugares donde esta certificación puede aparecer. El
-   checklist (datos.checklistRational, editable desde Pólizas → "Checklist
-   RATIONAL") y las categorías de evidencia (CATEGORIA_EVIDENCIA_RATIONAL)
+   checklist (datos.checklistRational, editable desde el módulo RATIONAL —
+   migrado ahí el 08-oct-2026, antes vivía dentro de Pólizas, ver
+   test_catalogo_refacciones_rational.js) y las categorías de evidencia
+   (CATEGORIA_EVIDENCIA_RATIONAL)
    se REUSAN tal cual — ver test_certificacion_rational.js para cómo se
    construyeron.
 

@@ -1925,6 +1925,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
       <button type="button" class="mas-item" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
       <button type="button" class="mas-item" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
       <button type="button" class="mas-item" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
+      <button type="button" class="mas-item" data-modulo="rational" role="tab" aria-selected="false">RATIONAL</button>
     </div>
   </div>
   <div class="nube-zona">
@@ -11561,7 +11562,7 @@ const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
    Desde la ficha de un cliente en Clientes se puede seguir saltando
    directo a su Forpass con "Ver en Forpass" (ver irAlClienteEnForpass())
    — un atajo, no la única puerta. */
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'equipos', 'ayuda'];
+const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'equipos', 'rational', 'ayuda'];
 function cargarModulo(){
   estado.modulo = MODULOS[0];
   estado.vista = inicioDelModulo();
@@ -11596,7 +11597,7 @@ function modulosPermitidos(){
      esconde solo, entero, sin tener que tocar pintarCabecera(). */
   if(HAY_NUBE && haySesion() && rolEfectivo() === 'cliente') return [];
   if(HAY_NUBE && haySesion() && rolEfectivo() === 'reportero') return ['reportes', 'levantamientos', 'ayuda'];
-  if(HAY_NUBE && haySesion() && rolEfectivo() === 'tecnico') return ['mi-agenda', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'ayuda'];
+  if(HAY_NUBE && haySesion() && rolEfectivo() === 'tecnico') return ['mi-agenda', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'rational', 'ayuda'];
   if(HAY_NUBE && haySesion() && rolEfectivo() === 'control_activos') return ['activos'];
   /* Por pedido explícito (10-sep-2026): Viewer pasa a ver TODOS los módulos,
      incluido Imagen/Aperturas —antes se le escondía entero—, porque el
@@ -11633,6 +11634,7 @@ function inicioDelModulo(){
        : estado.modulo === 'organigrama' ? 'organigrama'
        : estado.modulo === 'imagen' ? 'imagen'
        : estado.modulo === 'equipos' ? 'equipos'
+       : estado.modulo === 'rational' ? 'checklist-rational'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'ayuda' ? 'ayuda'
        : 'clientes';
@@ -14403,7 +14405,7 @@ const TEMAS_AYUDA = [
         'Usa <b>Nuevo levantamiento</b>: Cliente y Sitio (con alta al vuelo si hacen falta), Fecha de la visita y quién <b>Realizó</b> el recorrido (se autosugiere tu nombre) y Notas generales. Folio automático <b>LV-DDMMAA-##</b>.',
         'Al guardar entras directo al detalle para empezar a <b>Agregar hallazgo</b> por cada cosa que encuentres.',
         'Cada hallazgo captura: Ubicación/área, Equipo del catálogo (u "Otro" con nombre libre), <b>Marca/Modelo/Número de serie</b> del equipo (opcionales, 25-sep-2026), Qué se encontró (obligatorio), Tipo de acción (correctivo/preventivo/<b>solo levantamiento</b>), Prioridad, Acción sugerida, Nota de resolución, hasta 4 fotos, y una casilla "¿Hay que cotizar algo?" con su propio texto.',
-        'Si escribes "Rational" en <b>Marca</b>, aparece de inmediato (sin cerrar el formulario) una sección de <b>Certificación RATIONAL</b>: el mismo checklist de inspección y evidencia por categoría (orden de servicio, placa, panel eléctrico, mediciones, pruebas iCareSystem/válvulas, calidad del agua) que trae el registro de servicio de una póliza — el botón <b>"Checklist RATIONAL"</b> de Pólizas (solo Admin/Owner) edita esos puntos si el proveedor cambia sus requisitos.',
+        'Si escribes "Rational" en <b>Marca</b>, aparece de inmediato (sin cerrar el formulario) una sección de <b>Certificación RATIONAL</b>: el mismo checklist de inspección y evidencia por categoría (orden de servicio, placa, panel eléctrico, mediciones, pruebas iCareSystem/válvulas, calidad del agua) que trae el registro de servicio de una póliza — el checklist en sí se edita (solo Admin/Owner) desde el módulo <b>RATIONAL</b> del menú principal.',
         '<b>"Solo levantamiento (sin acción)"</b> es para cuando no hace falta programar nada — el hallazgo existe nada más para dejar documentado un equipo (con su marca/modelo/serie): nunca baja el "Análisis de funcionamiento" ni pinta en rojo, igual que uno preventivo.',
         'Al capturar varios hallazgos seguidos, usa <b>Guardar y agregar otro</b> para no cerrar el formulario cada vez.',
         'Marca cada hallazgo como <b>Resuelto</b> cuando se atienda, o <b>Reabrir</b> si vuelve a fallar — es un interruptor simple, sin formulario aparte.',
@@ -14473,8 +14475,7 @@ const TEMAS_AYUDA = [
         'El <b>Alcance</b> de cada equipo marca si esa actividad está "Dentro de nuestro alcance" o es "Responsabilidad del cliente" (por ejemplo, una fuga de gas o una instalación eléctrica que le toca a un especialista certificado, no al mantenimiento preventivo) — se ve como una etiqueta bajo el nombre del equipo, tanto al capturar como en el detalle del contrato. Un equipo "Responsabilidad del cliente" NO se suma al Precio Anual ni al Costo Anual del contrato: su monto se separa aparte, así nunca se le cobra al cliente algo que no es trabajo de Forguard.',
         'Estatus del contrato: Borrador → Enviada (en espera de confirmar) → Activa (precios ya congelados) — o Cancelada.',
         'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción. Si el renglón tiene más de una unidad, la casilla <b>"Fotos separadas por equipo"</b> reparte la galería en una sección por unidad — útil cuando a una le pasó algo distinto a las demás; si no, una sola galería sirve para todas. Cuando dos renglones del mismo contrato comparten el nombre (ej. dos "Horno Rational" distintos), tanto la lista del mes como el modal de registro muestran además marca/modelo/serie de cada uno, para no confundir cuál se está marcando.',
-        'Si la <b>marca</b> del equipo es "Rational", el registro de servicio trae además una sección de <b>Certificación RATIONAL</b>: el checklist de inspección que pide ese proveedor para certificar a Forguard, y evidencia fotográfica por categoría (orden de servicio, placa, panel eléctrico, mediciones, pruebas iCareSystem/válvulas, calidad del agua) — cada categoría con su propio cupo, aparte de las "Fotos de evidencia" generales. El botón <b>"Checklist RATIONAL"</b> de la cabecera (solo Admin/Owner) deja editar esos puntos si el proveedor cambia sus requisitos. Nada de esto —ni el checklist marcado ni esas fotos— viaja al portal de clientes: es control interno para la certificación.',
-        'El botón <b>"Refacciones RATIONAL"</b> de la cabecera abre la lista oficial de precios de ese proveedor (más de 11 mil refacciones, válida desde abril de 2025) — es solo buscador: escribe un código o parte del nombre para ver precio y pedido mínimo, y si el código ya se descontinuó, te enseña directo el código vigente que lo sustituye con su propio precio. Es para cotizar una pieza exacta, no el inventario propio de Forguard (eso vive en Proveedores → Refacciones).',
+        'Si la <b>marca</b> del equipo es "Rational", el registro de servicio trae además una sección de <b>Certificación RATIONAL</b>: el checklist de inspección que pide ese proveedor para certificar a Forguard, y evidencia fotográfica por categoría (orden de servicio, placa, panel eléctrico, mediciones, pruebas iCareSystem/válvulas, calidad del agua) — cada categoría con su propio cupo, aparte de las "Fotos de evidencia" generales. El checklist en sí y el catálogo de refacciones de ese proveedor viven en su propio módulo <b>RATIONAL</b> del menú principal, no aquí. Nada de esto —ni el checklist marcado ni esas fotos— viaja al portal de clientes: es control interno para la certificación.',
         'Haz clic en una casilla de cobro para <b>capturar el cobro</b>: quién captura, número de OC, si ya se facturó.',
         'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa) — un equipo "Responsabilidad del cliente" sale marcado ahí mismo: su fila se sombrea, su número lleva un "†", su Total sale en blanco, y una nota al final explica el símbolo y lista de nuevo cuáles son.',
         '<b>Imprimir calendario</b> (junto a Imprimir): abre solo la portada y la hoja del calendario de mantenimientos, sin la tabla de equipos, descripción de trabajos ni consideraciones — para cuando el técnico solo necesita el calendario en papel, sin las demás hojas. Sale en hoja horizontal (mejor visibilidad de las 12 columnas de mes) y con su propia portada, dejando bien claro que es SOLO el calendario, no el contrato completo.'
@@ -14664,6 +14665,20 @@ const TEMAS_AYUDA = [
       + guiaTip('Por qué no es un módulo de captura', [
           'Agregar un "catálogo real" con su propio id (donde Activos/Levantamientos/Pólizas referenciaran un equipo compartido en vez de repetir marca/modelo/serie cada vez) es una opción más robusta a futuro, pero una migración grande que toca los 3 módulos — se dejó fuera a propósito de esta primera versión.',
           'Por ahora, corregir una marca o modelo mal escrito se sigue haciendo en su fuente original (el Activo, el hallazgo, o la partida de la póliza) — el catálogo solo refleja lo que ya está ahí.'
+        ]) },
+
+  { id:'rational', titulo:'RATIONAL',
+    resumen:'Todo lo que tiene que ver con certificarse como proveedor autorizado de RATIONAL: el checklist de inspección y el catálogo oficial de refacciones.',
+    contenido:
+      guiaSeccion('Lo básico', guiaPasos([
+        'Módulo propio desde el 08-oct-2026 (pedido de Victor: "crea un modulo especifico para rational... seria ideal tenerlo en un modulo especifico") — junta las dos piezas de referencia del proceso de certificación con RATIONAL, antes sueltas dentro de Pólizas.',
+        '<b>Checklist RATIONAL</b> (pantalla de arranque del módulo): los puntos de inspección que pide RATIONAL para certificar a Forguard como proveedor autorizado, transcritos del reporte de referencia (Euromex Service, iCombi Pro). Solo Admin/Owner los edita — agregar/editar texto/reordenar/borrar y "Guardar lista" sube los cambios juntos, igual que la Lista de precios de equipos.',
+        'Esta lista es la que aparece de verdad al dar servicio a cualquier equipo con marca "Rational", en <b>Pólizas y Levantamientos</b> — ahí se marca, aquí se mantiene actualizada si RATIONAL cambia sus requisitos.',
+        'El botón <b>"Refacciones RATIONAL"</b> abre el catálogo oficial de precios de ese proveedor (más de 11 mil refacciones, válido desde abril de 2025) — es solo buscador: escribe un código o parte del nombre para ver precio y pedido mínimo, y si el código ya se descontinuó, te enseña directo el código vigente que lo sustituye con su propio precio.'
+      ]))
+      + guiaTip('No es el inventario propio de Forguard', [
+          'Es un catálogo de REFERENCIA de un proveedor externo, para cotizar una pieza exacta — no tiene nada que ver con el inventario propio de refacciones que ya existía antes bajo Proveedores → Refacciones (movimientos de entrada/salida de Forguard).',
+          'Si RATIONAL publica una lista de precios nueva, se vuelve a generar el archivo completo — no se edita renglón por renglón como si fuera el catálogo de equipos propio.'
         ]) },
 
   { id:'admin', titulo:'Administración',
@@ -15390,12 +15405,11 @@ function vistaPolizas(){
             + 'title="Qué mantenimientos tocan, en todas las pólizas">' + ICONO.calendario + 'Agenda</button>'
           : '')
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-precios">' + ICONO.credencial + 'Lista de precios</button>'
-     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-checklist-rational" '
-       +   'title="El checklist de inspección que pide RATIONAL para certificarnos como proveedor">'
-       +   ICONO.cheque + 'Checklist RATIONAL</button>'
-     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-catalogo-refacciones-rational" '
-       +   'title="Lista oficial de precios de refacciones RATIONAL México, para cotizar">'
-       +   ICONO.codigoBarras + 'Refacciones RATIONAL</button>'
+     /* Checklist/Refacciones RATIONAL vivían aquí hasta el 08-oct-2026 —
+        Victor pidió un módulo propio para todo el proceso de certificación
+        ("crea un modulo especifico para rational... seria ideal tenerlo en
+        un modulo especifico"), así que se migraron a su propia pestaña
+        "RATIONAL" del menú principal (ver vistaChecklistRational()). */
      /* Las cotizaciones viejas ya existen en JSON: se cargan, no se recapturan. */
      +   (puedeEditar()
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="importar-polizas" '
@@ -20504,7 +20518,7 @@ function modalHallazgo(levantamientoId, hallazgoId){
     + '<div class="bloque" id="hzZonaRational"' + (esMarcaRational(hz ? hz.marca : '') ? '' : ' hidden') + '>'
     +   '<div class="bloque-cabeza"><div><h3>Certificación RATIONAL</h3>'
     +     '<p>Checklist y evidencia que pide RATIONAL para certificar este equipo. Si el checklist cambió, se ajusta '
-    +     'desde "Checklist RATIONAL" en Pólizas — aquí solo se marca.</p></div></div>'
+    +     'desde el módulo RATIONAL — aquí solo se marca.</p></div></div>'
     +   '<div class="campo"><label>Checklist de inspección</label>'
     +     '<div id="hzChecklistRational"></div>'
     +   '</div>'
@@ -22626,7 +22640,17 @@ function vistaPrecios(){
    estado.borradorChecklistRational es la copia de trabajo: permite agregar/
    quitar/reordenar puntos sin tocar datos.checklistRational hasta que se
    guarde de verdad (o se pierde si se sale sin guardar, a propósito — un
-   botón "Guardar" que no guarda nada no tiene caso). ------------------------------- */
+   botón "Guardar" que no guarda nada no tiene caso).
+
+   Es la pantalla de ARRANQUE de su propio módulo "RATIONAL" (pedido de
+   Victor, 08-oct-2026: "crea un modulo especifico para rational... seria
+   ideal tenerlo en un modulo especifico" — antes vivía colgado de Pólizas,
+   igual que el catálogo de refacciones). Por eso no trae botón de "regresar"
+   como sí llevaba cuando era una sub-vista de Pólizas: es el tope de su
+   propio módulo, igual que vistaGastosProveedor()/vistaOrganigrama(). El
+   botón "Refacciones RATIONAL" de su cabecera salta al otro sub-vista del
+   mismo módulo (catalogo-refacciones-rational), que sí trae su propio botón
+   de regreso hacia aquí. ------------------------------- */
 function vistaChecklistRational(){
   const puede = esAdmin();
   if(!estado.borradorChecklistRational) estado.borradorChecklistRational = checklistRational().map(it => Object.assign({}, it));
@@ -22638,13 +22662,17 @@ function vistaChecklistRational(){
      cambios" se quedaría apagado para siempre después de editar texto sin
      tocar nada más. Guardar sin cambios reales es inofensivo. */
 
-  let h = botonRegresarPolizas();
+  let h = '';
 
   h += '<div class="titulo-zona"><div>'
      +   '<h2>Checklist de certificación RATIONAL</h2>'
      +   '<p>' + numero(items.length) + ' ' + plural(items.length,'punto','puntos')
      +   (puede ? ' · aparece al dar servicio a cualquier equipo con marca "Rational", en Pólizas y Levantamientos'
               : ' · solo un Admin puede cambiarlo') + '</p>'
+     + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-catalogo-refacciones-rational" '
+       +   'title="Lista oficial de precios de refacciones RATIONAL México, para cotizar">'
+       +   ICONO.codigoBarras + 'Refacciones RATIONAL</button>'
      + '</div></div>';
 
   h += '<div class="aviso" style="border-left-color:var(--navy)">' + ICONO.info
@@ -23083,6 +23111,12 @@ function botonRegresarPolizas(){
        + ICONO.atras + 'Regresar a pólizas</button></div>';
 }
 
+function botonRegresarRational(){
+  return '<div style="margin-bottom:14px">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-checklist-rational">'
+       + ICONO.atras + 'Regresar a RATIONAL</button></div>';
+}
+
 /* Gemelos de irAClientes() y entrarCliente(): prenden la animación de entrada.
    Sin esto las tarjetas se verían desaparecer y reaparecer en cada refresco de
    30 s, porque render() rehace el HTML completo. */
@@ -23093,6 +23127,11 @@ function irAPrecios(){
   window.scrollTo({ top:0, behavior:'smooth' });
 }
 function irAChecklistRational(){
+  /* Módulo propio desde el 08-oct-2026 (antes colgaba de Pólizas) — se
+     defiende igual que irAProveedores()/irAlClienteEnForpass(): puede
+     llegar aquí desde OTRO módulo (clic en la pestaña "RATIONAL" del menú,
+     o el botón "Regresar a RATIONAL" del catálogo de refacciones). */
+  if(estado.modulo !== 'rational'){ estado.modulo = 'rational'; guardarModulo(); }
   animarTarjetas = false;
   estado.vista = 'checklist-rational'; estado.polizaId = null;
   render();
@@ -23119,11 +23158,18 @@ function irAChecklistRational(){
    Con 11,762 renglones, pintar la lista completa de una serían miles de
    nodos en el DOM por nada — por eso es SOLO buscador: nada se muestra
    hasta que se escribe algo, y los resultados se topan (ver TOPE_RESULTADOS_
-   REFACCIONES_RATIONAL) con un aviso de cuántos quedaron fuera. */
+   REFACCIONES_RATIONAL) con un aviso de cuántos quedaron fuera.
+
+   Vivía como sub-vista de Pólizas hasta que Victor pidió un módulo propio
+   para todo el proceso de certificación (08-oct-2026) — ver el comentario
+   junto a vistaChecklistRational(), que es ahora la pantalla de arranque de
+   ese módulo "RATIONAL"; esta sigue siendo su sub-vista, con su propio
+   botón de regreso (botonRegresarRational()). */
 const catalogoRefaccionesRational = { datos:null, cargando:false, error:'' };
 const TOPE_RESULTADOS_REFACCIONES_RATIONAL = 60;
 
 function irACatalogoRefaccionesRational(){
+  if(estado.modulo !== 'rational'){ estado.modulo = 'rational'; guardarModulo(); }
   animarTarjetas = false;
   estado.vista = 'catalogo-refacciones-rational'; estado.polizaId = null; estado.busca = '';
   render();
@@ -23210,7 +23256,7 @@ function pintarResultadosRefaccionesRational(){
 }
 
 function vistaCatalogoRefaccionesRational(){
-  let h = botonRegresarPolizas();
+  let h = botonRegresarRational();
 
   h += '<div class="titulo-zona"><div>'
      +   '<h2>Catálogo de refacciones RATIONAL</h2>'
@@ -23347,8 +23393,6 @@ function render(){
     : estado.modulo === 'mi-agenda'    ? vistaMiAgenda()
     : estado.modulo === 'polizas'      ? (estado.vista === 'poliza' ? vistaPoliza()
                                     : estado.vista === 'precios' ? vistaPrecios()
-                                    : estado.vista === 'checklist-rational' ? vistaChecklistRational()
-                                    : estado.vista === 'catalogo-refacciones-rational' ? vistaCatalogoRefaccionesRational()
                                     : estado.vista === 'agenda'  ? vistaAgenda()
                                     : vistaPolizas())
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
@@ -23371,6 +23415,7 @@ function render(){
     : estado.modulo === 'organigrama'  ? vistaOrganigrama()
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
     : estado.modulo === 'equipos'      ? vistaCatalogoEquipos()
+    : estado.modulo === 'rational'     ? (estado.vista === 'catalogo-refacciones-rational' ? vistaCatalogoRefaccionesRational() : vistaChecklistRational())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
     : estado.modulo === 'ayuda'        ? (estado.vista === 'ayuda-tema' ? vistaAyudaTema() : vistaAyuda())
@@ -24016,10 +24061,10 @@ function pintarCabecera(){
     b.setAttribute('aria-selected', b.dataset.modulo === estado.modulo ? 'true' : 'false');
   });
   /* El botón "Más" agrupa Activos/Proveedores/Organigrama/Imagen/Catálogo
-     de equipos/Ayuda (ver comentario en el HTML): se esconde si el rol no
-     tiene ninguno de los seis, y se enciende como si fuera la pestaña
-     activa cuando el módulo abierto vive adentro. */
-  const GRUPO_MAS = ['activos', 'proveedores', 'organigrama', 'imagen', 'equipos', 'ayuda'];
+     de equipos/RATIONAL/Ayuda (ver comentario en el HTML): se esconde si el
+     rol no tiene ninguno de los siete, y se enciende como si fuera la
+     pestaña activa cuando el módulo abierto vive adentro. */
+  const GRUPO_MAS = ['activos', 'proveedores', 'organigrama', 'imagen', 'equipos', 'rational', 'ayuda'];
   const btnMas = $('btnMasModulos');
   btnMas.style.display = GRUPO_MAS.some(m => permitidos.includes(m)) ? '' : 'none';
   btnMas.setAttribute('aria-selected', GRUPO_MAS.includes(estado.modulo) ? 'true' : 'false');
@@ -26372,7 +26417,7 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
         ? '<div class="bloque" id="svZonaRational">'
           +   '<div class="bloque-cabeza"><div><h3>Certificación RATIONAL</h3>'
           +     '<p>Checklist y evidencia que pide RATIONAL para certificar este servicio. '
-          +     'Si el checklist cambió, se ajusta desde "Checklist RATIONAL" en Pólizas — aquí solo se marca.</p></div></div>'
+          +     'Si el checklist cambió, se ajusta desde el módulo RATIONAL — aquí solo se marca.</p></div></div>'
           +   '<div class="campo"><label>Checklist de inspección</label>'
           +     '<div id="svChecklistRational"></div>'
           +   '</div>'
