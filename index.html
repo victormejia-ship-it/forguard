@@ -296,7 +296,15 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
      desborde real medido en JS, no por este ancho fijo. Lo que sigue
      aplicando aquí es el resto del reacomodo del encabezado en pantallas
      angostas (este bloque es más chico que antes a propósito). */
-  .nube-zona{gap:6px;}
+  /* flex-basis:100% le da a .nube-zona el ancho REAL de su propio renglón
+     (cuando comparte el de arriba con el logo y la hamburguesa igual le
+     sobra, se ve exactamente igual) — sin esto, como único elemento de su
+     renglón, el navegador la deja del ancho que le pidan sus botones
+     (flex-wrap:wrap de arriba hacia abajo), y ESE ancho podía pasarse de la
+     pantalla sin que su propio flex-wrap (ver la regla base) tuviera contra
+     qué romper línea: el botón "Log out" se quedaba afuera, sin scroll ni
+     aviso, en celulares angostos de verdad. */
+  .nube-zona{gap:6px; flex-basis:100%;}
   /* Mismo criterio que ya usa .pastilla: con el icono basta, el texto ("Admin",
      "Mi cuenta", "Log out") solo hace bulto en una pantalla angosta. */
   .btn-cabeza .txt{display:none;}
@@ -1318,12 +1326,21 @@ table.tabla tr.tiene-notas > td{border-bottom:none; padding-bottom:2px;}
 }
 
 /* ---------- Indicador de nube y sesión en el encabezado ---------- */
-/* flex-shrink:0: esta zona (nombre, permiso, nube, Admin/Mi cuenta/Log out)
-   nunca se debe encoger ni truncar — quien absorbe el apretón de espacio es
-   .modulos, con su propio scroll (ver el comentario ahí). Sin esto, cuando no
-   cabía todo, el navegador repartía el apretón entre las dos zonas por igual
-   y terminaba empujando estos botones fuera de la pantalla. */
-.nube-zona{display:flex; align-items:center; gap:9px; margin-left:auto; flex-shrink:0;}
+/* flex-shrink:0: ningún botón de esta zona se encoge ni trunca su ícono —
+   el que se encoge es cada botón como bloque completo, nunca a la mitad.
+   Antes "quien absorbía el apretón de espacio" era .modulos con su propio
+   scroll horizontal; ahora que el menú de módulos colapsa a hamburguesa en
+   vez de scrollear (ver el bloque de #selectorModulo/.nav-colapsada), ya
+   nada absorbía el apretón de ESTA zona — con 8 botones (tema, nombre,
+   permiso, nube, notificaciones, pendientes, Ver como/Admin/Mi cuenta/Log
+   out) en pantallas angostas de verdad (celular en vertical) se quedaba más
+   ancha que la pantalla, empujando "Log out" fuera del borde derecho SIN
+   scroll ni aviso —detectado con una captura real de Victor preguntando si
+   esto también se podía "apilar" como el menú de módulos. flex-wrap:wrap
+   dejaba que los botones que no caben en la fila pasen a una fila de abajo
+   (el espacio entre renglones lo da el mismo gap, que ya aplica a ambos
+   ejes) en vez de desbordar la página entera. */
+.nube-zona{display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:9px; margin-left:auto; flex-shrink:0;}
 .pastilla{
   display:inline-flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600;
   border-radius:999px; padding:6px 12px; border:1px solid var(--line); background:var(--superficie); color:var(--gray);
