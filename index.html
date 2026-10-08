@@ -227,6 +227,9 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .mod-mas:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
 .mod-mas svg{width:13px; height:13px; flex-shrink:0; transition:transform .15s var(--ease);}
 .mod-mas[aria-expanded="true"] svg{transform:rotate(180deg);}
+/* El ícono de hamburguesa solo se ve bajo los 840px (ver ese media query):
+   en pantallas anchas "Más ▾" se queda tal cual, con su texto y flecha. */
+.mod-mas-hamburguesa{display:none;}
 /* Mismo patrón que .notif-panel: flota encima, no empuja nada del encabezado.
    right:0 la ancla al borde derecho de .modulos-zona, que es justo donde vive
    "Más" (flex:0 0 auto, último hermano) — por eso siempre queda justo debajo
@@ -247,6 +250,13 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 .mas-panel .mas-item:hover{color:var(--navy-texto); background:var(--bg);}
 .mas-panel .mas-item[aria-selected="true"]{color:var(--navy-texto); background:var(--bg); cursor:default;}
 .mas-panel .mas-item:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+/* El grupo duplicado de pestañas (mi-agenda…cotizaciones) solo se ve bajo los
+   840px, cuando reemplaza a la fila de arriba — ver el comentario en el HTML
+   y el media query de abajo. display:contents en vez de ocultar cada botón
+   por separado: así se comportan como hijos directos de .mas-panel (mismo
+   padding/gap que el resto) en vez de quedar anidados un nivel de más. */
+.mas-grupo-ancho{display:none;}
+.mas-separador{border-top:1px solid var(--line); margin:4px 6px;}
 
 /* Bajo los 840px, además de lo de arriba, el encabezado entero se parte en dos
    renglones: el selector de módulo se va completo a su propio renglón
@@ -255,10 +265,27 @@ header.app .sub{font-size:12px; color:var(--gray); margin-left:auto;}
 @media (max-width:840px){
   header.app{padding:12px 16px; gap:10px; flex-wrap:wrap;}
   header.app .sub{display:none;}
-  .modulos-zona{flex:1 1 100%; order:3;}
   .modulos{gap:1px;}
   .modulos .mod{padding:5px 6px; font-size:11.5px;}
+  /* La fila de pestañas se esconde entera — "Más" (ahora ícono de
+     hamburguesa) pasa a ser el único punto de entrada, con TODOS los
+     módulos adentro (ver el grupo duplicado en el HTML). Ya no hace falta
+     forzar a .modulos-zona a su propio renglón completo (antes necesario
+     para que la fila larga de pestañas tuviera dónde scrollear): ahora es
+     solo un botón compacto, cabe junto al logo igual que el resto del
+     encabezado. */
+  #selectorModulo{display:none;}
+  .mod-mas-txt, .mod-mas-chevron{display:none;}
+  .mod-mas-hamburguesa{display:block;}
+  .mas-grupo-ancho{display:contents;}
   .mod-mas{padding:0 8px; font-size:11.5px;}
+  /* .mas-panel se ancla con right:0 contra .modulos-zona — con la fila de
+     pestañas visible, .modulos-zona ocupaba casi todo el encabezado y ese
+     borde derecho caía cerca del borde derecho de la pantalla. Ahora que
+     .modulos-zona es solo el botón de hamburguesa, pegado al logo (borde
+     IZQUIERDO del encabezado), ese mismo right:0 sacaba el panel entero de
+     la pantalla por la izquierda. Aquí se ancla al revés. */
+  .mas-panel{left:0; right:auto;}
   .nube-zona{gap:6px;}
   /* Mismo criterio que ya usa .pastilla: con el icono basta, el texto ("Admin",
      "Mi cuenta", "Log out") solo hace bulto en una pantalla angosta. */
@@ -1800,13 +1827,45 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
       <button type="button" class="mod" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
       <button type="button" class="mod" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
     </nav>
-    <button type="button" class="mod-mas" id="btnMasModulos" aria-haspopup="true" aria-expanded="false" aria-selected="false">Más <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+    <button type="button" class="mod-mas" id="btnMasModulos" aria-haspopup="true" aria-expanded="false" aria-selected="false">
+      <svg class="mod-mas-hamburguesa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+      <span class="mod-mas-txt">Más</span>
+      <svg class="mod-mas-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
     <!-- Fuera de #selectorModulo a propósito (ver comentario arriba): el <nav>
          tiene overflow-x:auto, y eso obliga a overflow-y:auto también (regla
          del navegador cuando un solo eje se fija), así que un panel absoluto
          colgado DENTRO del nav se recortaría en vez de flotar encima. Vive
          como hermano, posicionado contra .modulos-zona. -->
     <div class="mas-panel" id="panelMasModulos" hidden>
+      <!-- Bajo los 840px, #selectorModulo (la fila de pestañas) se esconde
+           entera (pedido de Victor, 08-oct-2026, con una captura real
+           mostrando solo "Resultados" y "Más": "modifica que todo los menus
+           puedan apilarse en las pestañas de mas o coloca un simbolo de
+           lineas para mostrar mas, dependiendo del tamaño de la pantalla")
+           — antes el sobrante se iba en scroll horizontal sin ninguna pista
+           visual (barra escondida a propósito), quedando invisible de facto.
+           Este grupo DUPLICA esas mismas pestañas (mismo data-modulo, mismo
+           orden) para que "Más" —ahora con ícono de hamburguesa en vez de
+           "Más ▾"— se vuelva el único punto de entrada y tenga TODOS los
+           módulos, no solo los seis de siempre. display:contents (ver CSS)
+           hace que estos botones se comporten como hijos directos de
+           .mas-panel, heredando su mismo espaciado en columna; oculto por
+           completo en pantallas anchas, donde la fila de pestañas de arriba
+           sigue siendo la navegación principal. -->
+      <div class="mas-grupo-ancho">
+        <button type="button" class="mas-item" data-modulo="mi-agenda" role="tab" aria-selected="false">Mi agenda</button>
+        <button type="button" class="mas-item" data-modulo="resultados" role="tab" aria-selected="false">Resultados</button>
+        <button type="button" class="mas-item" data-modulo="clientes" role="tab" aria-selected="false">Clientes</button>
+        <button type="button" class="mas-item" data-modulo="forpass" role="tab" aria-selected="false">Forpass</button>
+        <button type="button" class="mas-item" data-modulo="reportes" role="tab" aria-selected="false">Reportes</button>
+        <button type="button" class="mas-item" data-modulo="cocinas" role="tab" aria-selected="false">Cocinas</button>
+        <button type="button" class="mas-item" data-modulo="levantamientos" role="tab" aria-selected="false">Levantamientos</button>
+        <button type="button" class="mas-item" data-modulo="visitas" role="tab" aria-selected="false">Visitas</button>
+        <button type="button" class="mas-item" data-modulo="polizas" role="tab" aria-selected="false">Pólizas</button>
+        <button type="button" class="mas-item" data-modulo="cotizaciones" role="tab" aria-selected="false">Cotizaciones</button>
+        <div class="mas-separador"></div>
+      </div>
       <button type="button" class="mas-item" data-modulo="activos" role="tab" aria-selected="false">Activos</button>
       <button type="button" class="mas-item" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
       <button type="button" class="mas-item" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
