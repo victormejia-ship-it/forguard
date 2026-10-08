@@ -14140,7 +14140,7 @@ const TEMAS_AYUDA = [
         'Usa <b>Nueva cotización</b> para armar un contrato: Cliente, Sitio (con alta al vuelo), Fecha, Facturación (Anual/Mensual), Cargo a (Cliente/Interno), Vendedor, y los equipos cotizados —cada uno con precio, costo, servicios al año, mes de arranque y <b>Alcance</b>—, tomados del buscador de catálogo.',
         'El <b>Alcance</b> de cada equipo marca si esa actividad está "Dentro de nuestro alcance" o es "Responsabilidad del cliente" (por ejemplo, una fuga de gas o una instalación eléctrica que le toca a un especialista certificado, no al mantenimiento preventivo) — se ve como una etiqueta bajo el nombre del equipo, tanto al capturar como en el detalle del contrato. Un equipo "Responsabilidad del cliente" NO se suma al Precio Anual ni al Costo Anual del contrato: su monto se separa aparte, así nunca se le cobra al cliente algo que no es trabajo de Forguard.',
         'Estatus del contrato: Borrador → Enviada (en espera de confirmar) → Activa (precios ya congelados) — o Cancelada.',
-        'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción. Si el renglón tiene más de una unidad, la casilla <b>"Fotos separadas por equipo"</b> reparte la galería en una sección por unidad — útil cuando a una le pasó algo distinto a las demás; si no, una sola galería sirve para todas.',
+        'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción. Si el renglón tiene más de una unidad, la casilla <b>"Fotos separadas por equipo"</b> reparte la galería en una sección por unidad — útil cuando a una le pasó algo distinto a las demás; si no, una sola galería sirve para todas. Cuando dos renglones del mismo contrato comparten el nombre (ej. dos "Horno Rational" distintos), tanto la lista del mes como el modal de registro muestran además marca/modelo/serie de cada uno, para no confundir cuál se está marcando.',
         'Haz clic en una casilla de cobro para <b>capturar el cobro</b>: quién captura, número de OC, si ya se facturó.',
         'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa) — un equipo "Responsabilidad del cliente" sale marcado ahí mismo: su fila se sombrea, su número lleva un "†", su Total sale en blanco, y una nota al final explica el símbolo y lista de nuevo cuáles son.',
         '<b>Imprimir calendario</b> (junto a Imprimir): abre solo la portada y la hoja del calendario de mantenimientos, sin la tabla de equipos, descripción de trabajos ni consideraciones — para cuando el técnico solo necesita el calendario en papel, sin las demás hojas. Sale en hoja horizontal (mejor visibilidad de las 12 columnas de mes) y con su propia portada, dejando bien claro que es SOLO el calendario, no el contrato completo.'
@@ -25521,8 +25521,13 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
       '<div class="resumen" style="margin-bottom:18px">'
     +   '<div class="r-fila"><span>Póliza</span><span>' + esc(p.sitioNombre || p.folio || 'Póliza')
     +     (cli ? ' · ' + esc(cli.nombre) : '') + '</span></div>'
+    /* Marca sola no basta para distinguir dos renglones con el mismo concepto
+       (ej. dos "Horno Rational" de distinto modelo/serie, pedido de Victor
+       08-oct-2026: "no cuento con un diferenciador de que equipo fue el que
+       se atendio") — modelo y serie sí son propios de CADA renglón. */
     +   '<div class="r-fila"><span>Equipo</span><span>' + esc(x.concepto)
-    +     (x.cantidad > 1 ? ' ×' + x.cantidad : '') + (x.marca ? ' · ' + esc(x.marca) : '') + '</span></div>'
+    +     (x.cantidad > 1 ? ' ×' + x.cantidad : '') + (x.marca ? ' · ' + esc(x.marca) : '')
+    +     (x.modelo ? ' · ' + esc(x.modelo) : '') + (x.cantidad === 1 && x.serie ? ' · ' + esc(x.serie) : '') + '</span></div>'
     +   '<div class="r-fila r-total"><span>Mes del calendario</span><span>' + esc(etiqueta) + '</span></div>'
     +   (enCalendario ? ''
         : '<div class="r-fila"><span>Ojo</span><span>Este mes ya no está en el calendario del equipo</span></div>')
@@ -25992,6 +25997,25 @@ function cuerpoCalendarioPoliza(p, marcable, permiteRecalcular, verDetalle){
   const trans = mesesTranscurridos(p.fechaInicio, hoy);
   const mesActual = (diasEntre(p.fechaInicio, hoy) < 0 || trans >= MESES_POLIZA) ? -1 : trans;
 
+  /* Dos renglones con el mismo concepto (ej. dos "Horno Rational" de distinto
+     modelo/serie) se veían idénticos en la lista del mes — no había forma de
+     saber cuál de los dos se estaba marcando (pedido de Victor 08-oct-2026,
+     con captura real de una póliza así: "no cuento con un diferenciador de
+     que equipo fue el que se atendio"). Se detecta el empate por concepto
+     UNA vez aquí, y solo esos renglones llevan marca/modelo/serie de más en
+     la lista — el resto se queda tal cual para no saturarla. */
+  const conceptosRepetidos = new Set();
+  {
+    const vistos = new Map();
+    p.partidas.forEach(x=>{
+      if(esSegurista(x)) return;
+      const clave = (x.concepto || '').trim().toLowerCase();
+      if(!clave) return;
+      vistos.set(clave, (vistos.get(clave) || 0) + 1);
+    });
+    vistos.forEach((n, clave)=>{ if(n > 1) conceptosRepetidos.add(clave); });
+  }
+
   const meses = Array.from({length:MESES_POLIZA}, (_,m)=>{
     const toca = [], seguristas = [];
     p.partidas.forEach(x=>{
@@ -26065,11 +26089,18 @@ function cuerpoCalendarioPoliza(p, marcable, permiteRecalcular, verDetalle){
              globito, no en la tarjeta: inline rompía el renglón en columnas
              angostas. Al picar, el registro lo enseña completo. */
           const parcial = r.det && r.x.cantidad > 1 && (r.det.hechas || r.x.cantidad) < r.x.cantidad;
+          /* Solo cuando otro renglón de la póliza comparte el mismo concepto:
+             marca/modelo/serie son lo único propio de CADA renglón que los
+             distingue (ver conceptosRepetidos, arriba). */
+          const distintivo = conceptosRepetidos.has((r.x.concepto || '').trim().toLowerCase())
+            ? [r.x.marca, r.x.modelo, r.x.cantidad === 1 ? r.x.serie : ''].filter(Boolean).join(' ')
+            : '';
           const texto = esc(r.x.concepto) + (r.x.cantidad > 1 ? ' <b>×' + r.x.cantidad + '</b>' : '')
+              + (distintivo ? ' <span class="pista" style="display:inline">· ' + esc(distintivo) + '</span>' : '')
               + (r.fuera ? ' <span class="pista" style="display:inline">(fuera de calendario)</span>' : '')
               + (r.det && r.det.cuando ? ' <span class="pista" style="display:inline">' + fmtFecha(r.det.cuando) + '</span>' : '')
               + (parcial ? ' <b style="color:#8A5A0B">' + r.det.hechas + ' de ' + r.x.cantidad + '</b>' : '');
-          const tip = r.det
+          const tip = (distintivo ? distintivo + ' · ' : '') + (r.det
             ? 'Hecho el ' + fmtFecha(r.det.cuando) + (r.det.quien ? ' · ' + r.det.quien : '')
               + (parcial ? ' · ' + r.det.hechas + ' de ' + r.x.cantidad
                   + (r.det.motivo ? ' · faltó: ' + r.det.motivo : '') : '')
@@ -26079,7 +26110,7 @@ function cuerpoCalendarioPoliza(p, marcable, permiteRecalcular, verDetalle){
                   ? ' · ' + r.det.evidencias.length + ' ' + plural(r.det.evidencias.length,'foto','fotos') : '')
               + (r.det.refaccion ? ' · pidió refacción: ' + r.det.refaccion : '')
               + (marcable ? ' — pica para corregirlo' : (verDetalle ? ' — pica para ver el detalle' : ''))
-            : (marcable ? 'Registrar que ya se hizo' : 'Pendiente');
+            : (marcable ? 'Registrar que ya se hizo' : 'Pendiente'));
           const verSoloLectura = !marcable && verDetalle && r.det;
           return '<li' + (r.det ? ' class="hecho"' : '') + ' title="' + esc(tip) + '">'
             + (marcable
@@ -26193,7 +26224,11 @@ function modalDetalleServicioPortal(polizaId, partidaId, mes){
   const parcial = x.cantidad > 1 && (det.hechas || x.cantidad) < x.cantidad;
 
   const cuerpo = '<div class="resumen" style="margin-bottom:18px">'
-    +   '<div class="r-fila"><span>Equipo</span><span>' + esc(x.concepto) + (x.cantidad > 1 ? ' ×' + x.cantidad : '') + '</span></div>'
+    /* Sin modelo/serie a propósito: datosClientePoliza() ya los manda vacíos
+       a esta copia de portal — son control interno, nunca pensados para que
+       los vea el cliente (ver ese comentario). Marca sí viaja completa. */
+    +   '<div class="r-fila"><span>Equipo</span><span>' + esc(x.concepto) + (x.cantidad > 1 ? ' ×' + x.cantidad : '')
+    +     (x.marca ? ' · ' + esc(x.marca) : '') + '</span></div>'
     +   '<div class="r-fila"><span>Mes del calendario</span><span>' + esc(etiquetaMesServicio(p.fechaInicio, mes)) + '</span></div>'
     +   '<div class="r-fila r-total"><span>Hecho el</span><span>' + fmtFecha(det.cuando) + '</span></div>'
     +   (det.quien ? '<div class="r-fila"><span>Atendió</span><span>' + esc(det.quien) + '</span></div>' : '')
