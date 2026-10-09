@@ -6827,6 +6827,23 @@ function exigirGestionActivos(){
   aviso('Tu cuenta no puede dar de alta ni modificar activos. Puedes consultar el catálogo.', true);
   return false;
 }
+/* Borrar es un paso más allá de "gestionar" (dar de alta/editar/importar) —
+   en el resto de la app eso lo corta exigirAdmin() (Owner/Admin a secas),
+   pero aquí también entra control_activos: pedido explícito de Victor
+   (09-oct-2026, aclarando un pedido anterior sobre "la vista de activos"):
+   "no es para el cliente sino para la persona que administra el activo" —
+   control_activos es justo ESE rol, el único dedicado por completo a este
+   catálogo (su único módulo es Activos, ver modulosPermitidos()). Sin esto,
+   ese rol puede dar de alta e importar pero nunca corregir un error de
+   captura o una importación mala borrándola — se queda atorado esperando
+   siempre a un Admin. Técnico no se nombra aquí aunque puedeGestionarActivos()
+   lo incluya: ni siquiera ve el módulo Activos, nunca llega a estos botones. */
+function puedeBorrarActivos(){ return esAdmin() || rolEfectivo() === 'control_activos'; }
+function exigirBorrarActivos(quePasa){
+  if(puedeBorrarActivos()) return true;
+  aviso('Tu cuenta no puede ' + quePasa + '.', true);
+  return false;
+}
 
 /* Una entrada del historial del activo: sirve tanto para bitácora libre
    ("se movió de sitio", "se le hizo limpieza general") como para un
@@ -16783,7 +16800,7 @@ function vistaActivosListado(){
      +   '<p>' + numero(r.total) + ' ' + plural(r.total,'activo','activos') + ' registrados</p>'
      + '</div><div class="acciones">'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="excel-activos">' + ICONO.excel + 'Descargar Excel</button>'
-     +   (esAdmin() && base.length
+     +   (puedeBorrarActivos() && base.length
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="alternar-seleccion-activos">' + (estado.seleccionActivos ? 'Cancelar selección' : ICONO.mas + 'Seleccionar') + '</button>'
           : '')
      +   (puedeGestionarActivos()
@@ -17165,7 +17182,7 @@ function vistaActivo(){
     if(a.estatus !== 'perdido') h += '<button type="button" class="btn btn-suave btn-mini" data-accion="cambiar-estatus-activo" data-estatus="perdido">Marcar perdido/robado</button>';
   }
   h += '<span class="espacio"></span>';
-  if(esAdmin()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-activo">' + ICONO.basura + 'Eliminar</button>';
+  if(puedeBorrarActivos()) h += '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-activo">' + ICONO.basura + 'Eliminar</button>';
   h += '</div>';
 
   return h;
@@ -30663,7 +30680,7 @@ $('vista').addEventListener('click', ev=>{
       render(); aviso('Activo marcado como "' + ETIQUETA_ESTATUS_ACTIVO[nuevo] + '".');
     }
     else if(a === 'borrar-activo'){
-      if(!exigirAdmin('eliminar un activo')) return;
+      if(!exigirBorrarActivos('eliminar un activo')) return;
       const ac = activoPorId(estado.activoId);
       if(!ac) return;
       confirmar('Eliminar activo',
@@ -30677,12 +30694,12 @@ $('vista').addEventListener('click', ev=>{
         });
     }
     else if(a === 'alternar-seleccion-activos'){
-      if(!exigirAdmin('seleccionar activos para eliminarlos')) return;
+      if(!exigirBorrarActivos('seleccionar activos para eliminarlos')) return;
       estado.seleccionActivos = !estado.seleccionActivos;
       render();
     }
     else if(a === 'eliminar-activos-seleccionados'){
-      if(!exigirAdmin('eliminar activos')) return;
+      if(!exigirBorrarActivos('eliminar activos')) return;
       const ids = Array.from(document.querySelectorAll('.chkSeleccionActivo:checked')).map(c => c.value);
       if(!ids.length) return;
       const seleccionados = datos.activos.filter(x => ids.includes(x.id));

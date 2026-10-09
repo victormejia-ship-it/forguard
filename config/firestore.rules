@@ -457,7 +457,14 @@ service cloud.firestore {
       allow read:   if conAcceso() && !esCliente();
       allow create: if puedeEditar() || (conAcceso() && rol() in ['tecnico', 'control_activos']);
       allow update: if puedeEditar() || (conAcceso() && rol() in ['tecnico', 'control_activos']);
-      allow delete: if esAdmin();
+      /* control_activos también puede borrar (09-oct-2026, pedido de
+         Victor: "no es para el cliente sino para la persona que administra
+         el activo") — es el único rol dedicado por completo a este
+         catálogo, así que si puede dar de alta e importar pero nunca
+         corregir un error borrándolo, se queda atorado esperando siempre a
+         un Admin. Ver puedeBorrarActivos()/exigirBorrarActivos() en
+         index.html — el mismo candado de este lado. */
+      allow delete: if esAdmin() || (conAcceso() && rol() == 'control_activos');
     }
 
     /* --- Proveedores (catálogo + sus gastos) ---
