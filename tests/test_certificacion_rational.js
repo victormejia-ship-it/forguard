@@ -70,8 +70,12 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
 
   // --------- 1) El checklist, como admin: ver, editar, agregar, borrar ---------
   // Módulo propio "RATIONAL" desde el 08-oct-2026 (antes vivía dentro de
-  // Pólizas) — su pantalla de arranque YA ES el checklist.
-  await page.evaluate(() => irAModulo('rational'));
+  // Pólizas). Desde el rediseño del 09-oct-2026 su pantalla de arranque es
+  // un TABLERO con tres tarjetas (ver test_equipos_rational.js) — el
+  // checklist ya no es "lo principal", así que hay que entrar con su
+  // propia función de navegación, no asumir que irAModulo('rational')
+  // cae directo ahí.
+  await page.evaluate(() => irAChecklistRational());
   await page.waitForTimeout(150);
   chkF('El checklist arranca con los 36 puntos del PDF de Euromex (semilla)', await page.locator('#cuerpoChecklistRational tr').count() === 36);
   const primerPunto = await page.locator('#cuerpoChecklistRational input[data-texto-checklist]').first().inputValue();

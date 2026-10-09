@@ -680,6 +680,10 @@ button.encargado:focus-visible{outline:2px solid var(--accent); outline-offset:2
   background:linear-gradient(135deg,var(--navy-2),var(--accent)); color:#fff; font-size:16px; font-weight:700; letter-spacing:.02em;
   overflow:hidden;
 }
+/* Tarjetas de un menú fijo (ej. el tablero de RATIONAL): un ícono dice más
+   que las iniciales calculadas de avatarCliente/iniciales(), que además
+   pueden coincidir entre dos tarjetas distintas sin querer. */
+.t-avatar svg{width:22px; height:22px;}
 /* Con logo: fondo blanco y la imagen completa, sin recortarla ni deformarla. */
 .t-avatar.con-logo{background:var(--superficie); border:1px solid var(--line); padding:4px;}
 .t-avatar.con-logo img{width:100%; height:100%; object-fit:contain; display:block;}
@@ -2949,7 +2953,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[] };
 
 function cargar(){
   try{
@@ -2997,7 +3001,8 @@ function cargar(){
            existiera Visitas no es un archivo roto, se abre con la lista
            vacía y sigue. */
         visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
-        checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational) };
+        checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational),
+        propiedadEquiposRational: (Array.isArray(d.propiedadEquiposRational) ? d.propiedadEquiposRational : []).map(normalizarPropiedadEquipoRational) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -3120,7 +3125,8 @@ async function restaurarSnapshotIndexedDB(){
          esta llave, datos.visitas queda undefined y el módulo Visitas
          truena en cuanto se recorre. */
       visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
-      checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational) };
+      checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational),
+      propiedadEquiposRational: (Array.isArray(d.propiedadEquiposRational) ? d.propiedadEquiposRational : []).map(normalizarPropiedadEquipoRational) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -4240,7 +4246,7 @@ function limpiarSesionYDatos(){
      undefined hasta que bajarDeLaNube() alcanzara a repoblarlas, y un
      render() de por medio —con cola pendiente o sin internet— tronaba con
      cualquier vista que las tocara.) */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[] };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -4937,7 +4943,7 @@ async function bajarDeLaNube(soloColecciones){
   /* Si no se pidió una colección en este refresco, ni se intenta leerla —
      null de una vez, en vez de disparar la red y tirar la respuesta. */
   const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr, pq] = await Promise.all([
     p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
     p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
     p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
@@ -4956,7 +4962,8 @@ async function bajarDeLaNube(soloColecciones){
     p('refacciones', () => listarNubeSuave('refacciones', 100)),
     p('ordenesCompra', () => listarNubeSuave('ordenesCompra', 100)),
     p('visitas', () => listarNubeSuave('visitas', 100)),
-    p('checklistRational', () => leerChecklistRational())
+    p('checklistRational', () => leerChecklistRational()),
+    p('propiedadEquiposRational', () => listarNubeSuave('propiedadEquiposRational', 200))
   ]);
   if(!soloColecciones && !cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -4976,7 +4983,7 @@ async function bajarDeLaNube(soloColecciones){
   [['clientes',cl],['sitios',si],['polizas',po],['cotizaciones',co],['reportes',rp],
    ['levantamientos',lv],['proyectosImagen',im],['activos',ac],['personal',pe],['nominaPersonal',np],
    ['proveedores',pv],['gastosProveedor',gp],['refacciones',rf],['ordenesCompra',oc],
-   ['visitas',vi]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
+   ['visitas',vi],['propiedadEquiposRational',pq]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
   datos = { v:1,
             clientes: cl === null ? datos.clientes : cl.map(normalizarCliente),
             sitios: si === null ? datos.sitios : si.map(normalizarSitio),
@@ -4996,7 +5003,8 @@ async function bajarDeLaNube(soloColecciones){
             refacciones: (rf === null ? datos.refacciones : rf.map(normalizarRefaccion)),
             ordenesCompra: (oc === null ? datos.ordenesCompra : oc.map(normalizarOrdenCompra)),
             visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)),
-            checklistRational: cr === null ? datos.checklistRational : cr };
+            checklistRational: cr === null ? datos.checklistRational : cr,
+            propiedadEquiposRational: (pq === null ? datos.propiedadEquiposRational : pq.map(normalizarPropiedadEquipoRational)) };
   /* Veredicto de auditoría (21-sep-2026): un registro con un rechazo
      definitivo pendiente (ver colaRechazada arriba) nunca llegó a existir
      del lado del servidor, así que el reemplazo de arriba lo deja fuera sin
@@ -5079,6 +5087,51 @@ function sembrarChecklistRational(){
   render();
   aviso('Checklist de RATIONAL guardado con ' + datos.checklistRational.length + ' puntos.');
 }
+
+/* ==================== Propiedad de equipos RATIONAL ====================
+   Pedido de Victor (09-oct-2026, al rediseñar el módulo): "traigas todos
+   los equipos por cliente los enlistes y nosotros podamos definir si son
+   del cliente o propiedad de la empresa" — acotado por él mismo a "solo
+   aplicarían los hornos rational" (no todos los equipos de cualquier
+   marca, eso ya existe aparte en Catálogo de equipos, solo Owner).
+
+   Registro NUEVO Y SEPARADO (decisión de Victor, confirmada antes de
+   construir) — no toca Activos/Levantamientos/Pólizas, que son las 3
+   fuentes de donde sale la lista (ver equiposRationalAgregado(), que
+   reusa catalogoEquiposAgregado() filtrado a esMarcaRational()). Una
+   colección de verdad (un documento por equipo, igual que /visitas),
+   no un documento único como /checklistRational — aquí sí puede haber
+   cientos de unidades.
+
+   La llave es el número de serie NORMALIZADO (claveEquipoAgregado) — el
+   único dato que de verdad identifica una unidad física sin ambigüedad,
+   mismo criterio que el agregador. Un equipo sin serie capturada no se
+   puede clasificar de forma confiable (dos hornos del mismo cliente sin
+   serie son indistinguibles) — la pantalla los enseña pero sin selector,
+   con una pista explicando por qué. */
+function normalizarPropiedadEquipoRational(x){
+  return {
+    id: (x && x.id ? String(x.id) : '').trim(),
+    serie: (x && x.serie ? String(x.serie) : '').trim(),
+    propiedad: ['cliente','forguard'].includes(x && x.propiedad) ? x.propiedad : '',
+    actualizadoEn: (x && x.actualizadoEn) || new Date().toISOString(),
+    actualizadoPor: (x && x.actualizadoPor ? String(x.actualizadoPor) : '').trim()
+  };
+}
+function propiedadEquipoRational(clave){
+  return datos.propiedadEquiposRational.find(r => r.id === clave) || null;
+}
+function guardarPropiedadEquipoRational(clave, serieOriginal, propiedad){
+  const reg = normalizarPropiedadEquipoRational({
+    id: clave, serie: serieOriginal, propiedad, actualizadoPor: nombreDe(sesion) || ''
+  });
+  const i = datos.propiedadEquiposRational.findIndex(r => r.id === clave);
+  if(i === -1) datos.propiedadEquiposRational.push(reg); else datos.propiedadEquiposRational[i] = reg;
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'propiedadEquiposRational', id:clave, obj:reg });
+  anotar('definió', 'propiedad de equipo RATIONAL', (serieOriginal || clave) + ' → ' + (ETIQUETA_PROPIEDAD_EQUIPO_RATIONAL[propiedad] || 'sin definir'));
+}
+const ETIQUETA_PROPIEDAD_EQUIPO_RATIONAL = { '': 'Sin definir', cliente: 'Del cliente', forguard: 'De Forguard' };
 
 /* Carga masiva de costos (insumos + mano de obra) desde un JSON —
    [{concepto, costoInsumos, costoManoObra}, ...]— para no tener que teclear
@@ -6957,9 +7010,9 @@ function catalogoEquiposAgregado(){
 
   filas.forEach(f=>{
     const clave = claveEquipoAgregado(f.serie);
-    if(!clave){ sueltos.push({ marca: f.marca, modelo: f.modelo, serie: f.serie, clienteNombre: f.clienteNombre, sitioNombre: f.sitioNombre, apariciones: [f] }); return; }
+    if(!clave){ sueltos.push({ marca: f.marca, modelo: f.modelo, serie: f.serie, clienteNombre: f.clienteNombre, sitioNombre: f.sitioNombre, apariciones: [f], clave: '' }); return; }
     if(!grupos.has(clave)){
-      grupos.set(clave, { marca: f.marca, modelo: f.modelo, serie: f.serie, clienteNombre: f.clienteNombre, sitioNombre: f.sitioNombre, apariciones: [] });
+      grupos.set(clave, { marca: f.marca, modelo: f.modelo, serie: f.serie, clienteNombre: f.clienteNombre, sitioNombre: f.sitioNombre, apariciones: [], clave });
     }
     const g = grupos.get(clave);
     g.apariciones.push(f);
@@ -6970,6 +7023,18 @@ function catalogoEquiposAgregado(){
   return [...grupos.values(), ...sueltos]
     .filter(g => g.marca || g.modelo || g.serie)
     .sort((a,b)=> (a.marca || '').localeCompare(b.marca || '', 'es') || (a.modelo || '').localeCompare(b.modelo || '', 'es'));
+}
+
+/* Mismo agregador de arriba, acotado a marca "Rational" (pedido de Victor,
+   09-oct-2026, del módulo RATIONAL: "solo aplicarían los hornos rational" —
+   a propósito NO todos los equipos de cualquier marca, eso es Catálogo de
+   equipos, aparte y solo para Owner). Ordenado por CLIENTE primero —aquí lo
+   que importa es "qué tiene cada cliente", no "qué modelos existen". */
+function equiposRationalAgregado(){
+  return catalogoEquiposAgregado()
+    .filter(g => esMarcaRational(g.marca))
+    .sort((a,b)=> (a.clienteNombre || '').localeCompare(b.clienteNombre || '', 'es')
+      || (a.modelo || '').localeCompare(b.modelo || '', 'es'));
 }
 
 function vistaCatalogoEquipos(){
@@ -11634,7 +11699,7 @@ function inicioDelModulo(){
        : estado.modulo === 'organigrama' ? 'organigrama'
        : estado.modulo === 'imagen' ? 'imagen'
        : estado.modulo === 'equipos' ? 'equipos'
-       : estado.modulo === 'rational' ? 'checklist-rational'
+       : estado.modulo === 'rational' ? 'rational'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'ayuda' ? 'ayuda'
        : 'clientes';
@@ -14668,17 +14733,19 @@ const TEMAS_AYUDA = [
         ]) },
 
   { id:'rational', titulo:'RATIONAL',
-    resumen:'Todo lo que tiene que ver con certificarse como proveedor autorizado de RATIONAL: el checklist de inspección y el catálogo oficial de refacciones.',
+    resumen:'Todo lo que tiene que ver con certificarse como proveedor autorizado de RATIONAL: el checklist de inspección, el catálogo oficial de refacciones y los equipos por cliente.',
     contenido:
       guiaSeccion('Lo básico', guiaPasos([
-        'Módulo propio desde el 08-oct-2026 (pedido de Victor: "crea un modulo especifico para rational... seria ideal tenerlo en un modulo especifico") — junta las dos piezas de referencia del proceso de certificación con RATIONAL, antes sueltas dentro de Pólizas.',
-        '<b>Checklist RATIONAL</b> (pantalla de arranque del módulo): los puntos de inspección que pide RATIONAL para certificar a Forguard como proveedor autorizado, transcritos del reporte de referencia (Euromex Service, iCombi Pro). Solo Admin/Owner los edita — agregar/editar texto/reordenar/borrar y "Guardar lista" sube los cambios juntos, igual que la Lista de precios de equipos.',
-        'Esta lista es la que aparece de verdad al dar servicio a cualquier equipo con marca "Rational", en <b>Pólizas y Levantamientos</b> — ahí se marca, aquí se mantiene actualizada si RATIONAL cambia sus requisitos.',
-        'El botón <b>"Refacciones RATIONAL"</b> abre el catálogo oficial de precios de ese proveedor (más de 11 mil refacciones, válido desde abril de 2025) — es solo buscador: escribe un código o parte del nombre para ver precio y pedido mínimo, y si el código ya se descontinuó, te enseña directo el código vigente que lo sustituye con su propio precio.'
+        'Módulo propio desde el 08-oct-2026 (pedido de Victor: "crea un modulo especifico para rational... seria ideal tenerlo en un modulo especifico") — junta todo el proceso de certificación con RATIONAL, antes suelto dentro de Pólizas.',
+        'La pantalla de arranque es un <b>tablero con tres tarjetas</b> (rediseño del 09-oct-2026, pedido de Victor: "no quiero que el check list sea lo principal sino que puedan ser otro tipo de vista") — Checklist, Catálogo de refacciones y Equipos por cliente, ninguna "la principal": cada una resume su propio estado y se abre con un clic.',
+        '<b>Checklist de certificación</b>: los puntos de inspección que pide RATIONAL para certificar a Forguard como proveedor autorizado, transcritos del reporte de referencia (Euromex Service, iCombi Pro). Solo Admin/Owner los edita — agregar/editar texto/reordenar/borrar y "Guardar lista" sube los cambios juntos, igual que la Lista de precios de equipos. Esta lista es la que aparece de verdad al dar servicio a cualquier equipo con marca "Rational", en <b>Pólizas y Levantamientos</b> — ahí se marca, aquí se mantiene actualizada si RATIONAL cambia sus requisitos.',
+        '<b>Catálogo de refacciones</b>: la lista oficial de precios de ese proveedor (más de 11 mil refacciones, válida desde abril de 2025) — es solo buscador: escribe un código o parte del nombre para ver precio y pedido mínimo, y si el código ya se descontinuó, te enseña directo el código vigente que lo sustituye con su propio precio.',
+        '<b>Equipos por cliente</b> (09-oct-2026, mismo pedido): junta TODOS los hornos marca "Rational" documentados en Activos, Levantamientos o Pólizas de cualquier cliente —la misma lógica de Catálogo de equipos, acotada a esa marca— y deja definir, equipo por equipo, si es <b>del cliente</b> o <b>propiedad de Forguard</b>. Un equipo sin número de serie capturado no se puede clasificar de forma confiable (dos hornos del mismo cliente sin serie son indistinguibles) y se enseña sin el selector, con una pista explicando por qué.'
       ]))
       + guiaTip('No es el inventario propio de Forguard', [
-          'Es un catálogo de REFERENCIA de un proveedor externo, para cotizar una pieza exacta — no tiene nada que ver con el inventario propio de refacciones que ya existía antes bajo Proveedores → Refacciones (movimientos de entrada/salida de Forguard).',
-          'Si RATIONAL publica una lista de precios nueva, se vuelve a generar el archivo completo — no se edita renglón por renglón como si fuera el catálogo de equipos propio.'
+          'El catálogo de refacciones es de REFERENCIA de un proveedor externo, para cotizar una pieza exacta — no tiene nada que ver con el inventario propio de refacciones que ya existía antes bajo Proveedores → Refacciones (movimientos de entrada/salida de Forguard).',
+          'Si RATIONAL publica una lista de precios nueva, se vuelve a generar el archivo completo — no se edita renglón por renglón como si fuera el catálogo de equipos propio.',
+          'La propiedad de cada equipo (cliente/Forguard) es un registro NUEVO Y SEPARADO: no toca el Activo, el hallazgo ni la partida de póliza de donde salió ese equipo — solo clasifica, no corrige ni duplica esos datos.'
         ]) },
 
   { id:'admin', titulo:'Administración',
@@ -22628,6 +22695,59 @@ function vistaPrecios(){
   return h;
 }
 
+/* ---------------------- Vista: tablero del módulo RATIONAL ----------------------
+   Pedido de Victor, 09-oct-2026, un día después de la primera entrega del
+   módulo (que arrancaba directo en el checklist): "no quiero que el check
+   list sea lo principal sino que puedan ser otro tipo de vista" — y de
+   paso pidió una tercera herramienta ("todos los equipos por cliente...
+   definir si son del cliente o propiedad de la empresa", ver
+   vistaEquiposRational()). Esta es ahora la pantalla de ARRANQUE real del
+   módulo: un tablero con las tres herramientas como tarjetas IGUALES,
+   ninguna "principal" — mismo componente .tarjeta.tarjeta-clic que ya usa
+   vistaAyuda() para su lista de temas, reusado tal cual en vez de inventar
+   un segundo estilo de tarjeta clicable. Cada una resume su propio estado
+   (puntos del checklist, tamaño del catálogo, cuántos equipos siguen sin
+   propiedad definida) para que sea útil de un vistazo, no solo un menú. */
+function vistaRational(){
+  const items = checklistRational();
+  const equipos = equiposRationalAgregado();
+  const conClave = equipos.filter(g => g.clave);
+  const sinDefinir = conClave.filter(g => !(propiedadEquipoRational(g.clave) || {}).propiedad).length;
+
+  const tarjetas = [
+    { accion:'ver-checklist-rational', titulo:'Checklist de certificación', icono:ICONO.cheque,
+      resumen: numero(items.length) + ' ' + plural(items.length,'punto','puntos') + ' de inspección',
+      detalle: 'Lo que pide RATIONAL para certificar a Forguard como proveedor autorizado.' },
+    { accion:'ver-catalogo-refacciones-rational', titulo:'Catálogo de refacciones', icono:ICONO.codigoBarras,
+      resumen: 'Más de 11 mil piezas',
+      detalle: 'Precios oficiales de RATIONAL México, válidos desde abril de 2025 — solo buscador.' },
+    { accion:'ver-equipos-rational', titulo:'Equipos por cliente', icono:ICONO.edificio,
+      resumen: numero(equipos.length) + ' ' + plural(equipos.length,'equipo','equipos') + (sinDefinir ? ' · ' + numero(sinDefinir) + ' sin definir' : ''),
+      detalle: '¿Cada horno Rational es del cliente, o propiedad de Forguard?' }
+  ];
+
+  let h = '<div class="titulo-zona"><div>'
+     +   '<h2>RATIONAL</h2>'
+     +   '<p>Todo lo que tiene que ver con certificarnos como proveedor autorizado de RATIONAL.</p>'
+     + '</div></div>';
+
+  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + tarjetas.map((t,i)=>
+      '<div class="tarjeta tarjeta-clic" data-accion="' + t.accion + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
+    +   '<div class="t-cabeza">'
+    +     '<div class="t-avatar">' + t.icono + '</div>'
+    +     '<div style="flex:1; min-width:0">'
+    +       '<div class="t-nombre">' + esc(t.titulo) + '</div>'
+    +       '<div class="t-sub">' + esc(t.resumen) + '</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<p class="pista" style="margin:8px 0 0">' + esc(t.detalle) + '</p>'
+    +   '<div class="t-pie"><span class="espacio"></span><button type="button" class="btn btn-suave btn-mini" data-accion="' + t.accion + '">Abrir →</button></div>'
+    + '</div>'
+  ).join('') + '</div>';
+
+  return h;
+}
+
 /* ---------------------- Vista: checklist de certificación RATIONAL ----------------------
    Mismo molde que "Lista de precios": un documento único en Firestore, lo ve
    todo el equipo (un técnico lo necesita para marcar los puntos al dar
@@ -22642,15 +22762,17 @@ function vistaPrecios(){
    guarde de verdad (o se pierde si se sale sin guardar, a propósito — un
    botón "Guardar" que no guarda nada no tiene caso).
 
-   Es la pantalla de ARRANQUE de su propio módulo "RATIONAL" (pedido de
-   Victor, 08-oct-2026: "crea un modulo especifico para rational... seria
-   ideal tenerlo en un modulo especifico" — antes vivía colgado de Pólizas,
-   igual que el catálogo de refacciones). Por eso no trae botón de "regresar"
-   como sí llevaba cuando era una sub-vista de Pólizas: es el tope de su
-   propio módulo, igual que vistaGastosProveedor()/vistaOrganigrama(). El
-   botón "Refacciones RATIONAL" de su cabecera salta al otro sub-vista del
-   mismo módulo (catalogo-refacciones-rational), que sí trae su propio botón
-   de regreso hacia aquí. ------------------------------- */
+   Vive en su propio módulo "RATIONAL" (pedido de Victor, 08-oct-2026: "crea
+   un modulo especifico para rational... seria ideal tenerlo en un modulo
+   especifico" — antes vivía colgado de Pólizas). SEGUNDA VUELTA al día
+   siguiente (09-oct-2026, Victor vio la primera entrega — el checklist como
+   pantalla de arranque del módulo— y pidió "no quiero que el check list sea
+   lo principal sino que puedan ser otro tipo de vista"): dejó de ser el
+   ARRANQUE del módulo, ahora es una sub-vista más, al mismo nivel que el
+   catálogo de refacciones y el nuevo listado de equipos — la pantalla de
+   arranque real es vistaRational(), un tablero con las tres como tarjetas
+   iguales. Por eso aquí SÍ vuelve a llevar botón de "regresar" (al tablero,
+   no a Pólizas). ------------------------------- */
 function vistaChecklistRational(){
   const puede = esAdmin();
   if(!estado.borradorChecklistRational) estado.borradorChecklistRational = checklistRational().map(it => Object.assign({}, it));
@@ -22662,7 +22784,7 @@ function vistaChecklistRational(){
      cambios" se quedaría apagado para siempre después de editar texto sin
      tocar nada más. Guardar sin cambios reales es inofensivo. */
 
-  let h = '';
+  let h = botonRegresarRational();
 
   h += '<div class="titulo-zona"><div>'
      +   '<h2>Checklist de certificación RATIONAL</h2>'
@@ -22670,6 +22792,9 @@ function vistaChecklistRational(){
      +   (puede ? ' · aparece al dar servicio a cualquier equipo con marca "Rational", en Pólizas y Levantamientos'
               : ' · solo un Admin puede cambiarlo') + '</p>'
      + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-equipos-rational" '
+       +   'title="Equipos marca Rational por cliente, y si son del cliente o de Forguard">'
+       +   ICONO.edificio + 'Equipos RATIONAL</button>'
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-catalogo-refacciones-rational" '
        +   'title="Lista oficial de precios de refacciones RATIONAL México, para cotizar">'
        +   ICONO.codigoBarras + 'Refacciones RATIONAL</button>'
@@ -23113,7 +23238,7 @@ function botonRegresarPolizas(){
 
 function botonRegresarRational(){
   return '<div style="margin-bottom:14px">'
-       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-checklist-rational">'
+       + '<button type="button" class="btn btn-suave btn-mini" data-accion="ir-rational">'
        + ICONO.atras + 'Regresar a RATIONAL</button></div>';
 }
 
@@ -23126,14 +23251,28 @@ function irAPrecios(){
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
+/* Tablero del módulo (09-oct-2026): ver vistaRational() para el porqué.
+   Mismo patrón defensivo que irAProveedores() — puede llegar aquí ya
+   parado en el módulo (clic en pestaña "RATIONAL") o desde otro
+   completamente distinto. */
+function irARational(){
+  if(estado.modulo !== 'rational'){ estado.modulo = 'rational'; guardarModulo(); }
+  animarTarjetas = false;
+  estado.vista = 'rational'; estado.polizaId = null;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
 function irAChecklistRational(){
-  /* Módulo propio desde el 08-oct-2026 (antes colgaba de Pólizas) — se
-     defiende igual que irAProveedores()/irAlClienteEnForpass(): puede
-     llegar aquí desde OTRO módulo (clic en la pestaña "RATIONAL" del menú,
-     o el botón "Regresar a RATIONAL" del catálogo de refacciones). */
   if(estado.modulo !== 'rational'){ estado.modulo = 'rational'; guardarModulo(); }
   animarTarjetas = false;
   estado.vista = 'checklist-rational'; estado.polizaId = null;
+  render();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+function irAEquiposRational(){
+  if(estado.modulo !== 'rational'){ estado.modulo = 'rational'; guardarModulo(); }
+  animarTarjetas = false;
+  estado.vista = 'equipos-rational'; estado.polizaId = null; estado.busca = '';
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -23162,9 +23301,11 @@ function irAChecklistRational(){
 
    Vivía como sub-vista de Pólizas hasta que Victor pidió un módulo propio
    para todo el proceso de certificación (08-oct-2026) — ver el comentario
-   junto a vistaChecklistRational(), que es ahora la pantalla de arranque de
-   ese módulo "RATIONAL"; esta sigue siendo su sub-vista, con su propio
-   botón de regreso (botonRegresarRational()). */
+   junto a vistaChecklistRational(). Es una sub-vista del módulo "RATIONAL",
+   con su propio botón de regreso al tablero (botonRegresarRational() →
+   vistaRational(), no al checklist: desde la segunda vuelta del rediseño,
+   09-oct-2026, las tres herramientas del módulo son hermanas, ninguna es
+   "la principal"). */
 const catalogoRefaccionesRational = { datos:null, cargando:false, error:'' };
 const TOPE_RESULTADOS_REFACCIONES_RATIONAL = 60;
 
@@ -23271,6 +23412,102 @@ function vistaCatalogoRefaccionesRational(){
      +   '<input type="text" id="buscaRefaccionRational" placeholder="Ej. 40.01.891, panel lateral, electrodo de nivel…" value="' + esc(estado.busca) + '" autocomplete="off"></div>';
 
   h += '<div id="zonaResultadosRefaccionesRational"></div>';
+
+  return h;
+}
+
+/* ---------------------- Vista: equipos RATIONAL por cliente ----------------------
+   Pedido de Victor, 09-oct-2026, al rediseñar el módulo: "traigas todos los
+   equipos por cliente los enlistes y nosotros podamos definir si son del
+   cliente o propiedad de la empresa" — acotado por él mismo a "solo
+   aplicarían los hornos rational" (ver equiposRationalAgregado(), que
+   reusa el mismo agregador de Catálogo de equipos, filtrado a marca
+   Rational, SIN requerir ser Owner — ese candado de Catálogo de equipos es
+   porque incluye Activos internos de Forguard; este filtro ya acota a
+   equipo de cliente real).
+
+   La propiedad (datos.propiedadEquiposRational, ver el comentario junto a
+   normalizarPropiedadEquipoRational) es un registro NUEVO Y SEPARADO por
+   decisión de Victor — nunca toca el Activo/hallazgo/partida de origen.
+   Un equipo sin número de serie capturado no tiene una llave confiable
+   (dos hornos del mismo cliente sin serie son indistinguibles) — se
+   enseña igual, pero sin el selector, con una pista explicando por qué. */
+function vistaEquiposRational(){
+  const todos = equiposRationalAgregado();
+  const conClave = todos.filter(g => g.clave);
+  const porPropiedad = p => conClave.filter(g => (propiedadEquipoRational(g.clave) || {}).propiedad === p).length;
+  const delCliente = porPropiedad('cliente'), deForguard = porPropiedad('forguard');
+  const sinDefinir = conClave.length - delCliente - deForguard;
+
+  let h = botonRegresarRational();
+
+  h += '<div class="titulo-zona"><div>'
+     +   '<h2>Equipos RATIONAL por cliente</h2>'
+     +   '<p>Todos los hornos marca "Rational" documentados en Activos, Levantamientos o Pólizas — define si cada uno es del cliente o propiedad de Forguard.</p>'
+     + '</div></div>';
+
+  if(!todos.length){
+    h += vistaVacia('activo', 'Todavía no hay ningún equipo marca "Rational" documentado',
+      'En cuanto se capture en un Activo, un hallazgo de Levantamiento o un renglón de Póliza, aparece aquí solo.', '', '');
+    return h;
+  }
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Equipos Rational', numero(todos.length), conClave.length < todos.length ? (todos.length - conClave.length) + ' sin serie (no clasificables)' : 'Todos con serie')
+     + tarjetaKpi('Del cliente', numero(delCliente))
+     + tarjetaKpi('De Forguard', numero(deForguard))
+     + tarjetaKpi('Sin definir', numero(sinDefinir), '', sinDefinir ? 'k-alerta' : '')
+     + '</div>';
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaEquiposRational" placeholder="Buscar por cliente, sitio, modelo o serie…" value="' + esc(estado.busca) + '">'
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const visibles = q
+    ? todos.filter(g => [g.clienteNombre, g.sitioNombre, g.modelo, g.serie].some(v => (v || '').toLowerCase().includes(q)))
+    : todos;
+
+  if(!visibles.length){
+    h += '<div class="vacio"><h3>Sin resultados</h3><p>Nada coincide con la búsqueda.</p></div>';
+    return h;
+  }
+
+  h += '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:900px"><thead><tr>'
+     +   '<th>Cliente / Sitio</th><th>Modelo</th><th>Serie</th><th>Documentado en</th><th>Propiedad</th>'
+     + '</tr></thead><tbody>'
+     + visibles.map(g=>{
+         const vistos = new Set();
+         const origenesUnicos = g.apariciones.filter(a=>{
+           const k = a.origen + ':' + a.origenId;
+           if(vistos.has(k)) return false;
+           vistos.add(k); return true;
+         });
+         const atributo = o => o.origen === 'activo' ? 'data-activo' : o.origen === 'levantamiento' ? 'data-levantamiento' : 'data-poliza';
+         const actual = g.clave ? (propiedadEquipoRational(g.clave) || {}).propiedad || '' : '';
+         return '<tr>'
+           +   '<td>' + esc(g.clienteNombre || 'Sin cliente') + (g.sitioNombre ? '<br><span class="pista">' + esc(g.sitioNombre) + '</span>' : '') + '</td>'
+           +   '<td>' + esc(g.modelo || '—') + '</td>'
+           +   '<td>' + esc(g.serie || '—') + '</td>'
+           +   '<td style="display:flex; gap:6px; flex-wrap:wrap">' + origenesUnicos.map(o =>
+                 '<button type="button" class="btn btn-suave btn-mini" ' + atributo(o) + '="' + esc(o.origenId) + '" title="' + esc(o.origenEtiqueta) + '">' + ETIQUETA_ORIGEN_EQUIPO[o.origen] + '</button>'
+               ).join('') + '</td>'
+           +   '<td>' + (!g.clave
+                 ? '<span class="pista" title="Sin número de serie capturado: no hay forma de identificar esta unidad de manera confiable">Sin serie</span>'
+                 : puedeEditar()
+                 ? '<select data-propiedad-equipo-rational="' + esc(g.clave) + '" data-serie-equipo-rational="' + esc(g.serie) + '">'
+                   +   ['','cliente','forguard'].map(p => '<option value="' + p + '"' + (actual === p ? ' selected' : '') + '>' + esc(ETIQUETA_PROPIEDAD_EQUIPO_RATIONAL[p]) + '</option>').join('')
+                   + '</select>'
+                 /* Técnico y Viewer ven el módulo (es lectura, igual que
+                    Pólizas/Cotizaciones para esos roles) pero no pueden
+                    editar — firestore.rules ya lo bloquea del lado del
+                    servidor, esto evita mostrar un control que de todos
+                    modos fallaría al guardar. */
+                 : esc(ETIQUETA_PROPIEDAD_EQUIPO_RATIONAL[actual]))
+               + '</td>'
+           + '</tr>';
+       }).join('')
+     + '</tbody></table></div>';
 
   return h;
 }
@@ -23415,7 +23652,10 @@ function render(){
     : estado.modulo === 'organigrama'  ? vistaOrganigrama()
     : estado.modulo === 'imagen'       ? (estado.vista === 'proyecto-imagen' ? vistaProyectoImagen() : vistaProyectosImagen())
     : estado.modulo === 'equipos'      ? vistaCatalogoEquipos()
-    : estado.modulo === 'rational'     ? (estado.vista === 'catalogo-refacciones-rational' ? vistaCatalogoRefaccionesRational() : vistaChecklistRational())
+    : estado.modulo === 'rational'     ? (estado.vista === 'catalogo-refacciones-rational' ? vistaCatalogoRefaccionesRational()
+                                    : estado.vista === 'checklist-rational' ? vistaChecklistRational()
+                                    : estado.vista === 'equipos-rational' ? vistaEquiposRational()
+                                    : vistaRational())
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
     : estado.modulo === 'ayuda'        ? (estado.vista === 'ayuda-tema' ? vistaAyudaTema() : vistaAyuda())
@@ -23698,6 +23938,14 @@ function render(){
   if(ftv) ftv.addEventListener('change', ()=>{ estado.filtroTecnicoVisita = ftv.value; render(); });
   const bRefR = $('buscaRefaccionRational');
   if(bRefR) bRefR.addEventListener('input', ()=>{ estado.busca = bRefR.value; renderConservandoFoco(bRefR, 'buscaRefaccionRational'); });
+  const bEqR = $('buscaEquiposRational');
+  if(bEqR) bEqR.addEventListener('input', ()=>{ estado.busca = bEqR.value; renderConservandoFoco(bEqR, 'buscaEquiposRational'); });
+  document.querySelectorAll('[data-propiedad-equipo-rational]').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      guardarPropiedadEquipoRational(sel.dataset.propiedadEquipoRational, sel.dataset.serieEquipoRational, sel.value);
+      render();
+    });
+  });
   if(estado.vista === 'admin') montarAdmin();
   if(estado.vista === 'catalogo-refacciones-rational') montarCatalogoRefaccionesRational();
   if(estado.modulo === 'visitas') montarVisitas();
@@ -30555,6 +30803,8 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ver-precios') irAPrecios();
     else if(a === 'ver-checklist-rational') irAChecklistRational();
     else if(a === 'ver-catalogo-refacciones-rational') irACatalogoRefaccionesRational();
+    else if(a === 'ver-equipos-rational') irAEquiposRational();
+    else if(a === 'ir-rational') irARational();
     else if(a === 'guardar-checklist-rational-semilla') sembrarChecklistRational();
     else if(a === 'agregar-punto-checklist-rational'){
       if(!exigirAdmin('cambiar el checklist de RATIONAL')) return;
@@ -32451,7 +32701,7 @@ function salirSilencioso(tambienLosDatos){
     /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
        21-sep-2026): faltaban proveedores/gastosProveedor/refacciones/
        ordenesCompra. */
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;

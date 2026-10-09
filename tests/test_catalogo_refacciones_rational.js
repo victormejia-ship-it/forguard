@@ -25,8 +25,11 @@
    08-oct-2026, poco después de esta primera entrega (pedido de Victor:
    "crea un modulo especifico para rational... seria ideal tenerlo en un
    modulo especifico") — antes vivía colgado de Pólizas junto con el
-   checklist. Ver test_certificacion_rational.js para la pantalla de
-   arranque del módulo (el checklist); esta es su sub-vista. */
+   checklist. SEGUNDA VUELTA al día siguiente (09-oct-2026, "no quiero que
+   el check list sea lo principal sino que puedan ser otro tipo de vista"):
+   la pantalla de arranque del módulo dejó de ser el checklist y pasó a ser
+   un TABLERO (vistaRational(), ver test_equipos_rational.js) con tres
+   tarjetas iguales — esta pantalla es una de las tres, reusada tal cual. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -52,9 +55,11 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   });
   await page.waitForTimeout(150);
 
-  // --------- 1) El botón vive en la cabecera del checklist (pantalla de arranque del módulo) ---------
-  chkF('Entra al módulo en el checklist (su pantalla de arranque)', await page.locator('h2:has-text("Checklist de certificación RATIONAL")').count() === 1);
-  chkF('El botón "Refacciones RATIONAL" está ahí, junto al checklist', await page.locator('[data-accion="ver-catalogo-refacciones-rational"]').count() === 1);
+  // --------- 1) El módulo arranca en el TABLERO, no en el checklist ---------
+  // Ojo: h2:has-text("RATIONAL") también matchearía "Checklist de
+  // certificación RATIONAL" (substring) — se compara el texto EXACTO.
+  chkF('El módulo arranca en el tablero ("RATIONAL"), no en ninguna sub-vista', (await page.locator('h2').first().textContent()).trim() === 'RATIONAL');
+  chkF('La tarjeta del catálogo de refacciones está ahí', await page.locator('[data-accion="ver-catalogo-refacciones-rational"]').count() >= 1);
   await page.click('[data-accion="ver-catalogo-refacciones-rational"]');
   await page.waitForTimeout(150);
   chkF('Entra a la pantalla del catálogo', await page.locator('h2:has-text("Catálogo de refacciones RATIONAL")').count() === 1);
@@ -111,10 +116,10 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Con muchos resultados, avisa que se topó la lista (no intenta pintar miles de filas)', resumenTornillo.includes('mostrando los primeros'));
   chkF('El tope real de filas en el DOM es el prometido (60), no todas las que hay', await page.locator('#zonaResultadosRefaccionesRational tbody tr').count() === 60);
 
-  // --------- 8) "Regresar a RATIONAL" vuelve al checklist, sin salirse del módulo ---------
-  await page.click('[data-accion="ver-checklist-rational"]');
+  // --------- 8) "Regresar a RATIONAL" vuelve al TABLERO del módulo, sin salirse de él ---------
+  await page.click('[data-accion="ir-rational"]');
   await page.waitForTimeout(150);
-  chkF('"Regresar a RATIONAL" sí regresa al checklist (no a Pólizas)', await page.locator('h2:has-text("Checklist de certificación RATIONAL")').count() === 1);
+  chkF('"Regresar a RATIONAL" sí regresa al tablero (no a Pólizas, no directo al checklist)', (await page.locator('h2').first().textContent()).trim() === 'RATIONAL');
 
   // --------- 9) Pólizas ya NO trae estos botones — se migraron por completo ---------
   await page.evaluate(() => irAModulo('polizas'));

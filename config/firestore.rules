@@ -567,6 +567,21 @@ service cloud.firestore {
       allow write: if esAdmin();
     }
 
+    /* --- Propiedad de equipos RATIONAL (09-oct-2026) ---
+       Un documento POR EQUIPO (llave = número de serie normalizado), a
+       diferencia de /checklistRational que es un solo documento — aquí
+       puede haber cientos de unidades. Mismo alcance que /activos: lo lee
+       cualquiera con acceso (menos el portal de clientes, que no tiene
+       nada que ver con esto), y lo edita quien puede editar en general
+       (igual que el resto de clasificaciones del tablero) — borrar, solo
+       Admin, como todo lo demás. */
+    match /propiedadEquiposRational/{id} {
+      allow read:   if conAcceso() && !esCliente();
+      allow create: if puedeEditar();
+      allow update: if puedeEditar();
+      allow delete: if esAdmin();
+    }
+
     /* --- Historial: cualquiera con acceso lo escribe, solo admin lo lee,
            y nadie lo puede modificar ni borrar. --- */
     match /bitacora/{id} {
