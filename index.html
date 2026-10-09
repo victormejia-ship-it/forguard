@@ -23727,6 +23727,7 @@ function render(){
     pintarEstadoNube();
     pintarCabecera();
     $('vista').innerHTML = vistaPortalCliente();
+    empujarNavegacionSiCambio();
     return;
   }
   /* Candado de verdad, no solo cosmético: si el módulo actual ya no está
@@ -24086,6 +24087,7 @@ function render(){
   /* Ya se dibujó: los siguientes redibujados de esta misma lista son instantáneos.
      Solo cambiar de vista vuelve a prender la animación. */
   animarTarjetas = false;
+  empujarNavegacionSiCambio();
 }
 
 /* ==================== Centro de notificaciones ====================
@@ -25615,48 +25617,75 @@ document.addEventListener('keydown', ev=>{ if(ev.key === 'Escape' && $('telon').
 
 /* ===================== El botón "atrás" del navegador nunca saca de la app =====================
    Esta es una sola página sin URLs internas: todo vive en `estado`, nunca en
-   location.hash ni con pushState. Sin nada aquí, "atrás" manda derecho a lo
-   que hubiera antes de abrir la pestaña —a veces nada— sin importar en qué
-   parte de la app se esté parado: justo lo que reportó Victor (14-sep-2026),
-   que un "atrás" lo sacaba de la vista previa de rol en vez de regresarlo a
-   donde estaba.
-   Se atrapa con un historial ficticio: al cargar se mete un estado de
-   respaldo, y cada vez que el navegador dispara "popstate" (le dieron a
-   "atrás") se vuelve a meter ANTES de reaccionar — así la pila nunca se
-   vacía y jamás hay a dónde "salir" de verdad. Resuelto eso, "atrás" se
-   traduce a la acción más local que aplique, en este orden: cerrar un
-   modal abierto, salir de la vista previa de rol, regresar de un detalle
-   del portal de cliente o de un módulo a su lista, o subir al inicio real
-   si ya estaba en una lista. Si ya no hay a dónde "subir", no hace nada —
-   un "atrás" de más simplemente se absorbe. */
-function empujarCandadoHistorial(){
-  try{ history.pushState({ forguardCandado:true }, '', location.href); }catch(e){}
+   location.hash. El primer intento (14-sep-2026, Victor: un "atrás" lo sacaba
+   de la vista previa de rol en vez de regresarlo a donde estaba) solo subía
+   UN nivel con una heurística fija (cerrar modal → salir de vista previa →
+   vista del módulo a su lista → "inicio" = el primer módulo permitido). Eso
+   resolvía "no me saca de la pestaña" pero no "a donde yo estaba de verdad":
+   si entrabas a Pólizas, saltabas a RATIONAL y le dabas "atrás", esa
+   heurística te mandaba al primer módulo de la lista (Resultados para
+   Owner) en vez de regresarte a Pólizas — reportado por Victor el
+   09-oct-2026 ("que se vaya a donde anteriormente estabas", no una subida
+   genérica de nivel.
+
+   Ahora sí es una pila real: cada vez que render() termina con una
+   combinación de módulo/vista/detalle DISTINTA a la última que se metió al
+   historial, se empuja una foto de esos campos (fotoNavegacion/
+   CAMPOS_NAVEGACION — solo lo que identifica una pantalla distinta; busca,
+   filtros y modo tarjeta/tabla quedan FUERA a propósito, si no cada letra
+   tecleada en un buscador metería su propio "atrás"). En "popstate" se
+   restaura esa foto tal cual sobre `estado` y se vuelve a pintar — sin
+   heurística, exactamente la pantalla de antes, sin importar cuántos
+   módulos de por medio se hayan visitado. El modal abierto y la vista
+   previa de rol se siguen resolviendo PRIMERO y aparte (son capas encima de
+   la pantalla, no la pantalla en sí). Si el "atrás" cae más allá de la
+   última foto real (se acabó la pila, o es un estado de antes de este
+   mecanismo) no hay nada que restaurar: se absorbe sin mover la pantalla y
+   se vuelve a plantar un colchón aquí mismo, para que el PRÓXIMO "atrás"
+   tampoco se escape de la pestaña. */
+const CAMPOS_NAVEGACION = [
+  'modulo', 'vista', 'clienteId', 'polizaId', 'cotizacionId', 'reporteId', 'levantamientoId',
+  'proyectoImagenId', 'activoId', 'proveedorId', 'gastoProveedorId', 'refaccionId', 'ordenCompraId',
+  'visitaId', 'temaAyudaId', 'activosClienteId',
+  'vistaPortal', 'polizaPortalId', 'cotizacionPortalId', 'reportePortalId'
+];
+function fotoNavegacion(){
+  const f = {};
+  CAMPOS_NAVEGACION.forEach(k => { f[k] = estado[k]; });
+  return f;
 }
-empujarCandadoHistorial();
-window.addEventListener('popstate', ()=>{
-  empujarCandadoHistorial();
-  if($('telon').classList.contains('abierto')){ cerrarModal(); return; }
-  if(enVistaPrevia()){ salirVistaPrevia(); return; }
-  if(esCliente()){
-    if(estado.reportePortalId || estado.cotizacionPortalId || estado.polizaPortalId){
-      estado.reportePortalId = null; estado.cotizacionPortalId = null; estado.polizaPortalId = null;
-      animarTarjetas = true; render();
-      window.scrollTo({ top:0, behavior:'smooth' });
-      return;
-    }
-    if(estado.vistaPortal !== 'consideraciones'){ irAInicio(); return; }
-    return;
-  }
-  if(estado.vista !== inicioDelModulo()){
-    estado.vista = inicioDelModulo();
-    estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null; estado.visitaId = null;
-    animarTarjetas = true; render();
+let _ultimaFotoNavegacion = null;
+/* true SOLO mientras un "popstate" está restaurando una foto vieja sobre
+   `estado` y disparando su propio render() — ese render() no debe volver a
+   empujar nada (ya estamos parados en esa posición del historial, no en
+   una nueva). */
+let _restaurandoNavegacionDesdeHistorial = false;
+function empujarNavegacionSiCambio(forzar){
+  if(_restaurandoNavegacionDesdeHistorial) return;
+  const foto = fotoNavegacion();
+  const clave = JSON.stringify(foto);
+  if(!forzar && clave === _ultimaFotoNavegacion) return;
+  _ultimaFotoNavegacion = clave;
+  try{ history.pushState({ forguardNav: foto }, '', location.href); }catch(e){}
+}
+empujarNavegacionSiCambio(true);
+window.addEventListener('popstate', ev=>{
+  if($('telon').classList.contains('abierto')){ cerrarModal(); empujarNavegacionSiCambio(true); return; }
+  if(enVistaPrevia()){ salirVistaPrevia(); empujarNavegacionSiCambio(true); return; }
+  const foto = ev.state && ev.state.forguardNav;
+  if(foto){
+    _restaurandoNavegacionDesdeHistorial = true;
+    CAMPOS_NAVEGACION.forEach(k => { estado[k] = foto[k]; });
+    animarTarjetas = true;
+    render();
     window.scrollTo({ top:0, behavior:'smooth' });
-    return;
+    _restaurandoNavegacionDesdeHistorial = false;
+  }else{
+    /* No hay una foto nuestra que restaurar: se absorbe quedándose tal
+       cual, y se repone el colchón para que el siguiente "atrás" tampoco
+       se escape de la pestaña. */
+    empujarNavegacionSiCambio(true);
   }
-  if(estado.modulo !== modulosPermitidos()[0]){ irAInicio(); return; }
-  /* Ya está en el inicio de verdad: no hay a dónde "subir" dentro de la
-     app — este "atrás" no hace nada más que quedarse donde está. */
 });
 
 function aviso(texto, esError){
