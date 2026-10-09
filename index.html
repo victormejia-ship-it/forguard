@@ -1467,7 +1467,8 @@ table.tabla select.sel-rol{font-weight:600;}
    tabla (ver vistaChecklistRational) — mismo criterio que "Categoría" en
    Lista de precios: un documento único, se edita línea por línea sin abrir
    un modal por renglón. */
-table.tabla input[type="text"][data-texto-checklist]{
+table.tabla input[type="text"][data-texto-checklist],
+table.tabla input[type="text"][data-campo-equipo-rational]{
   width:100%; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px;
   background:var(--campo-bg); color:inherit;
 }
@@ -1657,6 +1658,32 @@ table.tabla th.th-orden:hover{color:var(--navy-texto);}
 table.tabla th.th-orden:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
 table.tabla th.th-orden[aria-sort="ascending"], table.tabla th.th-orden[aria-sort="descending"]{color:var(--navy-texto);}
 table.tabla th.th-orden .flecha-orden{color:var(--accent);}
+/* Pedido de Victor (09-oct-2026, Equipos RATIONAL visto en celular): "que
+   esto pueda ser responsivo sin necesidad de colocar una barra deslizadora".
+   Una tabla ancha (5+ columnas, algunas con botones o un select) nunca cabe
+   de verdad en 360-400px de ancho real — la salida clásica es .rodillo
+   (scroll horizontal CONTENIDO a la tabla), que es justo lo que ya no se
+   quiere aquí. Esta clase es la otra técnica clásica: por debajo de 700px
+   (mismo corte que .wrap/.rodillo-ancho en toda la app) la tabla deja de
+   comportarse como tabla —thead se esconde, cada <tr> se vuelve una tarjeta
+   apilada verticalmente— y cada <td> imprime su encabezado arriba del valor
+   con ::before + data-etiqueta, en vez de depender de la columna para decir
+   qué es cada dato. Ópt-in (no toca table.tabla a secas): una tabla angosta
+   que ya cabe sin problema no necesita este tratamiento. */
+@media (max-width:700px){
+  .tabla-apila-movil{min-width:0 !important; width:100%;}
+  .tabla-apila-movil thead{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap;}
+  .tabla-apila-movil, .tabla-apila-movil tbody, .tabla-apila-movil tr{display:block; width:100%;}
+  .tabla-apila-movil tr{border:1px solid var(--line); border-radius:12px; padding:4px 12px; margin-bottom:10px;}
+  .tabla-apila-movil td{display:block; padding:9px 0; border-bottom:1px solid var(--raya-suave); width:auto;}
+  .tabla-apila-movil tr:last-child td:last-child, .tabla-apila-movil td:last-child{border-bottom:none;}
+  .tabla-apila-movil td::before{
+    content:attr(data-etiqueta); display:block; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--gray); font-weight:700; margin-bottom:4px;
+  }
+  .tabla-apila-movil td[data-etiqueta=""]::before, .tabla-apila-movil td:not([data-etiqueta])::before{content:none;}
+  .tabla-apila-movil input[type="text"][data-campo-equipo-rational], .tabla-apila-movil select{width:100%;}
+}
 .vacio-chico{font-size:12.5px; color:var(--gray); text-align:center; padding:24px 10px; line-height:1.6;}
 
 /* Credenciales recién creadas */
@@ -6972,7 +6999,7 @@ function apariencesCatalogoEquipos(){
       filas.push({
         marca: h.marca, modelo: h.modelo, serie: h.serie,
         clienteNombre: cliente, sitioNombre: l.sitioNombre,
-        origen: 'levantamiento', origenId: l.id,
+        origen: 'levantamiento', origenId: l.id, hallazgoId: h.id,
         origenEtiqueta: 'Levantamiento' + (l.folio ? ' ' + l.folio : '') + (h.equipoNombre ? ' — ' + h.equipoNombre : '')
       });
     });
@@ -6983,14 +7010,18 @@ function apariencesCatalogoEquipos(){
     p.partidas.forEach(x=>{
       /* Si cantidad === 1 basta con `serie`; si hay varias unidades, cada
          una trae la suya en `series[]` (ver modalPoliza → "Capturar
-         series") — un renglón por unidad, no uno por partida. */
-      const series = x.series && x.series.some(Boolean) ? x.series : [x.serie];
+         series") — un renglón por unidad, no uno por partida. campoSerie
+         recuerda cuál de los dos campos del renglón original hay que tocar
+         si alguien corrige la serie desde Equipos RATIONAL (ver
+         guardarCampoEquipoOrigen). */
+      const usaArregloSeries = x.series && x.series.some(Boolean);
+      const series = usaArregloSeries ? x.series : [x.serie];
       series.forEach((serie, i)=>{
         if(!x.marca && !x.modelo && !serie) return;
         filas.push({
           marca: x.marca, modelo: x.modelo, serie: serie || '',
           clienteNombre: cliente, sitioNombre: p.sitioNombre,
-          origen: 'poliza', origenId: p.id,
+          origen: 'poliza', origenId: p.id, partidaId: x.id, unidadIndice: i, campoSerie: usaArregloSeries ? 'series' : 'serie',
           origenEtiqueta: 'Póliza' + (p.folio ? ' ' + p.folio : '') + ' — ' + (x.concepto || 'Equipo') + (series.length > 1 ? ' (unidad ' + (i+1) + ')' : '')
         });
       });
@@ -7035,6 +7066,87 @@ function equiposRationalAgregado(){
     .filter(g => esMarcaRational(g.marca))
     .sort((a,b)=> (a.clienteNombre || '').localeCompare(b.clienteNombre || '', 'es')
       || (a.modelo || '').localeCompare(b.modelo || '', 'es'));
+}
+
+/* Mismo saneado que ya aplican los normalizadores del origen real (ver
+   normalizarActivo/normalizarHallazgo/normalizarPartida) — se repite aquí,
+   chico, porque se está escribiendo DIRECTO sobre el campo del documento
+   de origen, sin pasar por el formulario de esa pantalla. */
+function sanearCampoEquipoOrigen(origen, campo, valor){
+  let v = String(valor == null ? '' : valor).trim();
+  if(campo === 'serie' && origen === 'poliza') v = v.replace(/[^A-Za-z0-9-]/g, '').slice(0, 40);
+  else if(campo === 'modelo' && origen === 'poliza') v = v.slice(0, 60);
+  return v;
+}
+/* Pedido de Victor (09-oct-2026, módulo RATIONAL): "cada vez que podamos
+   añadir el numero de serie y los datos, que esos datos sean bidireccionales
+   con el origen de donde los tomo" — Equipos RATIONAL es una vista AGREGADA
+   (ver catalogoEquiposAgregado), nunca su propio dueño de los datos: editar
+   modelo/serie aquí escribe de vuelta en el Activo, el hallazgo de
+   Levantamiento o el renglón de Póliza exactos de donde salió esa
+   aparición, con el mismo guardarActivo()/guardarLevantamiento()/
+   guardarPoliza() que usa la pantalla dueña — así sigue sincronizado con la
+   nube y con cualquier otra vista que lea esa misma fuente (p.ej. Catálogo
+   de equipos). Nunca se guarda una copia separada del dato. */
+function guardarCampoEquipoOrigen(aparicion, campo, valorCrudo){
+  const valor = sanearCampoEquipoOrigen(aparicion.origen, campo, valorCrudo);
+  if(aparicion.origen === 'activo'){
+    const a = datos.activos.find(x => x.id === aparicion.origenId);
+    if(!a || a[campo] === valor) return;
+    a[campo] = valor;
+    guardarActivo(a, 'editó', (campo === 'serie' ? 'Número de serie' : 'Modelo') + ' actualizado desde Equipos RATIONAL');
+  }else if(aparicion.origen === 'levantamiento'){
+    const l = datos.levantamientos.find(x => x.id === aparicion.origenId);
+    const h = l && l.hallazgos.find(x => x.id === aparicion.hallazgoId);
+    if(!h || h[campo] === valor) return;
+    h[campo] = valor;
+    guardarLevantamiento(l, 'editó', (campo === 'serie' ? 'Número de serie' : 'Modelo') + ' actualizado desde Equipos RATIONAL');
+  }else if(aparicion.origen === 'poliza'){
+    const p = datos.polizas.find(x => x.id === aparicion.origenId);
+    const x = p && p.partidas.find(x => x.id === aparicion.partidaId);
+    if(!x) return;
+    if(campo === 'serie'){
+      const actual = aparicion.campoSerie === 'series' ? (x.series[aparicion.unidadIndice] || '') : x.serie;
+      if(actual === valor) return;
+      if(aparicion.campoSerie === 'series') x.series[aparicion.unidadIndice] = valor; else x.serie = valor;
+    }else{
+      if(x[campo] === valor) return;
+      x[campo] = valor;
+    }
+    guardarPoliza(p, 'editó', (campo === 'serie' ? 'Número de serie' : 'Modelo') + ' actualizado desde Equipos RATIONAL');
+  }
+}
+/* Un grupo agregado puede traer la MISMA unidad documentada en más de una
+   fuente (Activo + Póliza, dos pólizas, etc. — ver catalogoEquiposAgregado):
+   corregir el modelo o la serie aquí corrige las dos de una vez, para que no
+   se desincronicen entre sí apenas se corrige una.
+
+   claveAnterior (el `g.clave` de ANTES de este cambio): la propiedad
+   (datos.propiedadEquiposRational) se guarda llaveada por el número de
+   serie normalizado —si se corrige la serie de un equipo YA clasificado, la
+   llave cambia y, sin este paso, la clasificación se quedaría huérfana bajo
+   la llave vieja (el equipo se vería "Sin definir" de nuevo, como si nunca
+   se hubiera clasificado). Se copia la clasificación a la llave nueva; la
+   vieja se deja huérfana en vez de borrarla —borrar esa colección es
+   exclusivo de Admin (ver firestore.rules), y de todos modos es inofensiva:
+   si esa serie vieja no la usa ya ningún equipo, simplemente no aparece. */
+function guardarCampoEquiposRational(apariciones, campo, valor, claveAnterior){
+  const vistos = new Set();
+  apariciones.forEach(ap=>{
+    const k = ap.origen + ':' + ap.origenId + ':' + (ap.hallazgoId || '') + ':' + (ap.partidaId || '') + ':' + (ap.unidadIndice != null ? ap.unidadIndice : '');
+    if(vistos.has(k)) return;
+    vistos.add(k);
+    guardarCampoEquipoOrigen(ap, campo, valor);
+  });
+  if(campo === 'serie' && claveAnterior){
+    const claveNueva = claveEquipoAgregado(valor);
+    if(claveNueva && claveNueva !== claveAnterior){
+      const clasifAnterior = propiedadEquipoRational(claveAnterior);
+      if(clasifAnterior && clasifAnterior.propiedad && !propiedadEquipoRational(claveNueva)){
+        guardarPropiedadEquipoRational(claveNueva, valor, clasifAnterior.propiedad);
+      }
+    }
+  }
 }
 
 function vistaCatalogoEquipos(){
@@ -14740,7 +14852,9 @@ const TEMAS_AYUDA = [
         'La pantalla de arranque es un <b>tablero con tres tarjetas</b> (rediseño del 09-oct-2026, pedido de Victor: "no quiero que el check list sea lo principal sino que puedan ser otro tipo de vista") — Checklist, Catálogo de refacciones y Equipos por cliente, ninguna "la principal": cada una resume su propio estado y se abre con un clic.',
         '<b>Checklist de certificación</b>: los puntos de inspección que pide RATIONAL para certificar a Forguard como proveedor autorizado, transcritos del reporte de referencia (Euromex Service, iCombi Pro). Solo Admin/Owner los edita — agregar/editar texto/reordenar/borrar y "Guardar lista" sube los cambios juntos, igual que la Lista de precios de equipos. Esta lista es la que aparece de verdad al dar servicio a cualquier equipo con marca "Rational", en <b>Pólizas y Levantamientos</b> — ahí se marca, aquí se mantiene actualizada si RATIONAL cambia sus requisitos.',
         '<b>Catálogo de refacciones</b>: la lista oficial de precios de ese proveedor (más de 11 mil refacciones, válida desde abril de 2025) — es solo buscador: escribe un código o parte del nombre para ver precio y pedido mínimo, y si el código ya se descontinuó, te enseña directo el código vigente que lo sustituye con su propio precio.',
-        '<b>Equipos por cliente</b> (09-oct-2026, mismo pedido): junta TODOS los hornos marca "Rational" documentados en Activos, Levantamientos o Pólizas de cualquier cliente —la misma lógica de Catálogo de equipos, acotada a esa marca— y deja definir, equipo por equipo, si es <b>del cliente</b> o <b>propiedad de Forguard</b>. Un equipo sin número de serie capturado no se puede clasificar de forma confiable (dos hornos del mismo cliente sin serie son indistinguibles) y se enseña sin el selector, con una pista explicando por qué.'
+        '<b>Equipos por cliente</b> (09-oct-2026, mismo pedido): junta TODOS los hornos marca "Rational" documentados en Activos, Levantamientos o Pólizas de cualquier cliente —la misma lógica de Catálogo de equipos, acotada a esa marca— y deja definir, equipo por equipo, si es <b>del cliente</b> o <b>propiedad de Forguard</b>. Un equipo sin número de serie capturado no se puede clasificar de forma confiable (dos hornos del mismo cliente sin serie son indistinguibles) y se enseña sin el selector, con una pista explicando por qué.',
+        'Modelo y serie son editables ahí mismo, en la tabla (09-oct-2026, misma tarde: "cada vez que podamos añadir el numero de serie y los datos, que esos datos sean bidireccionales con el origen de donde los tomo") — esta pantalla nunca es la DUEÑA del dato, solo lo reúne: escribir ahí un modelo o una serie faltante (o corregir uno existente) lo guarda de vuelta en el Activo, el hallazgo de Levantamiento o el renglón de Póliza exactos de donde salió, el mismo documento que ya se editaba desde su propia pantalla. Si un equipo está documentado en más de un lado a la vez (p.ej. un Activo y un hallazgo con la misma serie), corregirlo aquí corrige las dos fuentes de un jalón.',
+        'En celular, la tabla deja de ser tabla: cada renglón se vuelve una tarjeta con sus datos apilados (Cliente, Modelo, Serie…) en vez de obligar a deslizar hacia los lados para ver las últimas columnas.'
       ]))
       + guiaTip('No es el inventario propio de Forguard', [
           'El catálogo de refacciones es de REFERENCIA de un proveedor externo, para cotizar una pieza exacta — no tiene nada que ver con el inventario propio de refacciones que ya existía antes bajo Proveedores → Refacciones (movimientos de entrada/salida de Forguard).',
@@ -23473,7 +23587,7 @@ function vistaEquiposRational(){
     return h;
   }
 
-  h += '<div class="rodillo rodillo-ancho"><table class="tabla" style="min-width:900px"><thead><tr>'
+  h += '<div class="rodillo rodillo-ancho"><table class="tabla tabla-apila-movil" style="min-width:900px"><thead><tr>'
      +   '<th>Cliente / Sitio</th><th>Modelo</th><th>Serie</th><th>Documentado en</th><th>Propiedad</th>'
      + '</tr></thead><tbody>'
      + visibles.map(g=>{
@@ -23485,14 +23599,26 @@ function vistaEquiposRational(){
          });
          const atributo = o => o.origen === 'activo' ? 'data-activo' : o.origen === 'levantamiento' ? 'data-levantamiento' : 'data-poliza';
          const actual = g.clave ? (propiedadEquipoRational(g.clave) || {}).propiedad || '' : '';
+         /* Modelo/serie son de SOLO ESTE renglón agregado — nunca se
+            capturan aquí de cero: el input escribe de vuelta en el (o los)
+            Activo/hallazgo/renglón de póliza exactos de donde salieron (ver
+            guardarCampoEquiposRational), así se puede completar un "—" sin
+            abrir la pantalla de origen pero el dato sigue viviendo ahí. */
+         const jsonApariciones = esc(JSON.stringify(g.apariciones.map(a => ({
+           origen: a.origen, origenId: a.origenId, hallazgoId: a.hallazgoId, partidaId: a.partidaId,
+           unidadIndice: a.unidadIndice, campoSerie: a.campoSerie
+         }))));
+         const campoEditable = (campo, valor) => puedeEditar()
+           ? '<input type="text" data-campo-equipo-rational="' + campo + '" data-apariciones-equipo-rational="' + jsonApariciones + '" data-clave-anterior-equipo-rational="' + esc(g.clave) + '" value="' + esc(valor) + '" placeholder="—" maxlength="60">'
+           : esc(valor || '—');
          return '<tr>'
-           +   '<td>' + esc(g.clienteNombre || 'Sin cliente') + (g.sitioNombre ? '<br><span class="pista">' + esc(g.sitioNombre) + '</span>' : '') + '</td>'
-           +   '<td>' + esc(g.modelo || '—') + '</td>'
-           +   '<td>' + esc(g.serie || '—') + '</td>'
-           +   '<td style="display:flex; gap:6px; flex-wrap:wrap">' + origenesUnicos.map(o =>
+           +   '<td data-etiqueta="Cliente / Sitio">' + esc(g.clienteNombre || 'Sin cliente') + (g.sitioNombre ? '<br><span class="pista">' + esc(g.sitioNombre) + '</span>' : '') + '</td>'
+           +   '<td data-etiqueta="Modelo">' + campoEditable('modelo', g.modelo) + '</td>'
+           +   '<td data-etiqueta="Serie">' + campoEditable('serie', g.serie) + '</td>'
+           +   '<td data-etiqueta="Documentado en" style="display:flex; gap:6px; flex-wrap:wrap">' + origenesUnicos.map(o =>
                  '<button type="button" class="btn btn-suave btn-mini" ' + atributo(o) + '="' + esc(o.origenId) + '" title="' + esc(o.origenEtiqueta) + '">' + ETIQUETA_ORIGEN_EQUIPO[o.origen] + '</button>'
                ).join('') + '</td>'
-           +   '<td>' + (!g.clave
+           +   '<td data-etiqueta="Propiedad">' + (!g.clave
                  ? '<span class="pista" title="Sin número de serie capturado: no hay forma de identificar esta unidad de manera confiable">Sin serie</span>'
                  : puedeEditar()
                  ? '<select data-propiedad-equipo-rational="' + esc(g.clave) + '" data-serie-equipo-rational="' + esc(g.serie) + '">'
@@ -23943,6 +24069,14 @@ function render(){
   document.querySelectorAll('[data-propiedad-equipo-rational]').forEach(sel=>{
     sel.addEventListener('change', ()=>{
       guardarPropiedadEquipoRational(sel.dataset.propiedadEquipoRational, sel.dataset.serieEquipoRational, sel.value);
+      render();
+    });
+  });
+  document.querySelectorAll('[data-campo-equipo-rational]').forEach(inp=>{
+    inp.addEventListener('change', ()=>{
+      let apariciones = [];
+      try{ apariciones = JSON.parse(inp.dataset.aparicionesEquipoRational); }catch(e){ return; }
+      guardarCampoEquiposRational(apariciones, inp.dataset.campoEquipoRational, inp.value, inp.dataset.claveAnteriorEquipoRational);
       render();
     });
   });

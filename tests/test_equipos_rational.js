@@ -111,7 +111,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Aparece el cliente INOAC (el sin serie)', textoTabla.includes('INOAC'));
 
   // El renglón fusionado (SER-001) debe mostrar AMBOS orígenes.
-  const filaFusionada = page.locator('table.tabla tbody tr', { hasText: 'SER-001' });
+  const filaFusionada = page.locator('table.tabla tbody tr', { hasText: 'BORGWARNER' });
   chkF('SER-001 muestra que viene de un Activo', (await filaFusionada.textContent()).includes('Activo'));
   chkF('SER-001 TAMBIÉN muestra que viene de un Levantamiento (fusionado por serie)', (await filaFusionada.textContent()).includes('Levantamiento'));
 
@@ -123,7 +123,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   // --------- 4) Definir la propiedad de SER-001 ("del cliente") y de SER-002 ("de Forguard") ---------
   await filaFusionada.locator('select').selectOption('cliente');
   await page.waitForTimeout(200);
-  const filaFusionada2 = page.locator('table.tabla tbody tr', { hasText: 'SER-001' });
+  const filaFusionada2 = page.locator('table.tabla tbody tr', { hasText: 'BORGWARNER' });
   chkF('SER-001 queda marcado "Del cliente"', await filaFusionada2.locator('select').inputValue() === 'cliente');
 
   const filaNGK = page.locator('table.tabla tbody tr', { hasText: 'NGK' });
@@ -155,7 +155,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('La tarjeta ya NO avisa "sin definir" (ya no quedan equipos sin clasificar)', !resumenTarjetaEquipos2.toLowerCase().includes('sin definir'));
   await page.click('[data-accion="ver-equipos-rational"]');
   await page.waitForTimeout(200);
-  const filaFusionada3 = page.locator('table.tabla tbody tr', { hasText: 'SER-001' });
+  const filaFusionada3 = page.locator('table.tabla tbody tr', { hasText: 'BORGWARNER' });
   chkF('Al volver a entrar, SER-001 SIGUE marcado "Del cliente" (persistido de verdad)', await filaFusionada3.locator('select').inputValue() === 'cliente');
 
   // --------- 8) Buscar por cliente filtra la lista ---------
@@ -163,8 +163,64 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.waitForTimeout(200);
   chkF('Buscar "NGK" deja solo ese renglón', await page.locator('table.tabla tbody tr').count() === 1);
   chkF('...y es de verdad el de NGK', (await page.locator('table.tabla tbody tr').first().textContent()).includes('NGK'));
+  await page.fill('#buscaEquiposRational', '');
+  await page.waitForTimeout(200);
 
-  // --------- 9) Técnico ve el módulo (lectura) pero NO el selector de propiedad ---------
+  // --------- 9) Modelo/serie son bidireccionales con el origen (09-oct-2026, 2da vuelta: "cada
+  // vez que podamos añadir el numero de serie y los datos, que esos datos sean bidireccionales
+  // con el origen de donde los tomo") — Equipos RATIONAL es una vista AGREGADA, nunca dueña del
+  // dato: escribir aquí debe actualizar el Activo/hallazgo/renglón de póliza real, no una copia. ---------
+
+  // 9a) El equipo SIN serie (INOAC, Activo a2): capturar la serie aquí debe
+  // quedar escrita en datos.activos, el Activo de origen de verdad.
+  const filaInoac = page.locator('table.tabla tbody tr', { hasText: 'INOAC' });
+  await filaInoac.locator('input[data-campo-equipo-rational="serie"]').fill('SER-NUEVA-INOAC');
+  await filaInoac.locator('input[data-campo-equipo-rational="serie"]').blur();
+  await page.waitForTimeout(200);
+  const activoInoac = await page.evaluate(() => datos.activos.find(a => a.id === 'a2').serie);
+  chkF('Escribir la serie del equipo sin serie la guarda en el Activo real (datos.activos)', activoInoac === 'SER-NUEVA-INOAC');
+  chkF('...y ya no se enseña como "Sin serie" (ya tiene llave, ya se puede clasificar)', !(await filaInoac.textContent()).includes('Sin serie'));
+
+  // 9b) El renglón de NGK viene de una Póliza (partida x1): editar el modelo
+  // debe quedar en datos.polizas, el renglón de origen — no en ningún lado más.
+  const filaNGK3 = page.locator('table.tabla tbody tr', { hasText: 'NGK' });
+  await filaNGK3.locator('input[data-campo-equipo-rational="modelo"]').fill('CPC 101 Plus');
+  await filaNGK3.locator('input[data-campo-equipo-rational="modelo"]').blur();
+  await page.waitForTimeout(200);
+  const modeloPartida = await page.evaluate(() => datos.polizas.find(p => p.id === 'p1').partidas.find(x => x.id === 'x1').modelo);
+  chkF('Editar el modelo de un equipo documentado en Póliza lo escribe en esa partida real', modeloPartida === 'CPC 101 Plus');
+
+  // 9c) SER-001 está fundido (Activo a1 + hallazgo h1 del Levantamiento l1):
+  // corregir la serie aquí debe propagarse a AMBOS orígenes, no solo a uno
+  // (si no, se desincronizan entre sí apenas se corrige uno nada más).
+  const filaFusionada4 = page.locator('table.tabla tbody tr', { hasText: 'BORGWARNER' });
+  await filaFusionada4.locator('input[data-campo-equipo-rational="serie"]').fill('SER-001-CORREGIDA');
+  await filaFusionada4.locator('input[data-campo-equipo-rational="serie"]').blur();
+  await page.waitForTimeout(200);
+  const seriesTrasCorregir = await page.evaluate(() => ({
+    activo: datos.activos.find(a => a.id === 'a1').serie,
+    hallazgo: datos.levantamientos.find(l => l.id === 'l1').hallazgos.find(h => h.id === 'h1').serie
+  }));
+  chkF('Corregir la serie de un equipo fundido la actualiza en el Activo...', seriesTrasCorregir.activo === 'SER-001-CORREGIDA');
+  chkF('...Y TAMBIÉN en el hallazgo del Levantamiento (las dos fuentes, no solo una)', seriesTrasCorregir.hallazgo === 'SER-001-CORREGIDA');
+  chkF('La clasificación de propiedad sigue "Del cliente" tras corregir la serie (no se perdió al recalcular la llave)',
+    await page.locator('table.tabla tbody tr', { hasText: 'BORGWARNER' }).locator('select').inputValue() === 'cliente');
+
+  // --------- 10) La tabla se vuelve tarjetas apiladas en celular, sin barra deslizadora ---------
+  await page.setViewportSize({ width: 375, height: 850 });
+  await page.waitForTimeout(300);
+  const anchoMovil = await page.evaluate(() => ({
+    htmlOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    theadVisible: getComputedStyle(document.querySelector('table.tabla thead')).position !== 'absolute',
+    primeraEtiqueta: getComputedStyle(document.querySelector('table.tabla tbody td'), '::before').content
+  }));
+  chkF('En celular (375px) la tabla de Equipos RATIONAL ya no desborda el documento (sin scroll horizontal)', anchoMovil.htmlOverflow <= 1);
+  chkF('...el encabezado de columnas se esconde (ya no hace falta, cada celda imprime su propia etiqueta)', !anchoMovil.theadVisible);
+  chkF('...y cada celda sí trae su etiqueta vía ::before (data-etiqueta)', anchoMovil.primeraEtiqueta && anchoMovil.primeraEtiqueta !== 'none' && anchoMovil.primeraEtiqueta !== '""');
+  await page.setViewportSize({ width: 1200, height: 1400 });
+  await page.waitForTimeout(150);
+
+  // --------- 11) Técnico ve el módulo (lectura) pero NO el selector de propiedad ---------
   // puedeEditar() no incluye a técnico (mismo criterio que Pólizas/
   // Cotizaciones para ese rol) — firestore.rules ya lo bloquearía del lado
   // del servidor, pero mostrarle un <select> que de todos modos fallaría al
@@ -175,7 +231,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.evaluate(() => irAEquiposRational());
   await page.waitForTimeout(200);
   chkF('Técnico NO ve ningún <select> de propiedad (es de solo lectura para su rol)', await page.locator('table.tabla select').count() === 0);
-  const filaSerUno = page.locator('table.tabla tbody tr', { hasText: 'SER-001' });
+  const filaSerUno = page.locator('table.tabla tbody tr', { hasText: 'BORGWARNER' });
   chkF('...pero sí ve el texto de lo ya definido ("Del cliente")', (await filaSerUno.textContent()).includes('Del cliente'));
 
   chkF('No hubo errores de página en todo el escenario', errores.length === 0);
