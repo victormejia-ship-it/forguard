@@ -577,6 +577,15 @@ service cloud.firestore {
       allow read:  if conAcceso() && !esCliente();
       allow write: if esAdmin();
     }
+    /* --- Permisos por módulo (cuadrante Rol×Módulo, 12-oct-2026) ---
+       Mismo molde que /segmentos y /parametros: un documento único. TODOS
+       los roles con acceso necesitan LEERLO —modulosPermitidos() lo consulta
+       para cualquiera— pero solo Owner/Admin lo cambian: es quién-ve-qué, el
+       mismo nivel de sensibilidad que crear o bloquear una cuenta. */
+    match /permisosModulos/{doc} {
+      allow read:  if conAcceso() && !esCliente();
+      allow write: if esAdmin();
+    }
 
     /* --- Checklist de certificación RATIONAL ---
        Mismo molde que /catalogo y /segmentos: un documento único con un

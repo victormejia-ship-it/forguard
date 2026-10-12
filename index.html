@@ -3012,7 +3012,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{} };
 
 function cargar(){
   try{
@@ -3062,7 +3062,8 @@ function cargar(){
         visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
         checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational),
         propiedadEquiposRational: (Array.isArray(d.propiedadEquiposRational) ? d.propiedadEquiposRational : []).map(normalizarPropiedadEquipoRational),
-        oportunidades: (Array.isArray(d.oportunidades) ? d.oportunidades : []).map(normalizarOportunidad) };
+        oportunidades: (Array.isArray(d.oportunidades) ? d.oportunidades : []).map(normalizarOportunidad),
+        permisosModulos: normalizarPermisosModulos(d.permisosModulos) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -3187,7 +3188,8 @@ async function restaurarSnapshotIndexedDB(){
       visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
       checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational),
       propiedadEquiposRational: (Array.isArray(d.propiedadEquiposRational) ? d.propiedadEquiposRational : []).map(normalizarPropiedadEquipoRational),
-      oportunidades: (Array.isArray(d.oportunidades) ? d.oportunidades : []).map(normalizarOportunidad) };
+      oportunidades: (Array.isArray(d.oportunidades) ? d.oportunidades : []).map(normalizarOportunidad),
+      permisosModulos: normalizarPermisosModulos(d.permisosModulos) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -4307,7 +4309,7 @@ function limpiarSesionYDatos(){
      undefined hasta que bajarDeLaNube() alcanzara a repoblarlas, y un
      render() de por medio —con cola pendiente o sin internet— tronaba con
      cualquier vista que las tocara.) */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{} };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -5004,7 +5006,7 @@ async function bajarDeLaNube(soloColecciones){
   /* Si no se pidió una colección en este refresco, ni se intenta leerla —
      null de una vez, en vez de disparar la red y tirar la respuesta. */
   const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr, pq, op] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr, pq, op, pm] = await Promise.all([
     p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
     p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
     p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
@@ -5025,7 +5027,8 @@ async function bajarDeLaNube(soloColecciones){
     p('visitas', () => listarNubeSuave('visitas', 100)),
     p('checklistRational', () => leerChecklistRational()),
     p('propiedadEquiposRational', () => listarNubeSuave('propiedadEquiposRational', 200)),
-    p('oportunidades', () => listarNubeSuave('oportunidades', 200))
+    p('oportunidades', () => listarNubeSuave('oportunidades', 200)),
+    p('permisosModulos', () => leerPermisosModulos())
   ]);
   if(!soloColecciones && !cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -5067,7 +5070,8 @@ async function bajarDeLaNube(soloColecciones){
             visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)),
             checklistRational: cr === null ? datos.checklistRational : cr,
             propiedadEquiposRational: (pq === null ? datos.propiedadEquiposRational : pq.map(normalizarPropiedadEquipoRational)),
-            oportunidades: (op === null ? datos.oportunidades : op.map(normalizarOportunidad)) };
+            oportunidades: (op === null ? datos.oportunidades : op.map(normalizarOportunidad)),
+            permisosModulos: pm === null ? datos.permisosModulos : pm };
   /* Veredicto de auditoría (21-sep-2026): un registro con un rechazo
      definitivo pendiente (ver colaRechazada arriba) nunca llegó a existir
      del lado del servidor, así que el reemplazo de arriba lo deja fuera sin
@@ -5328,6 +5332,34 @@ function guardarParametros(detalle){
   anotar('actualizó', 'parámetros personalizados', detalle);
 }
 
+/* Mismo molde que segmentos/parametros arriba (un documento único) — ver
+   ROLES_CONFIGURABLES/PERMISOS_MODULOS_DEFAULT/permisosModulosDeRol() junto
+   a MODULOS, más abajo en el archivo (necesitan existir MODULOS ya definido,
+   estas funciones no: solo lo usan hasta que alguien las llama). null por
+   rol = "nadie lo ha configurado todavía", se usa el valor de arranque —
+   ver normalizarPermisosModulos(). */
+function normalizarPermisosModulos(x){
+  const out = {};
+  ROLES_CONFIGURABLES.forEach(rol=>{
+    out[rol] = Array.isArray(x && x[rol]) ? x[rol].filter(m => MODULOS.includes(m)) : null;
+  });
+  return out;
+}
+async function leerPermisosModulos(){
+  try{
+    const d = await pedirNube('/permisosModulos/lista', { method:'GET' }, true);
+    return normalizarPermisosModulos((d && d.fields) ? deCampos(d.fields) : null);
+  }catch(e){
+    console.warn('No se pudieron leer los permisos por módulo; se usan los de arranque:', String(e.message || e));
+    return normalizarPermisosModulos(null);
+  }
+}
+function guardarPermisosModulos(detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'permisosModulos', id:'lista', obj: datos.permisosModulos });
+  anotar('actualizó', 'permisos por módulo', detalle);
+}
+
 /* Pinta los campos de un módulo dentro de un formulario (modalCliente o
    modalSitio). `prefijo` distingue los id de los inputs entre los dos
    formularios para que nunca choquen. */
@@ -5428,6 +5460,49 @@ function bloqueParametros(modulo, titulo){
            +     TIPOS_PARAMETRO.map(t => '<option value="' + t + '">' + esc(ETIQUETA_TIPO_PARAM[t]) + '</option>').join('')
            +   '</select></div>'
            +   '<button type="button" class="btn btn-suave" data-accion="agregar-parametro-' + modulo + '">' + ICONO.mas + 'Agregar</button>'
+           + '</div>'
+         : '')
+     + '</div>';
+}
+
+/* Cuadrante Rol×Módulo (12-oct-2026, pedido de Victor: "una modulo... pueda
+   seleccionar conforme a un roll de cuenta... estilo cuadrante para
+   seleccionar quien puede ver que cosa") — un checkbox por cruce. Owner se
+   enseña fijo y deshabilitado (siempre ve todo, no se puede quitar ni por
+   accidente); Cliente ni aparece, tiene su propio portal aparte de
+   MODULOS/modulosPermitidos(). 'mi-agenda' tampoco aparece: es de Técnico
+   siempre, fuera de MODULOS — se explica en la nota de abajo, no en una
+   fila. Todo se guarda junto con un solo botón (como el checklist de
+   RATIONAL, no al vuelo como Segmentos): 96 casillas no se quieren guardar
+   una por una. */
+function bloquePermisosModulos(){
+  const puede = esAdmin();
+  return '<div class="bloque"><div class="bloque-cabeza"><div>'
+     +   '<h3>Permisos por módulo</h3>'
+     +   '<p>Qué módulo puede ver cada rol de cuenta. Owner siempre ve todo y no se puede quitar; un cliente tiene su propio portal, aparte de esto.'
+     +   (puede ? '' : ' Solo un Admin puede cambiarlos.') + '</p></div></div>'
+     +   '<div class="rodillo"><table class="tabla tabla-apila-movil" style="min-width:920px"><thead><tr>'
+     +     '<th>Módulo</th><th>Owner</th>'
+     +     ROLES_CONFIGURABLES.map(r => '<th>' + esc(ROLES[r].nombre) + '</th>').join('')
+     +   '</tr></thead><tbody>'
+     +     MODULOS.map(m=>{
+           return '<tr>'
+             +   '<td data-etiqueta="Módulo"><b>' + esc(ETIQUETA_MODULO[m] || m) + '</b></td>'
+             +   '<td data-etiqueta="Owner"><input type="checkbox" checked disabled title="Owner siempre ve todo"></td>'
+             +   ROLES_CONFIGURABLES.map(r=>{
+                   const marcado = permisosModulosDeRol(r).includes(m);
+                   return '<td data-etiqueta="' + esc(ROLES[r].nombre) + '">'
+                     + '<input type="checkbox" data-permiso-modulo="' + r + ':' + m + '"' + (marcado ? ' checked' : '') + (puede ? '' : ' disabled') + '>'
+                     + '</td>';
+                 }).join('')
+             + '</tr>';
+         }).join('')
+     +   '</tbody></table></div>'
+     +   '<p class="pista" style="margin-top:10px">"Mi agenda" no aparece aquí: es la pantalla de inicio de Técnico, siempre fija, no se le puede quitar ni prestar a otro rol.</p>'
+     +   (puede
+         ? '<div style="margin-top:14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap">'
+           +   '<button type="button" class="btn btn-primario" data-accion="guardar-permisos-modulos">Guardar cambios</button>'
+           +   '<button type="button" class="btn btn-suave" data-accion="restaurar-permisos-modulos">Restaurar valores originales</button>'
            + '</div>'
          : '')
      + '</div>';
@@ -12245,57 +12320,66 @@ const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
    directo a su Forpass con "Ver en Forpass" (ver irAlClienteEnForpass())
    — un atajo, no la única puerta. */
 const MODULOS = ['resultados', 'clientes', 'crm', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'equipos', 'rational', 'ayuda'];
+/* Mismo texto que trae cada botón en #selectorModulo/#panelMasModulos —
+   junto para el cuadrante de permisos (Administración) y cualquier otro
+   lugar que necesite el nombre legible de un módulo sin ir al HTML. */
+const ETIQUETA_MODULO = {
+  resultados:'Resultados', clientes:'Clientes', crm:'CRM', forpass:'Forpass', reportes:'Reportes',
+  cocinas:'Cocinas', levantamientos:'Levantamientos', visitas:'Visitas', polizas:'Pólizas',
+  cotizaciones:'Cotizaciones', activos:'Activos', proveedores:'Proveedores', organigrama:'Organigrama',
+  imagen:'Imagen / Aperturas', equipos:'Catálogo de equipos', rational:'RATIONAL', ayuda:'Ayuda'
+};
 function cargarModulo(){
   estado.modulo = MODULOS[0];
   estado.vista = inicioDelModulo();
 }
 function guardarModulo(){ try{ localStorage.setItem(LLAVE_MODULO, estado.modulo); }catch(e){} }
 
-/* Qué pestañas ve cada quien. `reportero` sigue acotado a Reportes y
-   Levantamientos (ver ROLES): a alguien que nada más levanta tickets o hace
-   recorridos de sitio no le hace falta ver nada más. `tecnico` además de eso
-   puede VER Pólizas y Cotizaciones —le sirve saber qué equipos cubre una
-   póliza o qué se cotizó en un sitio—, pero solo para consultar:
-   puedeEditar() no incluye a `tecnico`, así que esos dos módulos se le siguen
-   abriendo en modo lectura, igual que a un Viewer. Levantamientos es distinto
-   a propósito: es "para todos los perfiles" (owner/admin/analyst/viewer/
-   tecnico/reportero, y el modo local), no solo consulta — ver
-   puedeGestionarLevantamiento() más abajo, que es igual de abierta.
-   Activos se le quitó a `tecnico` a propósito (pedido explícito de Victor,
-   14-sep-2026): es de administración/RH, no de campo —ver el resto de sus
-   módulos, todos ligados a atender algo. Organigrama es, además, exclusivo
-   del Owner (mismo pedido, 14-sep-2026 ampliado): ni Admin, Analyst,
-   Viewer, Técnico ni Reportero lo ven —se filtra aparte, abajo, en vez de
-   listarlo módulo por módulo en cada rama. `control_activos` es al revés
-   que `reportero`: en vez de acotado a Reportes, acotado a Activos (pedido
-   explícito de Victor, 17-sep-2026) — y por la misma razón que Organigrama,
-   Activos también se saca de la lista general de abajo, así que solo lo
-   ven el Owner y este rol nuevo. El resto de los módulos sigue viendo
-   todo, como siempre. */
+/* Qué pestañas ve cada quien. Hasta el 12-oct-2026 esto era un if por rol,
+   escrito a mano — ahora la fuente de verdad es datos.permisosModulos (un
+   documento único, mismo molde que /segmentos), editable desde
+   Administración → "Permisos por módulo" con un cuadrante Rol×Módulo
+   (pedido de Victor: "una modulo... pueda seleccionar conforme a un roll de
+   cuenta... que sea un estilo cuadrante para seleccionar quien puede ver que
+   cosa"). Los arreglos de abajo son solo el valor de ARRANQUE: hasta que un
+   Admin guarde algo distinto, el comportamiento es IDÉNTICO al de antes —
+   reportero acotado a Reportes/Levantamientos, tecnico a su propio puñado
+   más Mi agenda (ver abajo, nunca editable: no vive en MODULOS), Activos
+   acotado a control_activos, y Organigrama/Activos/Catálogo de equipos
+   fuera de Admin/Analyst/Viewer. Owner y Cliente NUNCA pasan por esta
+   configuración (ver las dos líneas de abajo): Owner no se puede bloquear a
+   sí mismo ni por accidente, y Cliente tiene su propio portal aparte. */
+const ROLES_CONFIGURABLES = ['admin', 'analyst', 'viewer', 'tecnico', 'reportero', 'control_activos'];
+const PERMISOS_MODULOS_DEFAULT = {
+  admin:   MODULOS.filter(m => m !== 'organigrama' && m !== 'activos' && m !== 'equipos'),
+  analyst: MODULOS.filter(m => m !== 'organigrama' && m !== 'activos' && m !== 'equipos'),
+  viewer:  MODULOS.filter(m => m !== 'organigrama' && m !== 'activos' && m !== 'equipos'),
+  tecnico: ['reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'rational', 'ayuda'],
+  reportero: ['reportes', 'levantamientos', 'ayuda'],
+  control_activos: ['activos']
+};
+/* Siempre en el orden de MODULOS (nunca en el orden en que se haya guardado
+   el arreglo) — de eso depende, por ejemplo, que modulosPermitidos()[0]
+   (la pantalla de "inicio" de ese rol, ver irAInicio()) sea siempre la
+   misma sin importar en qué orden quedaron los checkboxes al guardar. */
+function permisosModulosDeRol(rol){
+  const guardado = datos.permisosModulos && datos.permisosModulos[rol];
+  const miembros = new Set(Array.isArray(guardado) ? guardado : (PERMISOS_MODULOS_DEFAULT[rol] || []));
+  return MODULOS.filter(m => miembros.has(m));
+}
 function modulosPermitidos(){
   /* Un cliente no ve NINGUNO de estos módulos — tiene su propio portal
      (portalCliente()/render(), que se bifurca ANTES de llegar a usar esta
      lista). Vacío a propósito: así el selector de módulo del encabezado se
      esconde solo, entero, sin tener que tocar pintarCabecera(). */
   if(HAY_NUBE && haySesion() && rolEfectivo() === 'cliente') return [];
-  if(HAY_NUBE && haySesion() && rolEfectivo() === 'reportero') return ['reportes', 'levantamientos', 'ayuda'];
-  if(HAY_NUBE && haySesion() && rolEfectivo() === 'tecnico') return ['mi-agenda', 'reportes', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'rational', 'ayuda'];
-  if(HAY_NUBE && haySesion() && rolEfectivo() === 'control_activos') return ['activos'];
-  /* Por pedido explícito (10-sep-2026): Viewer pasa a ver TODOS los módulos,
-     incluido Imagen/Aperturas —antes se le escondía entero—, porque el
-     perfil que se pidió es "ve toda la funcionalidad, no edita nada", y no
-     tendría sentido dejarle justo uno a oscuras. Sigue siendo de solo
-     lectura: vistaProyectosImagen()/vistaProyectoImagen() esconden sus
-     botones de crear/editar/importar detrás de puedeEditar(), igual que ya
-     hacían Pólizas y Cotizaciones, y exigirPermiso() los bloquea aunque
-     alguien fuerce el clic. Activos es la excepción (ver arriba): ni
-     Admin, Analyst ni Viewer lo ven ya, solo Owner y control_activos.
-     "Catálogo de equipos" (02-oct-2026) se suma a esa misma excepción: es
-     una vista agregada que incluye datos de Activos, así que se restringe
-     igual —sin esto, un rol que no puede ver Activos vería sus marcas/
-     modelos/series coladas aquí de todos modos. */
-  if(HAY_NUBE && haySesion() && rolEfectivo() !== 'owner'){
-    return MODULOS.filter(m => m !== 'organigrama' && m !== 'activos' && m !== 'equipos');
+  if(HAY_NUBE && haySesion() && rolEfectivo() === 'owner') return MODULOS;
+  if(HAY_NUBE && haySesion() && ROLES_CONFIGURABLES.includes(rolEfectivo())){
+    const base = permisosModulosDeRol(rolEfectivo());
+    /* 'mi-agenda' es de Técnico siempre — ni vive en MODULOS ni en el
+       cuadrante, así que no hay checkbox que lo quite ni que lo preste a
+       otro rol. Va primero: es su pantalla de "inicio" (ver irAInicio()). */
+    return rolEfectivo() === 'tecnico' ? ['mi-agenda'].concat(base) : base;
   }
   return MODULOS;
 }
@@ -25083,6 +25167,8 @@ function vistaAdmin(){
      +   '<div class="rodillo" id="tablaUsuarios"></div>'
      + '</div>';
 
+  h += bloquePermisosModulos();
+
   /* Portal de clientes: aparte de "Cuentas" (el equipo de Forguard) porque
      son cosas distintas — alguien de afuera pidiendo entrar, no un permiso
      que se le cambia a alguien de la casa. Las solicitudes van primero: son
@@ -31608,6 +31694,28 @@ $('vista').addEventListener('click', ev=>{
       render();
       aviso('Parámetro agregado.');
     }
+    else if(a === 'guardar-permisos-modulos'){
+      if(!exigirAdmin('cambiar los permisos por módulo')) return;
+      const nuevo = {};
+      ROLES_CONFIGURABLES.forEach(r=>{
+        nuevo[r] = MODULOS.filter(m => document.querySelector('[data-permiso-modulo="' + r + ':' + m + '"]').checked);
+      });
+      datos.permisosModulos = nuevo;
+      guardarPermisosModulos('actualizó el cuadrante de permisos');
+      render();
+      aviso('Permisos guardados.');
+    }
+    else if(a === 'restaurar-permisos-modulos'){
+      if(!exigirAdmin('restaurar los permisos por módulo')) return;
+      confirmar('Restaurar valores originales',
+        'Se va a borrar cualquier ajuste manual al cuadrante de permisos y volver a lo que trae la app de arranque para cada rol.',
+        'Sí, restaurar', ()=>{
+          datos.permisosModulos = {};
+          guardarPermisosModulos('restauró los valores originales');
+          render();
+          aviso('Permisos restaurados.');
+        });
+    }
     return;
   }
 
@@ -33393,7 +33501,7 @@ function salirSilencioso(tambienLosDatos){
     /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
        21-sep-2026): faltaban proveedores/gastosProveedor/refacciones/
        ordenesCompra. */
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{} };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;
