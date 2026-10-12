@@ -1,0 +1,213 @@
+/* Módulo CRM: pipeline de oportunidades (12-oct-2026, pedido de Victor tras
+   ver un prototipo de tablero Kanban: "Sí, intégralo como módulo en
+   index.html"). Mismo mensaje anterior ("Actúa como un Consultor Senior de
+   Producto... Necesitamos diseñar un nuevo módulo estilo CRM") pidió una
+   propuesta genérica, portable; esta integración la ancla a lo que YA
+   existe en Forguard en vez de inventar un sistema paralelo:
+
+   - Una Oportunidad NUNCA duplica datos de contacto: se liga a
+     datos.clientes por clienteId cuando ya es un cliente formal
+     (prospectoNombre solo mientras no lo es) — nombreOportunidad() siempre
+     lee el nombre VIGENTE del cliente, no el texto capturado en su momento.
+   - Colección de verdad, un documento por oportunidad (mismo molde que
+     /visitas o /activos), con actividades[]/tareas[] EMBEBIDAS (mismo
+     criterio que hallazgos[] en Levantamientos) — nunca colecciones aparte.
+   - moverEtapaOportunidad() es el ÚNICO punto que cambia la etapa (el
+     select del modal y el arrastre entre columnas pasan los dos por ahí):
+     siempre resetea la probabilidad sugerida y deja su propia entrada en el
+     historial; "perdida" siempre guarda su motivo.
+   - Tareas/notas de una oportunidad YA GUARDADA se confirman al toque
+     (mismo criterio que el selector de propiedad en Equipos RATIONAL) — los
+     campos generales (título/cliente/etapa/valor/etc.) siguen el molde
+     clásico de un "Guardar cambios" al pie del modal.
+   - Candado propio en firestore.rules (puedeEditar(): Owner/Admin/Analyst,
+     igual que Cotizaciones — nunca Técnico/Reportero/control_activos, ese
+     trabajo no es suyo) — Viewer sigue de solo lectura, como en el resto de
+     la app. */
+const { chromium } = require('playwright');
+const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
+const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
+let fallas = 0;
+const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
+
+(async () => {
+  const browser = await chromium.launch(OPCIONES_NAVEGADOR);
+  const page = await browser.newPage({ viewport: { width: 1300, height: 1400 } });
+  const errores = [];
+  page.on('pageerror', e => errores.push('PAGEERROR: ' + e.message));
+  await page.route('**identitytoolkit.googleapis.com/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+  await page.route('**securetoken.googleapis.com/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+  await page.route('**firestore.googleapis.com/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+  await page.goto(URL_BASE + '/index.html');
+  await page.waitForTimeout(400);
+
+  await page.evaluate(() => {
+    sesion.correo='owner@a.com'; sesion.uid='u-owner'; sesion.idToken='FAKE'; sesion.refreshToken='F2';
+    sesion.expira=Date.now()+3600000; sesion.rol='owner'; sesion.nombre='Victor Owner';
+    ocultarAcceso();
+    datos.clientes = [normalizarCliente({ id:'c1', nombre:'BORGWARNER' })];
+    datos.personal = [normalizarPersona({ id:'p1', nombre:'Marisol Peña', puesto:'Ventas' })];
+    datos.oportunidades = [
+      normalizarOportunidad({ id:'op1', clienteId:'c1', titulo:'Renovación anual', etapa:'negociacion', valorEstimado:184000, responsableId:'p1', etiquetas:['Cuenta clave'] }),
+      normalizarOportunidad({ id:'op2', prospectoNombre:'Grupo Sierra Azul', titulo:'Implementación nueva', etapa:'propuesta', valorEstimado:96000 }),
+      normalizarOportunidad({ id:'op3', prospectoNombre:'Maquiladora Rivas', titulo:'Contrato 2026', etapa:'ganada', valorEstimado:210000 })
+    ];
+    irAModulo('crm');
+  });
+  await page.waitForTimeout(250);
+
+  // --------- 1) El tablero arranca con las 6 columnas y las tarjetas correctas ---------
+  chkF('Título del módulo', (await page.locator('h2').first().textContent()).trim() === 'CRM · Oportunidades');
+  chkF('Las 6 etapas del pipeline, siempre en el mismo orden', await page.locator('.columna-crm').count() === 6);
+  chkF('Las 3 oportunidades de prueba están todas en el tablero', await page.locator('.tarjeta-crm').count() === 3);
+
+  // --------- 2) El nombre mostrado es el VIGENTE del cliente, no el capturado ---------
+  const tarjetaOp1 = page.locator('[data-oportunidad="op1"]');
+  chkF('La tarjeta ligada a un cliente muestra su nombre real (BORGWARNER)', (await tarjetaOp1.textContent()).includes('BORGWARNER'));
+  await page.evaluate(() => { clientePorId('c1').nombre = 'BORGWARNER RENOMBRADA'; });
+  await page.evaluate(() => render());
+  await page.waitForTimeout(150);
+  chkF('...y sigue el nombre del cliente si éste cambia después (nunca el texto viejo)', (await page.locator('[data-oportunidad="op1"]').textContent()).includes('BORGWARNER RENOMBRADA'));
+
+  // --------- 3) KPIs del encabezado ---------
+  const kpis = await page.locator('.kpis').textContent();
+  chkF('Pipeline abierto solo cuenta las NO cerradas (184,000 + 96,000, no la ganada)', kpis.includes('$280,000'));
+  chkF('Tasa de cierre: 1 ganada de 1 cerrada = 100%', kpis.includes('100%'));
+
+  // --------- 4) Crear una oportunidad nueva ---------
+  await page.click('[data-accion="nueva-oportunidad"]');
+  await page.waitForTimeout(150);
+  await page.fill('#opTitulo', 'Prueba nueva oportunidad');
+  await page.fill('#opProspecto', 'Cliente de prueba');
+  await page.fill('#opValor', '50000');
+  await page.selectOption('#opEtapa', 'calificado');
+  await page.click('[data-modal="guardar"]');
+  await page.waitForTimeout(200);
+  const creada = await page.evaluate(() => datos.oportunidades.find(o => o.titulo === 'Prueba nueva oportunidad'));
+  chkF('La oportunidad nueva queda guardada de verdad en datos.oportunidades', !!creada);
+  chkF('...con la etapa elegida y su probabilidad sugerida (30%)', !!creada && creada.etapa === 'calificado' && creada.probabilidad === 30);
+  chkF('Son 4 tarjetas ahora en el tablero', await page.locator('.tarjeta-crm').count() === 4);
+
+  // --------- 5) Cambiar de etapa desde el modal: historial + probabilidad ---------
+  await page.click('[data-oportunidad="op2"]');
+  await page.waitForTimeout(150);
+  chkF('El modal abre en modo edición', (await page.locator('#modalTitulo').textContent()).includes('Editar'));
+  chkF('Los campos llegan precargados', await page.locator('#opTitulo').inputValue() === 'Implementación nueva');
+  await page.selectOption('#opEtapa', 'negociacion');
+  await page.click('[data-modal="guardar"]');
+  await page.waitForTimeout(200);
+  const op2 = await page.evaluate(() => datos.oportunidades.find(o=>o.id==='op2'));
+  chkF('La etapa cambió de verdad', op2.etapa === 'negociacion');
+  chkF('La probabilidad se actualizó a la sugerida de la nueva etapa (75%)', op2.probabilidad === 75);
+  chkF('Quedó una entrada en el historial de actividad', op2.actividades.some(a => a.tipo === 'cambio_etapa' && a.descripcion.includes('Propuesta') && a.descripcion.includes('Negociación')));
+
+  // --------- 6) Marcar como perdida pide/guarda un motivo ---------
+  await page.click('[data-oportunidad="op2"]');
+  await page.waitForTimeout(150);
+  chkF('El campo de motivo empieza escondido (la etapa actual no es "perdida")', !(await page.locator('#campoMotivoPerdidaCRM').isVisible()));
+  await page.selectOption('#opEtapa', 'perdida');
+  chkF('...y aparece en vivo al elegir "Perdida" en el select', await page.locator('#campoMotivoPerdidaCRM').isVisible());
+  await page.fill('#opMotivoPerdida', 'Se fueron con otro proveedor');
+  await page.click('[data-modal="guardar"]');
+  await page.waitForTimeout(200);
+  const op2Perdida = await page.evaluate(() => datos.oportunidades.find(o=>o.id==='op2'));
+  chkF('Guarda el motivo de pérdida', op2Perdida.motivoPerdida === 'Se fueron con otro proveedor');
+  chkF('La probabilidad de una perdida siempre es 0%', op2Perdida.probabilidad === 0);
+
+  // --------- 7) Arrastrar una tarjeta a otra columna mueve la etapa de verdad ---------
+  // Playwright no soporta bien drag HTML5 con el mouse real sin plugins —se
+  // dispara la secuencia de eventos nativa directo, que es justo lo que
+  // escuchan los listeners reales de montarTableroCRM().
+  await page.evaluate(() => {
+    const tarjeta = document.querySelector('[data-oportunidad="op1"]');
+    const columnaDestino = document.querySelector('[data-etapa-crm="ganada"]');
+    const dt = new DataTransfer();
+    dt.setData('text/plain', 'op1');
+    tarjeta.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }));
+    columnaDestino.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    columnaDestino.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  });
+  await page.waitForTimeout(250);
+  const op1TrasArrastre = await page.evaluate(() => datos.oportunidades.find(o=>o.id==='op1'));
+  chkF('Arrastrar a otra columna cambia la etapa de verdad (no solo visualmente)', op1TrasArrastre.etapa === 'ganada');
+  chkF('...y también pasa por moverEtapaOportunidad (probabilidad 100%, con su historial)', op1TrasArrastre.probabilidad === 100 && op1TrasArrastre.actividades.some(a=>a.tipo==='cambio_etapa'));
+
+  // --------- 8) Soltar sobre "Perdida" pide el motivo antes de mover ---------
+  await page.evaluate(() => {
+    const tarjeta = document.querySelector('[data-oportunidad="op3"]');
+    const columnaDestino = document.querySelector('[data-etapa-crm="perdida"]');
+    const dt = new DataTransfer();
+    dt.setData('text/plain', 'op3');
+    tarjeta.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }));
+    columnaDestino.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  });
+  await page.waitForTimeout(200);
+  chkF('Soltar sobre "Perdida" abre un modal a pedir el motivo (no mueve directo)', await page.locator('#modalTitulo').textContent() === 'Marcar como perdida');
+  await page.fill('#motivoPerdidaInput', 'Presupuesto cancelado');
+  await page.click('[data-modal="guardar"]');
+  await page.waitForTimeout(200);
+  const op3 = await page.evaluate(() => datos.oportunidades.find(o=>o.id==='op3'));
+  chkF('Tras confirmar el motivo, la etapa sí se mueve a perdida', op3.etapa === 'perdida' && op3.motivoPerdida === 'Presupuesto cancelado');
+
+  // --------- 9) Tareas y notas: se confirman al toque, sin pasar por "Guardar cambios" ---------
+  await page.click('[data-oportunidad="op1"]');
+  await page.waitForTimeout(150);
+  await page.fill('#crmNuevaTareaTitulo', 'Llamar para agradecer el cierre');
+  await page.fill('#crmNuevaTareaFecha', '2026-11-01');
+  await page.click('#btnAgregarTareaCRM');
+  await page.waitForTimeout(200);
+  chkF('La tarea queda guardada sin tocar "Guardar cambios" (el modal se reabrió solo)', await page.evaluate(() => oportunidadPorId('op1').tareas.some(t=>t.titulo==='Llamar para agradecer el cierre')));
+  chkF('El modal se reabrió automáticamente tras guardar la tarea', await page.locator('#telon.abierto').count() === 1);
+
+  await page.click('[data-tarea-crm]');
+  await page.waitForTimeout(200);
+  chkF('Marcar una tarea como hecha también se guarda al toque', await page.evaluate(() => oportunidadPorId('op1').tareas.find(t=>t.titulo==='Llamar para agradecer el cierre').completada === true));
+
+  await page.fill('#crmNuevaNota', 'Cliente muy satisfecho con el servicio');
+  await page.click('#btnAgregarNotaCRM');
+  await page.waitForTimeout(200);
+  chkF('La nota queda en el historial de actividad', await page.evaluate(() => oportunidadPorId('op1').actividades.some(a=>a.tipo==='nota' && a.descripcion==='Cliente muy satisfecho con el servicio')));
+  await page.evaluate(() => cerrarModal());
+
+  // --------- 10) Buscar y filtrar ---------
+  await page.fill('#buscaOportunidad', 'Sierra Azul');
+  await page.waitForTimeout(200);
+  chkF('Buscar por el nombre del prospecto filtra el tablero', await page.locator('.tarjeta-crm').count() === 1);
+  await page.fill('#buscaOportunidad', '');
+  await page.waitForTimeout(150);
+
+  // --------- 11) Eliminar: exclusivo de Admin/Owner ---------
+  await page.click('[data-oportunidad="op1"]');
+  await page.waitForTimeout(150);
+  chkF('Owner sí ve el botón de eliminar', await page.locator('#btnBorrarOportunidad').count() === 1);
+  await page.click('#btnBorrarOportunidad');
+  await page.waitForTimeout(150);
+  await page.click('.modal button:has-text("Sí, eliminar")');
+  await page.waitForTimeout(200);
+  chkF('La oportunidad queda eliminada de verdad', await page.evaluate(() => !datos.oportunidades.some(o=>o.id==='op1')));
+
+  // --------- 12) Viewer: lectura, sin crear/editar/arrastrar/eliminar ---------
+  await page.evaluate(() => { sesion.rol='viewer'; render(); });
+  await page.waitForTimeout(150);
+  chkF('Viewer sigue teniendo acceso al módulo (lectura, como el resto de la app)', await page.evaluate(() => modulosPermitidos().includes('crm')));
+  chkF('Viewer NO ve el botón "Nueva oportunidad"', await page.locator('[data-accion="nueva-oportunidad"]').count() === 0);
+  chkF('Las tarjetas de Viewer no son arrastrables', await page.locator('.tarjeta-crm[draggable="true"]').count() === 0);
+  await page.click('.tarjeta-crm');
+  await page.waitForTimeout(150);
+  chkF('Viewer puede abrir el detalle para consultarlo...', await page.locator('#telon.abierto').count() === 1);
+  chkF('...pero sin botón de Guardar', await page.locator('[data-modal="guardar"]').count() === 0);
+  chkF('...ni de Eliminar', await page.locator('#btnBorrarOportunidad').count() === 0);
+  chkF('...y los campos son de solo lectura', await page.locator('#opTitulo').getAttribute('readonly') !== null);
+
+  // --------- 13) Técnico, reportero y control_activos no ven el módulo (no es su trabajo) ---------
+  for (const rol of ['tecnico', 'reportero', 'control_activos']) {
+    const tiene = await page.evaluate((r) => { sesion.rol = r; return modulosPermitidos().includes('crm'); }, rol);
+    chkF('El rol "' + rol + '" no ve el módulo CRM', !tiene);
+  }
+
+  chkF('No hubo errores de página en todo el escenario', errores.length === 0);
+  console.log('Errores capturados:', JSON.stringify(errores));
+  await browser.close();
+  console.log('\nTotal de fallas:', fallas);
+  process.exit(fallas > 0 ? 1 : 0);
+})().catch(e => { console.error('FALLO INESPERADO:', e); process.exit(1); });

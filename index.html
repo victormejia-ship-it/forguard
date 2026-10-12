@@ -1686,6 +1686,37 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
 }
 .vacio-chico{font-size:12.5px; color:var(--gray); text-align:center; padding:24px 10px; line-height:1.6;}
 
+/* ===================== CRM: tablero de oportunidades =====================
+   Mismo truco de contenedor-con-su-propio-scroll que .rodillo (la página
+   nunca se desborda): el tablero completo vive en una franja horizontal
+   angosta, columnas de ancho fijo. A diferencia de una tabla (ver
+   .tabla-apila-movil, pensada para que celdas no se corten en celular), un
+   Kanban SÍ se espera que se recorra de lado a lado —es como ya funcionan
+   Trello/Asana en el teléfono—, así que aquí no se apila: en celular cada
+   columna ocupa casi todo el ancho, para que se sienta como pasar de una
+   etapa a otra, no como una tabla con columnas escondidas. */
+.tablero-scroll{overflow-x:auto; padding-bottom:10px; margin:0 -24px; padding-left:24px; padding-right:24px;}
+@media (max-width:700px){ .tablero-scroll{margin:0 -16px; padding-left:16px; padding-right:16px;} }
+.tablero-crm{display:flex; gap:14px; align-items:flex-start; min-height:60px;}
+.columna-crm{flex:0 0 264px; width:264px; display:flex; flex-direction:column; gap:10px;}
+@media (max-width:700px){ .columna-crm{flex:0 0 82vw; width:82vw;} }
+.columna-crm-cab{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:0 2px;}
+.columna-crm-nombre{display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--navy-texto);}
+.columna-crm-punto{width:9px; height:9px; border-radius:50%; flex-shrink:0;}
+.columna-crm-conteo{font-size:11px; font-weight:700; color:var(--gray); background:var(--neutro-suave); border-radius:999px; padding:2px 8px;}
+.columna-crm-suma{font-size:11.5px; color:var(--gray); padding:0 2px; font-variant-numeric:tabular-nums;}
+.columna-crm-cuerpo{display:flex; flex-direction:column; gap:10px; min-height:40px; padding:4px; border-radius:14px; transition:background .12s;}
+.columna-crm-cuerpo.zona-activa-crm{background:var(--bg); outline:2px dashed var(--line);}
+.columna-crm-vacia{font-size:12px; color:var(--gray-claro); text-align:center; padding:16px 8px; border:1.5px dashed var(--line); border-radius:12px;}
+/* .tarjeta a secas trae 18px/16px de relleno (pensado para una reja de
+   pocas tarjetas grandes) — aquí se busca densidad, varias por columna
+   angosta, así que se aprieta nada más el padding y el cursor de arrastre;
+   el resto (sombra, borde, hover) se hereda tal cual de .tarjeta. */
+.tarjeta-crm{padding:13px 14px; cursor:grab;}
+.tarjeta-crm:active{cursor:grabbing;}
+.tarjeta-crm[draggable="false"]{cursor:default;}
+.tarjeta-crm.arrastrando-crm{opacity:.4;}
+
 /* Credenciales recién creadas */
 .credencial{background:var(--navy); color:#fff; border-radius:13px; padding:16px 18px; margin-top:4px;}
 .credencial .c-fila{display:flex; justify-content:space-between; gap:12px; font-size:12.5px; padding:6px 0; align-items:center;}
@@ -1953,6 +1984,7 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
       <button type="button" class="mas-item" data-modulo="activos" role="tab" aria-selected="false">Activos</button>
       <button type="button" class="mas-item" data-modulo="ayuda" role="tab" aria-selected="false">Ayuda</button>
       <button type="button" class="mas-item" data-modulo="equipos" role="tab" aria-selected="false">Catálogo de equipos</button>
+      <button type="button" class="mas-item" data-modulo="crm" role="tab" aria-selected="false">CRM</button>
       <button type="button" class="mas-item" data-modulo="imagen" role="tab" aria-selected="false">Imagen / Aperturas</button>
       <button type="button" class="mas-item" data-modulo="organigrama" role="tab" aria-selected="false">Organigrama</button>
       <button type="button" class="mas-item" data-modulo="proveedores" role="tab" aria-selected="false">Proveedores</button>
@@ -2980,7 +3012,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[] };
 
 function cargar(){
   try{
@@ -3029,7 +3061,8 @@ function cargar(){
            vacía y sigue. */
         visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
         checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational),
-        propiedadEquiposRational: (Array.isArray(d.propiedadEquiposRational) ? d.propiedadEquiposRational : []).map(normalizarPropiedadEquipoRational) };
+        propiedadEquiposRational: (Array.isArray(d.propiedadEquiposRational) ? d.propiedadEquiposRational : []).map(normalizarPropiedadEquipoRational),
+        oportunidades: (Array.isArray(d.oportunidades) ? d.oportunidades : []).map(normalizarOportunidad) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -3153,7 +3186,8 @@ async function restaurarSnapshotIndexedDB(){
          truena en cuanto se recorre. */
       visitas: (Array.isArray(d.visitas) ? d.visitas : []).map(normalizarVisita),
       checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational),
-      propiedadEquiposRational: (Array.isArray(d.propiedadEquiposRational) ? d.propiedadEquiposRational : []).map(normalizarPropiedadEquipoRational) };
+      propiedadEquiposRational: (Array.isArray(d.propiedadEquiposRational) ? d.propiedadEquiposRational : []).map(normalizarPropiedadEquipoRational),
+      oportunidades: (Array.isArray(d.oportunidades) ? d.oportunidades : []).map(normalizarOportunidad) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -4273,7 +4307,7 @@ function limpiarSesionYDatos(){
      undefined hasta que bajarDeLaNube() alcanzara a repoblarlas, y un
      render() de por medio —con cola pendiente o sin internet— tronaba con
      cualquier vista que las tocara.) */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[] };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -4970,7 +5004,7 @@ async function bajarDeLaNube(soloColecciones){
   /* Si no se pidió una colección en este refresco, ni se intenta leerla —
      null de una vez, en vez de disparar la red y tirar la respuesta. */
   const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr, pq] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr, pq, op] = await Promise.all([
     p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
     p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
     p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
@@ -4990,7 +5024,8 @@ async function bajarDeLaNube(soloColecciones){
     p('ordenesCompra', () => listarNubeSuave('ordenesCompra', 100)),
     p('visitas', () => listarNubeSuave('visitas', 100)),
     p('checklistRational', () => leerChecklistRational()),
-    p('propiedadEquiposRational', () => listarNubeSuave('propiedadEquiposRational', 200))
+    p('propiedadEquiposRational', () => listarNubeSuave('propiedadEquiposRational', 200)),
+    p('oportunidades', () => listarNubeSuave('oportunidades', 200))
   ]);
   if(!soloColecciones && !cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -5010,7 +5045,7 @@ async function bajarDeLaNube(soloColecciones){
   [['clientes',cl],['sitios',si],['polizas',po],['cotizaciones',co],['reportes',rp],
    ['levantamientos',lv],['proyectosImagen',im],['activos',ac],['personal',pe],['nominaPersonal',np],
    ['proveedores',pv],['gastosProveedor',gp],['refacciones',rf],['ordenesCompra',oc],
-   ['visitas',vi],['propiedadEquiposRational',pq]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
+   ['visitas',vi],['propiedadEquiposRational',pq],['oportunidades',op]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
   datos = { v:1,
             clientes: cl === null ? datos.clientes : cl.map(normalizarCliente),
             sitios: si === null ? datos.sitios : si.map(normalizarSitio),
@@ -5031,7 +5066,8 @@ async function bajarDeLaNube(soloColecciones){
             ordenesCompra: (oc === null ? datos.ordenesCompra : oc.map(normalizarOrdenCompra)),
             visitas: (vi === null ? datos.visitas : vi.map(normalizarVisita)),
             checklistRational: cr === null ? datos.checklistRational : cr,
-            propiedadEquiposRational: (pq === null ? datos.propiedadEquiposRational : pq.map(normalizarPropiedadEquipoRational)) };
+            propiedadEquiposRational: (pq === null ? datos.propiedadEquiposRational : pq.map(normalizarPropiedadEquipoRational)),
+            oportunidades: (op === null ? datos.oportunidades : op.map(normalizarOportunidad)) };
   /* Veredicto de auditoría (21-sep-2026): un registro con un rechazo
      definitivo pendiente (ver colaRechazada arriba) nunca llegó a existir
      del lado del servidor, así que el reemplazo de arriba lo deja fuera sin
@@ -7166,6 +7202,110 @@ function guardarCampoEquiposRational(apariciones, campo, valor, claveAnterior){
   }
 }
 
+/* ===================== CRM: pipeline de oportunidades =====================
+   Módulo nuevo (12-oct-2026, pedido de Victor tras ver un prototipo:
+   "Sí, intégralo como módulo en index.html"). Una Oportunidad NUNCA duplica
+   datos de contacto propios: se liga a datos.clientes por clienteId en
+   cuanto ya es un cliente formal (prospectoNombre solo se usa MIENTRAS
+   todavía no lo es, igual que una cotización antes de convertirse en
+   póliza) — dos fuentes de verdad peleando por el mismo nombre es justo lo
+   que este diseño evita.
+
+   Colección de verdad, un documento por oportunidad (mismo molde que
+   /visitas o /activos, NO un documento único como /catalogo): actividades
+   y tareas van EMBEBIDAS dentro de cada una (mismo criterio que hallazgos[]
+   en Levantamientos o partidas[] en Pólizas) — siempre se leen en el
+   contexto de SU oportunidad, nunca sueltas aparte. */
+const ETAPAS_OPORTUNIDAD = ['prospecto', 'calificado', 'propuesta', 'negociacion', 'ganada', 'perdida'];
+const ETIQUETA_ETAPA_OPORTUNIDAD = { prospecto:'Prospecto', calificado:'Calificado', propuesta:'Propuesta', negociacion:'Negociación', ganada:'Ganada', perdida:'Perdida' };
+/* La probabilidad la sugiere la etapa (editable a mano después si hace
+   falta, ver normalizarOportunidad) — ganada/perdida se fuerzan siempre a
+   100/0 porque ya no son una probabilidad, son un hecho consumado. */
+const PROBABILIDAD_SUGERIDA_ETAPA = { prospecto:10, calificado:30, propuesta:50, negociacion:75, ganada:100, perdida:0 };
+const COLOR_ETAPA_OPORTUNIDAD = { prospecto:'var(--neutro)', calificado:'#1B4FA8', propuesta:'var(--alerta)', negociacion:'#5B3A9E', ganada:'var(--ok)', perdida:'var(--error)' };
+const TIPO_ACTIVIDAD_CRM = ['llamada', 'correo', 'reunion', 'nota', 'cambio_etapa'];
+const ETIQUETA_TIPO_ACTIVIDAD_CRM = { llamada:'Llamada', correo:'Correo', reunion:'Reunión', nota:'Nota', cambio_etapa:'Cambio de etapa' };
+
+function normalizarActividadCRM(a){
+  return {
+    id: (a && a.id) || nuevoId(),
+    tipo: TIPO_ACTIVIDAD_CRM.includes(a && a.tipo) ? a.tipo : 'nota',
+    fecha: (a && a.fecha) || new Date().toISOString(),
+    descripcion: (a && a.descripcion ? String(a.descripcion) : '').trim(),
+    autor: (a && a.autor ? String(a.autor) : '').trim()
+  };
+}
+function normalizarTareaCRM(t){
+  return {
+    id: (t && t.id) || nuevoId(),
+    titulo: (t && t.titulo ? String(t.titulo) : '').trim(),
+    fechaVencimiento: /^\d{4}-\d{2}-\d{2}$/.test(t && t.fechaVencimiento) ? t.fechaVencimiento : hoyISO(),
+    completada: !!(t && t.completada),
+    asignadoA: (t && t.asignadoA ? String(t.asignadoA) : '').trim()
+  };
+}
+function normalizarOportunidad(o){
+  const etapa = ETAPAS_OPORTUNIDAD.includes(o && o.etapa) ? o.etapa : 'prospecto';
+  return {
+    id: (o && o.id) || nuevoId(),
+    clienteId: (o && o.clienteId ? String(o.clienteId) : '').trim(),
+    prospectoNombre: aOracion((o && o.prospectoNombre ? String(o.prospectoNombre) : '').trim()),
+    titulo: (o && o.titulo ? String(o.titulo) : '').trim(),
+    etapa,
+    valorEstimado: Math.max(0, Math.round(Number(o && o.valorEstimado) || 0)),
+    probabilidad: Number.isFinite(o && o.probabilidad) ? Math.max(0, Math.min(100, Math.round(o.probabilidad))) : PROBABILIDAD_SUGERIDA_ETAPA[etapa],
+    fechaCreacion: /^\d{4}-\d{2}-\d{2}$/.test(o && o.fechaCreacion) ? o.fechaCreacion : hoyISO(),
+    fechaCierreEstimada: /^\d{4}-\d{2}-\d{2}$/.test(o && o.fechaCierreEstimada) ? o.fechaCierreEstimada : hoyISO(),
+    etiquetas: (Array.isArray(o && o.etiquetas) ? o.etiquetas : []).map(e => String(e).trim()).filter(Boolean),
+    responsableId: (o && o.responsableId ? String(o.responsableId) : '').trim(),
+    actividades: (Array.isArray(o && o.actividades) ? o.actividades : []).map(normalizarActividadCRM),
+    tareas: (Array.isArray(o && o.tareas) ? o.tareas : []).map(normalizarTareaCRM),
+    motivoPerdida: (o && o.motivoPerdida ? String(o.motivoPerdida) : '').trim()
+  };
+}
+function oportunidadPorId(id){ return datos.oportunidades.find(o => o.id === id); }
+function nombreEtapaOportunidad(id){ return ETIQUETA_ETAPA_OPORTUNIDAD[id] || id; }
+/* Si ya está ligada a un cliente real, su nombre VIGENTE (puede haber
+   cambiado desde que se creó la oportunidad) — nunca el texto capturado en
+   su momento, que se quedaría viejo. */
+function nombreOportunidad(op){
+  if(op.clienteId){ const c = clientePorId(op.clienteId); if(c) return c.nombre; }
+  return op.prospectoNombre || 'Sin nombre';
+}
+function responsableOportunidad(op){
+  const p = datos.personal.find(x => x.id === op.responsableId);
+  return p ? p.nombre : 'Sin asignar';
+}
+function tareasPendientesOportunidad(op){ return op.tareas.filter(t => !t.completada); }
+function tieneTareaVencida(op){
+  return tareasPendientesOportunidad(op).some(t => diasEntre(hoyISO(), t.fechaVencimiento) < 0);
+}
+
+function guardarOportunidad(op, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'oportunidades', id: op.id, obj: op });
+  anotar(accion || 'editó', 'oportunidad', op.titulo || 'sin título', detalle);
+}
+
+/* Único punto que cambia la etapa de una oportunidad — el select del modal
+   de detalle y el arrastre entre columnas del tablero pasan los dos por
+   aquí, nunca por `op.etapa = x` directo: así "perdida siempre deja su
+   motivo" y "todo cambio de etapa deja su propia entrada en el historial"
+   quedan garantizados sin importar desde dónde se dispare. */
+function moverEtapaOportunidad(op, nuevaEtapa, motivoPerdida){
+  if(!ETAPAS_OPORTUNIDAD.includes(nuevaEtapa) || nuevaEtapa === op.etapa) return;
+  const anterior = op.etapa;
+  op.etapa = nuevaEtapa;
+  op.probabilidad = PROBABILIDAD_SUGERIDA_ETAPA[nuevaEtapa];
+  op.motivoPerdida = nuevaEtapa === 'perdida' ? (motivoPerdida || '').trim() : '';
+  op.actividades.push(normalizarActividadCRM({
+    tipo: 'cambio_etapa',
+    descripcion: 'Etapa: ' + nombreEtapaOportunidad(anterior) + ' → ' + nombreEtapaOportunidad(nuevaEtapa),
+    autor: nombreDe(sesion) || ''
+  }));
+  guardarOportunidad(op, 'cambió de etapa', nombreOportunidad(op) + ': ' + nombreEtapaOportunidad(anterior) + ' → ' + nombreEtapaOportunidad(nuevaEtapa));
+}
+
 function vistaCatalogoEquipos(){
   const grupos = catalogoEquiposAgregado();
   const conSerie = grupos.filter(g => claveEquipoAgregado(g.serie)).length;
@@ -7224,6 +7364,350 @@ function vistaCatalogoEquipos(){
      + '</tbody></table></div>';
 
   return h;
+}
+
+/* ===================== CRM: tablero de oportunidades ===================== */
+function vistaCRM(){
+  let h = '<div class="titulo-zona"><div>'
+     +   '<h2>CRM · Oportunidades</h2>'
+     +   '<p>Arrastra una tarjeta a otra columna para mover de etapa, o ábrela para ver su historial completo.</p>'
+     + '</div><div class="acciones">'
+     +   (puedeEditar() ? '<button type="button" class="btn btn-primario" data-accion="nueva-oportunidad">' + ICONO.mas + 'Nueva oportunidad</button>' : '')
+     + '</div></div>';
+
+  const abiertas = datos.oportunidades.filter(o => o.etapa !== 'ganada' && o.etapa !== 'perdida');
+  const valorAbierto = abiertas.reduce((s,o)=> s + o.valorEstimado, 0);
+  const cerradas = datos.oportunidades.filter(o => o.etapa === 'ganada' || o.etapa === 'perdida');
+  const ganadas = datos.oportunidades.filter(o => o.etapa === 'ganada').length;
+  const tasaGanadas = cerradas.length ? Math.round(ganadas / cerradas.length * 100) : 0;
+  const vencidas = abiertas.filter(tieneTareaVencida).length;
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('Pipeline abierto', dinero(valorAbierto), numero(abiertas.length) + ' ' + plural(abiertas.length,'oportunidad activa','oportunidades activas'))
+     + tarjetaKpi('Tasa de cierre ganado', tasaGanadas + '%', ganadas + ' de ' + cerradas.length + ' ' + plural(cerradas.length,'cerrada','cerradas'))
+     + tarjetaKpi('Valor promedio', dinero(abiertas.length ? valorAbierto / abiertas.length : 0), 'Por oportunidad abierta')
+     + tarjetaKpi('Con tareas vencidas', numero(vencidas), 'Necesitan seguimiento hoy', vencidas ? 'k-alerta' : '')
+     + '</div>';
+
+  if(!datos.oportunidades.length){
+    h += vistaVacia('dinero', 'Todavía no hay ninguna oportunidad registrada',
+      'Da de alta la primera oportunidad para empezar a dar seguimiento al pipeline de ventas.',
+      puedeEditar() ? 'nueva-oportunidad' : '', 'Nueva oportunidad');
+    return h;
+  }
+
+  const responsables = Array.from(new Set(datos.oportunidades.map(responsableOportunidad))).sort((a,b)=>a.localeCompare(b,'es'));
+  const etiquetasEnUso = Array.from(new Set(datos.oportunidades.flatMap(o => o.etiquetas))).sort((a,b)=>a.localeCompare(b,'es'));
+
+  h += '<div class="barra-busca">'
+     +   '<input type="search" id="buscaOportunidad" placeholder="Buscar por título, empresa o etiqueta…" value="' + esc(estado.busca) + '">'
+     +   (responsables.length > 1
+          ? '<select id="filtroResponsableCRM"><option value="">Todo el equipo</option>'
+            + responsables.map(r => '<option value="' + esc(r) + '"' + (estado.filtroResponsableCRM===r?' selected':'') + '>' + esc(r) + '</option>').join('')
+            + '</select>'
+          : '')
+     +   (etiquetasEnUso.length
+          ? '<select id="filtroEtiquetaCRM"><option value="">Todas las etiquetas</option>'
+            + etiquetasEnUso.map(e => '<option value="' + esc(e) + '"' + (estado.filtroEtiquetaCRM===e?' selected':'') + '>' + esc(e) + '</option>').join('')
+            + '</select>'
+          : '')
+     + '</div>';
+
+  const q = estado.busca.trim().toLowerCase();
+  const visibles = datos.oportunidades.filter(o=>{
+    if(q && !(o.titulo + ' ' + nombreOportunidad(o) + ' ' + o.etiquetas.join(' ')).toLowerCase().includes(q)) return false;
+    if(estado.filtroResponsableCRM && responsableOportunidad(o) !== estado.filtroResponsableCRM) return false;
+    if(estado.filtroEtiquetaCRM && !o.etiquetas.includes(estado.filtroEtiquetaCRM)) return false;
+    return true;
+  });
+
+  h += '<div class="tablero-scroll"><div class="tablero-crm">'
+     + ETAPAS_OPORTUNIDAD.map(etapa=>{
+         const deEstaEtapa = visibles.filter(o => o.etapa === etapa);
+         const suma = deEstaEtapa.reduce((s,o)=> s + o.valorEstimado, 0);
+         return '<div class="columna-crm">'
+           +   '<div class="columna-crm-cab">'
+           +     '<div class="columna-crm-nombre"><span class="columna-crm-punto" style="background:' + COLOR_ETAPA_OPORTUNIDAD[etapa] + '"></span>' + esc(ETIQUETA_ETAPA_OPORTUNIDAD[etapa]) + '</div>'
+           +     '<span class="columna-crm-conteo">' + deEstaEtapa.length + '</span>'
+           +   '</div>'
+           +   '<div class="columna-crm-suma">' + (deEstaEtapa.length ? dinero(suma) : '—') + '</div>'
+           +   '<div class="columna-crm-cuerpo" data-etapa-crm="' + etapa + '">'
+           +     (deEstaEtapa.length ? deEstaEtapa.map(tarjetaOportunidadHTML).join('') : '<div class="columna-crm-vacia">Sin oportunidades</div>')
+           +   '</div>'
+         + '</div>';
+       }).join('')
+     + '</div></div>';
+
+  return h;
+}
+
+function tarjetaOportunidadHTML(op){
+  const cli = op.clienteId ? clientePorId(op.clienteId) : null;
+  const pendientes = tareasPendientesOportunidad(op);
+  const vencida = tieneTareaVencida(op);
+  return '<div class="tarjeta tarjeta-crm" draggable="' + (puedeEditar() ? 'true' : 'false') + '" data-oportunidad="' + esc(op.id) + '" tabindex="0" role="button">'
+    +   '<div class="t-nombre" style="font-size:13.5px; margin-bottom:8px">' + esc(op.titulo || 'Sin título') + '</div>'
+    +   '<div class="t-cabeza" style="gap:8px; margin-bottom:8px">'
+    +     (cli ? avatarCliente(cli, 24) : '<div class="t-avatar" style="width:24px; height:24px; font-size:10px">' + esc(iniciales(nombreOportunidad(op))) + '</div>')
+    +     '<div class="t-sub" style="margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">' + esc(nombreOportunidad(op)) + '</div>'
+    +   '</div>'
+    +   (op.etiquetas.length
+          ? '<div style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px">' + op.etiquetas.map(e => '<span class="insignia i-info">' + esc(e) + '</span>').join('') + '</div>'
+          : '')
+    +   '<div class="t-pie" style="margin-top:0; padding-top:8px; justify-content:space-between">'
+    +     '<span style="font-weight:700; color:var(--navy-texto); font-variant-numeric:tabular-nums">' + dinero(op.valorEstimado) + '</span>'
+    +     (pendientes.length
+            ? '<span class="pista" style="font-weight:600' + (vencida ? '; color:var(--error-texto)' : '') + '">' + pendientes.length + ' ' + plural(pendientes.length,'tarea','tareas') + '</span>'
+            : '')
+    +   '</div>'
+  + '</div>';
+}
+
+/* Único lugar que pide el motivo de pérdida SIN pasar por el formulario
+   completo de la oportunidad — hace falta para el arrastre directo del
+   tablero (soltar sobre "Perdida" no abre ningún formulario). Dentro del
+   modal de edición, en cambio, "Motivo de pérdida" es un campo más que se
+   muestra/esconde en vivo (ver wirearFormularioOportunidad) y viaja junto
+   con el resto al guardar — ahí no hace falta este paso aparte. */
+function pedirMotivoPerdida(op, alConfirmar){
+  abrirModal('Marcar como perdida',
+      '<p style="font-size:13.5px; color:#3a4256; line-height:1.65">¿Por qué se perdió <b>' + esc(op.titulo || 'esta oportunidad') + '</b>? (opcional)</p>'
+    + '<div class="campo"><label>Motivo</label><textarea id="motivoPerdidaInput" placeholder="Ej. Eligieron otro proveedor…"></textarea></div>',
+      '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+    + '<button type="button" class="btn btn-peligro" data-modal="guardar">Marcar como perdida</button>');
+  cerrarModalActual = ()=>{
+    const motivo = $('motivoPerdidaInput').value.trim();
+    cerrarModal();
+    alConfirmar(motivo);
+  };
+}
+
+/* Tareas y notas de una oportunidad YA GUARDADA se confirman al toque (igual
+   que el selector de propiedad en Equipos RATIONAL) — no tiene sentido
+   obligar a abrir el formulario completo y darle "Guardar cambios" nada más
+   para tachar una tarea. Los campos generales (título, cliente, etapa,
+   valor…) sí siguen el molde clásico de un solo "Guardar cambios" al pie
+   (ver cerrarModalActual más abajo). */
+function modalOportunidad(id){
+  const existente = id ? oportunidadPorId(id) : null;
+  const op = existente || normalizarOportunidad({});
+
+  const clientesOrd = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const personalOrd = datos.personal.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  const soloLectura = !puedeEditar();
+
+  const cuerpo =
+      '<div class="campo"><label>Título *</label><input type="text" id="opTitulo" placeholder="Ej. Renovación contrato anual" value="' + esc(op.titulo) + '"' + (soloLectura?' readonly':'') + '></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Cliente ya existente</label><select id="opCliente"' + (soloLectura?' disabled':'') + '>'
+    +     '<option value="">— Ninguno (prospecto nuevo) —</option>'
+    +     clientesOrd.map(c => '<option value="' + esc(c.id) + '"' + (op.clienteId===c.id?' selected':'') + '>' + esc(c.nombre) + '</option>').join('')
+    +   '</select></div>'
+    +   '<div class="campo"><label>Nombre del prospecto</label><input type="text" id="opProspecto" placeholder="Si todavía no es cliente" value="' + esc(op.prospectoNombre) + '"' + (soloLectura?' readonly':'') + '></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Etapa</label><select id="opEtapa"' + (soloLectura?' disabled':'') + '>'
+    +     ETAPAS_OPORTUNIDAD.map(e => '<option value="' + e + '"' + (op.etapa===e?' selected':'') + '>' + esc(ETIQUETA_ETAPA_OPORTUNIDAD[e]) + '</option>').join('')
+    +   '</select></div>'
+    +   '<div class="campo"><label>Valor estimado (MXN)</label><input type="number" id="opValor" min="0" step="1" value="' + op.valorEstimado + '"' + (soloLectura?' readonly':'') + '></div>'
+    + '</div>'
+    + '<div class="campo" id="campoMotivoPerdidaCRM" style="' + (op.etapa==='perdida' ? '' : 'display:none') + '">'
+    +   '<label>Motivo de pérdida</label><textarea id="opMotivoPerdida" placeholder="Ej. Eligieron otro proveedor…"' + (soloLectura?' readonly':'') + '>' + esc(op.motivoPerdida) + '</textarea>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Responsable</label><select id="opResponsable"' + (soloLectura?' disabled':'') + '>'
+    +     '<option value="">Sin asignar</option>'
+    +     personalOrd.map(p => '<option value="' + esc(p.id) + '"' + (op.responsableId===p.id?' selected':'') + '>' + esc(p.nombre) + '</option>').join('')
+    +   '</select></div>'
+    +   '<div class="campo"><label>Cierre estimado</label><input type="date" id="opFechaCierre" value="' + esc(op.fechaCierreEstimada) + '"' + (soloLectura?' readonly':'') + '></div>'
+    + '</div>'
+    + '<div class="campo"><label>Etiquetas (separadas por coma)</label><input type="text" id="opEtiquetas" placeholder="Ej. Cuenta clave, Renovación" value="' + esc(op.etiquetas.join(', ')) + '"' + (soloLectura?' readonly':'') + '></div>'
+
+    + (existente ? (
+        '<div class="seccion-titulo" style="margin-top:18px">Tareas (' + tareasPendientesOportunidad(op).length + ' pendientes)</div>'
+        + listaTareasOportunidadHTML(op, soloLectura)
+        + (soloLectura ? '' :
+            '<div class="fila2" style="margin-top:8px">'
+            +   '<input type="text" id="crmNuevaTareaTitulo" placeholder="Nueva tarea…">'
+            +   '<input type="date" id="crmNuevaTareaFecha" value="' + hoyISO() + '">'
+            + '</div>'
+            + '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarTareaCRM" style="margin-top:8px">' + ICONO.mas + 'Agregar tarea</button>')
+
+        + '<div class="seccion-titulo" style="margin-top:18px">Historial de actividad</div>'
+        + lineaTiempoOportunidadHTML(op)
+        + (soloLectura ? '' :
+            '<div class="campo" style="margin-top:10px"><textarea id="crmNuevaNota" placeholder="Agregar una nota…"></textarea></div>'
+            + '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarNotaCRM">' + ICONO.mas + 'Agregar nota</button>')
+      ) : '');
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + (existente && esAdmin() ? '<button type="button" class="btn btn-peligro btn-mini" id="btnBorrarOportunidad">' + ICONO.basura + 'Eliminar</button>' : '')
+            + (soloLectura ? '' : '<button type="button" class="btn btn-primario" data-modal="guardar">' + (existente ? 'Guardar cambios' : 'Crear oportunidad') + '</button>');
+
+  abrirModal(existente ? 'Editar oportunidad' : 'Nueva oportunidad', cuerpo, pie);
+
+  if(!soloLectura){
+    $('opEtapa').addEventListener('change', ()=>{
+      $('campoMotivoPerdidaCRM').style.display = $('opEtapa').value === 'perdida' ? '' : 'none';
+    });
+  }
+
+  if(existente) wirearDetalleOportunidad(op);
+
+  if(existente && esAdmin()){
+    $('btnBorrarOportunidad').addEventListener('click', ()=>{
+      confirmar('Eliminar oportunidad',
+        'Se va a eliminar <b>' + esc(op.titulo || 'esta oportunidad') + '</b> y todo su historial. Esta acción no se puede deshacer.',
+        'Sí, eliminar', ()=>{
+          datos.oportunidades = datos.oportunidades.filter(x => x.id !== op.id);
+          borrarRegistro('oportunidades', op.id);
+          anotar('eliminó', 'oportunidad', op.titulo || 'sin título');
+          cerrarModal();
+          render();
+          aviso('Oportunidad eliminada.');
+        });
+    });
+  }
+
+  if(soloLectura) return;
+
+  cerrarModalActual = ()=>{
+    const titulo = $('opTitulo').value.trim();
+    if(!titulo){ $('opTitulo').setAttribute('aria-invalid','true'); $('opTitulo').focus(); aviso('La oportunidad necesita un título.', true); return; }
+
+    const nuevaEtapa = $('opEtapa').value;
+    const cambioDeEtapa = existente && nuevaEtapa !== op.etapa;
+    const motivoPerdida = $('opMotivoPerdida').value.trim();
+
+    Object.assign(op, {
+      titulo, clienteId: $('opCliente').value, prospectoNombre: $('opProspecto').value.trim(),
+      valorEstimado: aNumero($('opValor').value), responsableId: $('opResponsable').value,
+      fechaCierreEstimada: $('opFechaCierre').value,
+      etiquetas: $('opEtiquetas').value.split(',').map(e=>e.trim()).filter(Boolean)
+    });
+
+    if(!existente){
+      op.etapa = nuevaEtapa;
+      op.probabilidad = PROBABILIDAD_SUGERIDA_ETAPA[nuevaEtapa];
+      if(nuevaEtapa === 'perdida') op.motivoPerdida = motivoPerdida;
+      datos.oportunidades.push(op);
+      guardarOportunidad(op, 'creó');
+      cerrarModal();
+      aviso('Oportunidad creada.');
+      render();
+      return;
+    }
+
+    if(cambioDeEtapa){
+      moverEtapaOportunidad(op, nuevaEtapa, motivoPerdida);
+    }else{
+      if(op.etapa === 'perdida') op.motivoPerdida = motivoPerdida;
+      guardarOportunidad(op, 'editó');
+    }
+    cerrarModal();
+    aviso('Oportunidad actualizada.');
+    render();
+  };
+}
+
+function listaTareasOportunidadHTML(op, soloLectura){
+  const ordenadas = op.tareas.slice().sort((a,b)=> a.completada - b.completada || a.fechaVencimiento.localeCompare(b.fechaVencimiento));
+  if(!ordenadas.length) return '<p class="vacio-chico">Sin tareas registradas.</p>';
+  return '<div id="crmListaTareas">' + ordenadas.map(t=>{
+    const vencida = !t.completada && diasEntre(hoyISO(), t.fechaVencimiento) < 0;
+    return '<div class="tarea' + (t.completada?' hecha':'') + '">'
+      +   '<input type="checkbox" data-tarea-crm="' + esc(t.id) + '"' + (t.completada?' checked':'') + (soloLectura?' disabled':'') + '>'
+      +   '<span class="tarea-txt">' + esc(t.titulo) + '</span>'
+      +   '<span class="pista' + (vencida?'':'') + '" style="' + (vencida?'color:var(--error-texto); font-weight:700':'') + '">' + fmtFecha(t.fechaVencimiento) + '</span>'
+      + '</div>';
+  }).join('') + '</div>';
+}
+
+function lineaTiempoOportunidadHTML(op){
+  const eventos = op.actividades.slice().sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  if(!eventos.length) return '<p class="vacio-chico">Todavía no hay actividad registrada.</p>';
+  return '<div id="crmLineaTiempo" style="display:flex; flex-direction:column; gap:12px">' + eventos.map(ev=>
+      '<div style="display:flex; gap:10px">'
+    +   '<div style="font-size:11px; color:var(--gray); flex-shrink:0; width:58px; padding-top:1px">' + fmtFecha(ev.fecha.slice(0,10)) + '</div>'
+    +   '<div style="font-size:12.5px; flex:1">'
+    +     '<div style="color:var(--ink)">' + esc(ev.descripcion) + '</div>'
+    +     '<div style="font-size:11px; color:var(--gray); margin-top:2px">' + ETIQUETA_TIPO_ACTIVIDAD_CRM[ev.tipo] + (ev.autor ? ' · ' + esc(ev.autor) : '') + '</div>'
+    +   '</div>'
+    + '</div>'
+  ).join('') + '</div>';
+}
+
+/* Tareas y notas se confirman al toque (ver el comentario junto a
+   modalOportunidad) — cada acción guarda de verdad y vuelve a abrir el
+   mismo modal desde cero, igual que el resto de la app resuelve "algo
+   cambió" con un render() completo en vez de parchear el DOM a mano. */
+function wirearDetalleOportunidad(op){
+  document.querySelectorAll('[data-tarea-crm]').forEach(chk=>{
+    chk.addEventListener('change', ()=>{
+      const t = op.tareas.find(x => x.id === chk.dataset.tareaCrm);
+      if(!t) return;
+      t.completada = chk.checked;
+      guardarOportunidad(op, 'editó', (chk.checked ? 'Completó' : 'Reabrió') + ' la tarea "' + t.titulo + '"');
+      modalOportunidad(op.id);
+    });
+  });
+  const btnTarea = $('btnAgregarTareaCRM');
+  if(btnTarea) btnTarea.addEventListener('click', ()=>{
+    const titulo = $('crmNuevaTareaTitulo').value.trim();
+    if(!titulo){ aviso('Escribe qué hay que hacer.', true); return; }
+    op.tareas.push(normalizarTareaCRM({ titulo, fechaVencimiento: $('crmNuevaTareaFecha').value, asignadoA: nombreDe(sesion) || '' }));
+    guardarOportunidad(op, 'editó', 'Agregó la tarea "' + titulo + '"');
+    modalOportunidad(op.id);
+  });
+  const btnNota = $('btnAgregarNotaCRM');
+  if(btnNota) btnNota.addEventListener('click', ()=>{
+    const texto = $('crmNuevaNota').value.trim();
+    if(!texto){ aviso('Escribe la nota primero.', true); return; }
+    op.actividades.push(normalizarActividadCRM({ tipo:'nota', descripcion: texto, autor: nombreDe(sesion) || '' }));
+    guardarOportunidad(op, 'editó', 'Agregó una nota');
+    modalOportunidad(op.id);
+  });
+}
+
+/* Cablea el buscador/filtros y el arrastrar-y-soltar del tablero — se llama
+   en cada render() del módulo porque render() rehace todo el HTML (mismo
+   patrón que montarVisitas()/montarCatalogoRefaccionesRational()). */
+function montarTableroCRM(){
+  const b = $('buscaOportunidad');
+  if(b) b.addEventListener('input', ()=>{ estado.busca = b.value; renderConservandoFoco(b, 'buscaOportunidad'); });
+  const fr = $('filtroResponsableCRM');
+  if(fr) fr.addEventListener('change', ()=>{ estado.filtroResponsableCRM = fr.value; render(); });
+  const fe = $('filtroEtiquetaCRM');
+  if(fe) fe.addEventListener('change', ()=>{ estado.filtroEtiquetaCRM = fe.value; render(); });
+
+  if(!puedeEditar()) return;   /* Viewer ve el tablero pero no puede arrastrar nada */
+
+  document.querySelectorAll('.tarjeta-crm[draggable="true"]').forEach(tar=>{
+    tar.addEventListener('dragstart', ev=>{
+      tar.classList.add('arrastrando-crm');
+      ev.dataTransfer.setData('text/plain', tar.dataset.oportunidad);
+      ev.dataTransfer.effectAllowed = 'move';
+    });
+    tar.addEventListener('dragend', ()=> tar.classList.remove('arrastrando-crm'));
+  });
+  document.querySelectorAll('.columna-crm-cuerpo').forEach(col=>{
+    col.addEventListener('dragover', ev=>{ ev.preventDefault(); col.classList.add('zona-activa-crm'); });
+    col.addEventListener('dragleave', ()=> col.classList.remove('zona-activa-crm'));
+    col.addEventListener('drop', ev=>{
+      ev.preventDefault();
+      col.classList.remove('zona-activa-crm');
+      const id = ev.dataTransfer.getData('text/plain');
+      const op = oportunidadPorId(id);
+      const destino = col.dataset.etapaCrm;
+      if(!op || destino === op.etapa) return;
+      if(destino === 'perdida'){
+        pedirMotivoPerdida(op, motivo => { moverEtapaOportunidad(op, 'perdida', motivo); render(); });
+      }else{
+        moverEtapaOportunidad(op, destino);
+        render();
+      }
+    });
+  });
 }
 
 /* AC-ddmmaa-NNNN: mismo molde que reportes/cotizaciones. Sugerencia, no
@@ -11730,7 +12214,11 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                  /* Cuántos meses adelante enseña la agenda. Hace falta un tope:
                     MXGT01 sola son ~108 servicios al año, y cinco pólizas activas
                     llenarían la pantalla de trabajo que no es de ahora. */
-                 horizonte:2 };
+                 horizonte:2,
+                 /* CRM: a quién y qué etiqueta filtra el tablero de oportunidades
+                    ('' = todos/todas) — misma naturaleza que sitioFiltro/
+                    filtroGastoProveedor, preferencia de pantalla, no dato. */
+                 filtroResponsableCRM:'', filtroEtiquetaCRM:'' };
 
 /* Antes se recordaba el último módulo para abrir donde te quedaste. A pedido
    explícito de Victor (10-sep-2026) se quitó: cada entrada a la app abre
@@ -11756,7 +12244,7 @@ const LLAVE_MODULO = 'forguard_forpass_modulo_v1';
    Desde la ficha de un cliente en Clientes se puede seguir saltando
    directo a su Forpass con "Ver en Forpass" (ver irAlClienteEnForpass())
    — un atajo, no la única puerta. */
-const MODULOS = ['resultados', 'clientes', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'equipos', 'rational', 'ayuda'];
+const MODULOS = ['resultados', 'clientes', 'crm', 'forpass', 'reportes', 'cocinas', 'levantamientos', 'visitas', 'polizas', 'cotizaciones', 'activos', 'proveedores', 'organigrama', 'imagen', 'equipos', 'rational', 'ayuda'];
 function cargarModulo(){
   estado.modulo = MODULOS[0];
   estado.vista = inicioDelModulo();
@@ -11829,6 +12317,7 @@ function inicioDelModulo(){
        : estado.modulo === 'imagen' ? 'imagen'
        : estado.modulo === 'equipos' ? 'equipos'
        : estado.modulo === 'rational' ? 'rational'
+       : estado.modulo === 'crm' ? 'crm'
        : estado.modulo === 'clientes' ? 'resumen'
        : estado.modulo === 'ayuda' ? 'ayuda'
        : 'clientes';
@@ -11887,6 +12376,7 @@ function irAModulo(m){
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
   estado.activosClienteId = ''; estado.sitioFiltroActivo = ''; estado.seleccionActivos = false;
+  estado.filtroResponsableCRM = ''; estado.filtroEtiquetaCRM = '';
   animarTarjetas = true;      /* lista nueva: sí anima */
   render();                   /* UN render, no dos */
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -14470,6 +14960,22 @@ const TEMAS_AYUDA = [
             'Hay que escribir el nombre EXACTO del cliente para que el botón de confirmar se habilite — no hay forma de aceptarlo de un solo clic ni por accidente.',
             'No hay Deshacer ni papelera: si no tienes un Respaldo JSON de antes de borrar, el cliente se recaptura a mano desde cero.'
           ])) },
+
+  { id:'crm', titulo:'CRM',
+    resumen:'El pipeline de ventas: en qué etapa va cada oportunidad, su valor, sus tareas pendientes y su historial completo de actividad.',
+    contenido:
+      guiaSeccion('Lo básico', guiaPasos([
+        'Módulo nuevo (12-oct-2026, pedido de Victor) — un tablero tipo Kanban con seis columnas fijas: <b>Prospecto, Calificado, Propuesta, Negociación, Ganada</b> y <b>Perdida</b>. Arriba, cuatro indicadores: pipeline abierto (la suma de todo lo que no está cerrado), tasa de cierre ganado, valor promedio por oportunidad y cuántas tienen una tarea vencida.',
+        'Arrastra una tarjeta a otra columna para moverla de etapa — la probabilidad de cierre se ajusta sola según la etapa (10/30/50/75/100/0%), y queda una entrada en su historial. Soltar sobre <b>Perdida</b> pide el motivo antes de mover.',
+        'Haz clic en cualquier tarjeta para abrir su detalle completo: datos generales, etiquetas, tareas pendientes y la línea de tiempo de toda su actividad (llamadas, correos, reuniones, notas y cada cambio de etapa, con quién y cuándo).',
+        'Usa <b>Nueva oportunidad</b> para dar de alta una: título, a qué cliente ya existente se liga (o el nombre del prospecto si todavía no lo es), etapa inicial, valor estimado, responsable y fecha de cierre esperada.',
+        'Dentro del detalle, agregar una tarea o una nota se guarda al toque, sin tener que darle "Guardar cambios" — solo los datos generales (título, cliente, etapa, valor, etc.) usan ese botón.'
+      ]))
+      + guiaTip('No duplica a Clientes', [
+          'Una oportunidad ligada a un cliente YA DADO DE ALTA en Clientes siempre muestra su nombre vigente — si ese cliente se renombra después, la tarjeta se actualiza sola, nunca se queda con el texto capturado al crear la oportunidad.',
+          'Mientras el prospecto todavía no es cliente formal, se captura solo su nombre aquí — convertirlo en cliente de verdad se sigue haciendo desde Clientes, como siempre; esta pantalla no reemplaza esa alta.',
+          'Es trabajo de administración de ventas (Owner/Admin/Analyst) — Técnico, Reportero y quien administra Activos no lo ven, ese seguimiento no es suyo. Viewer sí lo ve, de solo lectura, como el resto de la app.'
+        ]) },
 
   { id:'forpass', titulo:'Forpass (kioscos)',
     resumen:'El corazón original de la app: los kioscos de credenciales instalados en cada sitio, su mensualidad y su estatus de pago.',
@@ -23779,6 +24285,7 @@ function render(){
     : estado.modulo === 'cotizaciones' ? (estado.vista === 'cotizacion' ? vistaCotizacion() : vistaCotizaciones())
     : estado.modulo === 'reportes'     ? (estado.vista === 'reporte' ? vistaReporte() : vistaReportes())
     : estado.modulo === 'cocinas'      ? vistaCocinas()
+    : estado.modulo === 'crm'          ? vistaCRM()
     : estado.modulo === 'levantamientos' ? (estado.vista === 'levantamiento' ? vistaLevantamiento() : vistaLevantamientos())
     : estado.modulo === 'visitas'      ? vistaVisitas()
     : estado.modulo === 'activos'      ? (estado.vista === 'activo' ? vistaActivo()
@@ -24101,6 +24608,7 @@ function render(){
   if(estado.vista === 'admin') montarAdmin();
   if(estado.vista === 'catalogo-refacciones-rational') montarCatalogoRefaccionesRational();
   if(estado.modulo === 'visitas') montarVisitas();
+  if(estado.modulo === 'crm') montarTableroCRM();
   /* Ya se dibujó: los siguientes redibujados de esta misma lista son instantáneos.
      Solo cambiar de vista vuelve a prender la animación. */
   animarTarjetas = false;
@@ -24462,10 +24970,10 @@ function pintarCabecera(){
     b.setAttribute('aria-selected', b.dataset.modulo === estado.modulo ? 'true' : 'false');
   });
   /* El botón "Más" agrupa Activos/Proveedores/Organigrama/Imagen/Catálogo
-     de equipos/RATIONAL/Ayuda (ver comentario en el HTML): se esconde si el
-     rol no tiene ninguno de los siete, y se enciende como si fuera la
+     de equipos/CRM/RATIONAL/Ayuda (ver comentario en el HTML): se esconde si
+     el rol no tiene ninguno de los ocho, y se enciende como si fuera la
      pestaña activa cuando el módulo abierto vive adentro. */
-  const GRUPO_MAS = ['activos', 'proveedores', 'organigrama', 'imagen', 'equipos', 'rational', 'ayuda'];
+  const GRUPO_MAS = ['activos', 'proveedores', 'organigrama', 'imagen', 'equipos', 'crm', 'rational', 'ayuda'];
   const btnMas = $('btnMasModulos');
   btnMas.style.display = GRUPO_MAS.some(m => permitidos.includes(m)) ? '' : 'none';
   btnMas.setAttribute('aria-selected', GRUPO_MAS.includes(estado.modulo) ? 'true' : 'false');
@@ -30485,6 +30993,7 @@ $('vista').addEventListener('click', ev=>{
     const a = acc.dataset.accion;
     if(a === 'nuevo-cliente'){ if(exigirPermiso()) modalCliente(null); }
     else if(a === 'nuevo-sitio'){ if(exigirPermiso()) modalSitio(estado.clienteId, null); }
+    else if(a === 'nueva-oportunidad'){ if(exigirPermiso()) modalOportunidad(null); }
     else if(a === 'ir-clientes') irAClientes();
     else if(a === 'ir-polizas') irAPolizas();
     else if(a === 'nueva-poliza'){ if(exigirPermiso()) modalPoliza(null); }
@@ -31388,6 +31897,9 @@ $('vista').addEventListener('click', ev=>{
 
   const tarR = t.closest('[data-reporte]');
   if(tarR){ entrarReporte(tarR.dataset.reporte); return; }
+
+  const tarOp = t.closest('[data-oportunidad]');
+  if(tarOp){ modalOportunidad(tarOp.dataset.oportunidad); return; }
 
   if(t.closest('[data-activo-check]')) return;
   const tarAc = t.closest('[data-activo]');
@@ -32881,7 +33393,7 @@ function salirSilencioso(tambienLosDatos){
     /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
        21-sep-2026): faltaban proveedores/gastosProveedor/refacciones/
        ordenesCompra. */
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;

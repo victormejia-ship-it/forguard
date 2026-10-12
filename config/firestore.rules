@@ -506,6 +506,20 @@ service cloud.firestore {
       allow delete: if esAdmin();
     }
 
+    /* --- CRM (pipeline de oportunidades) ---
+       Módulo nuevo (12-oct-2026): a diferencia de /visitas o /activos, aquí
+       no hay un rol de campo con excepción propia — dar seguimiento al
+       pipeline de ventas es trabajo de administración de siempre
+       (Owner/Admin/Analyst, mismo candado que /cotizaciones), nunca de
+       Técnico/Reportero/control_activos. Viewer sigue de solo lectura, como
+       en el resto de la app. Cerrado por completo al portal de clientes. */
+    match /oportunidades/{id} {
+      allow read:   if conAcceso() && !esCliente();
+      allow create: if puedeEditar();
+      allow update: if puedeEditar();
+      allow delete: if esAdmin();
+    }
+
     /* --- Organigrama (directorio de personal) ---
        Décimo módulo: el directorio del personal de la empresa, tenga o no
        cuenta de acceso al tablero. A diferencia de /activos, aquí no hay

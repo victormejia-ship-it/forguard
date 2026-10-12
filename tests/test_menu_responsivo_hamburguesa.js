@@ -80,8 +80,12 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
 const ORDEN_PRINCIPAL = ['mi-agenda','resultados','clientes','cocinas','cotizaciones','forpass','levantamientos','polizas','reportes','visitas'];
 /* 'rational' se sumó al final el 08-oct-2026 (módulo propio de certificación
    RATIONAL, antes colgado de Pólizas — ver test_catalogo_refacciones_rational.js)
-   — alfabéticamente cae después de "proveedores", así que va al final. */
-const ORDEN_GRUPO_MAS = ['activos','ayuda','equipos','imagen','organigrama','proveedores','rational'];
+   — alfabéticamente cae después de "proveedores", así que va al final.
+   'crm' se sumó el 12-oct-2026 (módulo de pipeline de ventas) — el orden es
+   por el TEXTO del botón ("CRM"), no por el id: cae entre "equipos" (su
+   botón dice "Catálogo de equipos") e "imagen" ("Imagen / Aperturas"), no
+   donde caería si se ordenara por el id "crm" a secas. */
+const ORDEN_GRUPO_MAS = ['activos','ayuda','equipos','crm','imagen','organigrama','proveedores','rational'];
 
 (async () => {
   const browser = await chromium.launch(OPCIONES_NAVEGADOR);
