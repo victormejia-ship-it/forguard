@@ -7383,6 +7383,68 @@ function tieneTareaVencida(op){
   return tareasPendientesOportunidad(op).some(t => diasEntre(hoyISO(), t.fechaVencimiento) < 0);
 }
 
+/* "Estancada" (12-oct-2026, pedido de Victor: "que sea un CRM completo...
+   a ese alcance se requiere" — un CRM profesional avisa cuando algo se
+   quedó sin tocar, no solo cuando una tarea puntual venció). Última
+   actividad real: el más reciente entre cuándo se creó y su entrada MÁS
+   NUEVA en actividades[] (ahí ya caen notas, llamadas, cambios de etapa,
+   etc. — no hace falta otro campo aparte). Ganada/perdida nunca se marcan
+   estancadas: ya no están en movimiento, es su estado final. */
+const DIAS_OPORTUNIDAD_ESTANCADA = 14;
+function fechaUltimaActividadOportunidad(op){
+  let ultima = op.fechaCreacion;
+  op.actividades.forEach(a=>{ const f = a.fecha.slice(0,10); if(f > ultima) ultima = f; });
+  return ultima;
+}
+function diasSinActividadOportunidad(op){
+  return diasEntre(fechaUltimaActividadOportunidad(op), hoyISO());
+}
+function oportunidadEstancada(op){
+  return op.etapa !== 'ganada' && op.etapa !== 'perdida' && diasSinActividadOportunidad(op) >= DIAS_OPORTUNIDAD_ESTANCADA;
+}
+
+/* Pronóstico ponderado por mes de cierre estimado, solo de lo abierto —
+   ganada/perdida ya son un hecho consumado, no una proyección. Lo que
+   caiga fuera de la ventana de `meses` simplemente no se cuenta (se avisa
+   en el propio reporte, ver modalReporteCRM): inventarle un cubo "otros"
+   escondería que el dato de cierre está mal capturado en vez de mostrarlo. */
+function pronosticoVentasCRM(meses){
+  const hoy = new Date(hoyISO() + 'T00:00:00');
+  const cubos = Array.from({length: meses}, (_,i)=>{
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() + i, 1);
+    return { llave: d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'),
+             etiqueta: MESES_LARGOS_XLSX[d.getMonth()] + ' ' + d.getFullYear(),
+             cantidad: 0, valorBruto: 0, valorPonderado: 0 };
+  });
+  datos.oportunidades
+    .filter(o => o.etapa !== 'ganada' && o.etapa !== 'perdida')
+    .forEach(op=>{
+      const cubo = cubos.find(c => c.llave === (op.fechaCierreEstimada || '').slice(0,7));
+      if(!cubo) return;
+      cubo.cantidad++;
+      cubo.valorBruto += op.valorEstimado;
+      cubo.valorPonderado += op.valorEstimado * (op.probabilidad / 100);
+    });
+  return cubos;
+}
+
+/* Agregado de motivos de pérdida — best effort: es texto libre (ver
+   normalizarOportunidad), así que solo agrupa coincidencias EXACTAS
+   (sin mayúsculas/espacios de más). Dos motivos que dicen lo mismo con
+   otras palabras van a salir como renglones separados; sigue siendo útil
+   para detectar el motivo literal que más se repite. */
+function motivosPerdidaAgregados(){
+  const conteo = new Map();
+  datos.oportunidades.filter(o => o.etapa === 'perdida').forEach(op=>{
+    const texto = op.motivoPerdida.trim();
+    const llave = texto ? texto.toLowerCase() : '\u0000sin-motivo';
+    const actual = conteo.get(llave);
+    if(actual) actual.cantidad++;
+    else conteo.set(llave, { texto: texto || 'Sin motivo capturado', cantidad: 1 });
+  });
+  return Array.from(conteo.values()).sort((a,b)=> b.cantidad - a.cantidad);
+}
+
 function guardarOportunidad(op, accion, detalle){
   guardarLocal();
   encolar({ tipo:'poner', coleccion:'oportunidades', id: op.id, obj: op });
@@ -7474,6 +7536,7 @@ function vistaCRM(){
      +   '<h2>CRM · Oportunidades</h2>'
      +   '<p>Arrastra una tarjeta a otra columna para mover de etapa, o ábrela para ver su historial completo.</p>'
      + '</div><div class="acciones">'
+     +   (datos.oportunidades.length ? '<button type="button" class="btn btn-suave" data-accion="reporte-crm">' + ICONO.grafica + 'Reporte de ventas</button>' : '')
      +   (puedeEditar() ? '<button type="button" class="btn btn-primario" data-accion="nueva-oportunidad">' + ICONO.mas + 'Nueva oportunidad</button>' : '')
      + '</div></div>';
 
@@ -7483,12 +7546,14 @@ function vistaCRM(){
   const ganadas = datos.oportunidades.filter(o => o.etapa === 'ganada').length;
   const tasaGanadas = cerradas.length ? Math.round(ganadas / cerradas.length * 100) : 0;
   const vencidas = abiertas.filter(tieneTareaVencida).length;
+  const estancadas = abiertas.filter(oportunidadEstancada).length;
 
   h += '<div class="kpis">'
      + tarjetaKpi('Pipeline abierto', dinero(valorAbierto), numero(abiertas.length) + ' ' + plural(abiertas.length,'oportunidad activa','oportunidades activas'))
      + tarjetaKpi('Tasa de cierre ganado', tasaGanadas + '%', ganadas + ' de ' + cerradas.length + ' ' + plural(cerradas.length,'cerrada','cerradas'))
      + tarjetaKpi('Valor promedio', dinero(abiertas.length ? valorAbierto / abiertas.length : 0), 'Por oportunidad abierta')
      + tarjetaKpi('Con tareas vencidas', numero(vencidas), 'Necesitan seguimiento hoy', vencidas ? 'k-alerta' : '')
+     + tarjetaKpi('Estancadas', numero(estancadas), 'Sin actividad en ' + DIAS_OPORTUNIDAD_ESTANCADA + '+ días', estancadas ? 'k-alerta' : '')
      + '</div>';
 
   if(!datos.oportunidades.length){
@@ -7513,6 +7578,11 @@ function vistaCRM(){
             + etiquetasEnUso.map(e => '<option value="' + esc(e) + '"' + (estado.filtroEtiquetaCRM===e?' selected':'') + '>' + esc(e) + '</option>').join('')
             + '</select>'
           : '')
+     +   '<select id="filtroEstadoCRM">'
+     +     '<option value="">Todas</option>'
+     +     '<option value="estancadas"' + (estado.filtroEstadoCRM==='estancadas'?' selected':'') + '>Solo estancadas</option>'
+     +     '<option value="vencidas"' + (estado.filtroEstadoCRM==='vencidas'?' selected':'') + '>Solo con tareas vencidas</option>'
+     +   '</select>'
      + '</div>';
 
   const q = estado.busca.trim().toLowerCase();
@@ -7520,6 +7590,8 @@ function vistaCRM(){
     if(q && !(o.titulo + ' ' + nombreOportunidad(o) + ' ' + o.etiquetas.join(' ')).toLowerCase().includes(q)) return false;
     if(estado.filtroResponsableCRM && responsableOportunidad(o) !== estado.filtroResponsableCRM) return false;
     if(estado.filtroEtiquetaCRM && !o.etiquetas.includes(estado.filtroEtiquetaCRM)) return false;
+    if(estado.filtroEstadoCRM === 'estancadas' && !oportunidadEstancada(o)) return false;
+    if(estado.filtroEstadoCRM === 'vencidas' && !tieneTareaVencida(o)) return false;
     return true;
   });
 
@@ -7549,14 +7621,17 @@ function tarjetaOportunidadHTML(op){
   const cotizacion = op.cotizacionId ? cotizacionPorId(op.cotizacionId) : null;
   const pendientes = tareasPendientesOportunidad(op);
   const vencida = tieneTareaVencida(op);
-  return '<div class="tarjeta tarjeta-crm" draggable="' + (puedeEditar() ? 'true' : 'false') + '" data-oportunidad="' + esc(op.id) + '" tabindex="0" role="button">'
+  const estancada = oportunidadEstancada(op);
+  return '<div class="tarjeta tarjeta-crm" draggable="' + (puedeEditar() ? 'true' : 'false') + '" data-oportunidad="' + esc(op.id) + '" tabindex="0" role="button"'
+    +   (estancada ? ' style="border-left:3px solid var(--alerta)"' : '') + '>'
     +   '<div class="t-nombre" style="font-size:13.5px; margin-bottom:8px">' + esc(op.titulo || 'Sin título') + '</div>'
     +   '<div class="t-cabeza" style="gap:8px; margin-bottom:8px">'
     +     (cli ? avatarCliente(cli, 24) : '<div class="t-avatar" style="width:24px; height:24px; font-size:10px">' + esc(iniciales(nombreOportunidad(op))) + '</div>')
     +     '<div class="t-sub" style="margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">' + esc(nombreOportunidad(op)) + (sitio ? ' — ' + esc(sitio.nombre) : '') + '</div>'
     +   '</div>'
-    +   (op.etiquetas.length || cotizacion
+    +   (op.etiquetas.length || cotizacion || estancada
           ? '<div style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px">'
+            + (estancada ? '<span class="insignia i-alerta">Estancada</span>' : '')
             + (cotizacion ? '<span class="insignia i-ok">' + esc(cotizacion.folio || 'Cotización') + '</span>' : '')
             + op.etiquetas.map(e => '<span class="insignia i-info">' + esc(e) + '</span>').join('')
             + '</div>'
@@ -7568,6 +7643,43 @@ function tarjetaOportunidadHTML(op){
             : '')
     +   '</div>'
   + '</div>';
+}
+
+/* Reporte de ventas: pronóstico ponderado + motivos de pérdida agregados
+   (12-oct-2026, pedido de Victor: "que sea un CRM completo... a ese
+   alcance se requiere"). Es de solo lectura y no tiene candado de permiso
+   propio —Viewer también lo ve, es información, no edición, mismo criterio
+   que el resto del tablero. */
+function modalReporteCRM(){
+  const pronostico = pronosticoVentasCRM(6);
+  const motivos = motivosPerdidaAgregados();
+  const totalPerdidas = datos.oportunidades.filter(o => o.etapa === 'perdida').length;
+
+  const cuerpo =
+      '<div class="seccion-titulo">Pronóstico de ventas (próximos 6 meses)</div>'
+    + '<p class="pista" style="margin:-6px 0 10px">Solo oportunidades abiertas, con su valor ponderado por la probabilidad de su etapa actual. No incluye las que ya tienen un cierre estimado fuera de este rango.</p>'
+    + '<table class="tabla tabla-apila-movil">'
+    +   '<thead><tr><th>Mes</th><th>Oportunidades</th><th>Valor ponderado</th><th>Valor bruto</th></tr></thead>'
+    +   '<tbody>' + pronostico.map(m =>
+          '<tr>'
+        +   '<td data-etiqueta="Mes">' + esc(m.etiqueta) + '</td>'
+        +   '<td data-etiqueta="Oportunidades">' + m.cantidad + '</td>'
+        +   '<td data-etiqueta="Valor ponderado"><b>' + dinero(m.valorPonderado) + '</b></td>'
+        +   '<td data-etiqueta="Valor bruto">' + dinero(m.valorBruto) + '</td>'
+        + '</tr>'
+      ).join('') + '</tbody>'
+    + '</table>'
+    + '<div class="seccion-titulo" style="margin-top:20px">Motivos de pérdida' + (totalPerdidas ? ' (' + totalPerdidas + ')' : '') + '</div>'
+    + (motivos.length
+        ? '<div style="display:flex; flex-direction:column">' + motivos.map(m =>
+            '<div class="t-pie" style="margin:0; padding:9px 0; border-top:1px solid var(--line)">'
+          +   '<span>' + esc(m.texto) + '</span>'
+          +   '<span class="insignia i-info">' + m.cantidad + '</span>'
+          + '</div>'
+          ).join('') + '</div>'
+        : '<p class="vacio-chico">Todavía no se ha perdido ninguna oportunidad.</p>');
+
+  abrirModal('Reporte de ventas', cuerpo, '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
 }
 
 /* Único lugar que pide el motivo de pérdida SIN pasar por el formulario
@@ -7829,6 +7941,8 @@ function montarTableroCRM(){
   if(fr) fr.addEventListener('change', ()=>{ estado.filtroResponsableCRM = fr.value; render(); });
   const fe = $('filtroEtiquetaCRM');
   if(fe) fe.addEventListener('change', ()=>{ estado.filtroEtiquetaCRM = fe.value; render(); });
+  const fest = $('filtroEstadoCRM');
+  if(fest) fest.addEventListener('change', ()=>{ estado.filtroEstadoCRM = fest.value; render(); });
 
   if(!puedeEditar()) return;   /* Viewer ve el tablero pero no puede arrastrar nada */
 
@@ -12368,7 +12482,7 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                  /* CRM: a quién y qué etiqueta filtra el tablero de oportunidades
                     ('' = todos/todas) — misma naturaleza que sitioFiltro/
                     filtroGastoProveedor, preferencia de pantalla, no dato. */
-                 filtroResponsableCRM:'', filtroEtiquetaCRM:'' };
+                 filtroResponsableCRM:'', filtroEtiquetaCRM:'', filtroEstadoCRM:'' };
 
 /* Antes se recordaba el último módulo para abrir donde te quedaste. A pedido
    explícito de Victor (10-sep-2026) se quitó: cada entrada a la app abre
@@ -12535,7 +12649,7 @@ function irAModulo(m){
   estado.busca = ''; estado.filtro = 'todos';
   estado.sitioFiltro = ''; estado.encargadoFiltro = ''; estado.categoriaFiltroActivo = ''; estado.filtroGastoProveedor = 'todos';
   estado.activosClienteId = ''; estado.sitioFiltroActivo = ''; estado.seleccionActivos = false;
-  estado.filtroResponsableCRM = ''; estado.filtroEtiquetaCRM = '';
+  estado.filtroResponsableCRM = ''; estado.filtroEtiquetaCRM = ''; estado.filtroEstadoCRM = '';
   animarTarjetas = true;      /* lista nueva: sí anima */
   render();                   /* UN render, no dos */
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -15124,12 +15238,13 @@ const TEMAS_AYUDA = [
     resumen:'El pipeline de ventas: en qué etapa va cada oportunidad, su valor, sus tareas pendientes y su historial completo de actividad.',
     contenido:
       guiaSeccion('Lo básico', guiaPasos([
-        'Módulo nuevo (12-oct-2026, pedido de Victor) — un tablero tipo Kanban con seis columnas fijas: <b>Prospecto, Calificado, Propuesta, Negociación, Ganada</b> y <b>Perdida</b>. Arriba, cuatro indicadores: pipeline abierto (la suma de todo lo que no está cerrado), tasa de cierre ganado, valor promedio por oportunidad y cuántas tienen una tarea vencida.',
+        'Módulo nuevo (12-oct-2026, pedido de Victor) — un tablero tipo Kanban con seis columnas fijas: <b>Prospecto, Calificado, Propuesta, Negociación, Ganada</b> y <b>Perdida</b>. Arriba, cinco indicadores: pipeline abierto (la suma de todo lo que no está cerrado), tasa de cierre ganado, valor promedio por oportunidad, cuántas tienen una tarea vencida y cuántas están <b>estancadas</b> (sin ninguna actividad nueva en 14 días o más, mientras sigan abiertas) — ambas se pueden filtrar directo desde el selector de "Todas / Solo estancadas / Solo con tareas vencidas" junto al buscador.',
         'Arrastra una tarjeta a otra columna para moverla de etapa — la probabilidad de cierre se ajusta sola según la etapa (10/30/50/75/100/0%), y queda una entrada en su historial. Soltar sobre <b>Perdida</b> pide el motivo antes de mover.',
         'Haz clic en cualquier tarjeta para abrir su detalle completo: datos generales, etiquetas, tareas pendientes y la línea de tiempo de toda su actividad (llamadas, correos, reuniones, notas y cada cambio de etapa, con quién y cuándo).',
         'Usa <b>Nueva oportunidad</b> para dar de alta una: título, a qué cliente ya existente se liga (o el nombre del prospecto si todavía no lo es), un contacto para esta oportunidad (nombre, puesto, teléfono y correo), etapa inicial, valor estimado, responsable y fecha de cierre esperada.',
         'Si ya hay un cliente elegido, puedes ligar la oportunidad a uno de SUS sitios y a una de SUS cotizaciones ya levantadas en el módulo de Cotizaciones — ambos selects se llenan solos al elegir el cliente, y la tarjeta del tablero muestra el sitio junto al nombre del cliente y el folio de la cotización vinculada.',
-        'Dentro del detalle, agregar una tarea o una nota se guarda al toque, sin tener que darle "Guardar cambios" — solo los datos generales (título, cliente, etapa, valor, etc.) usan ese botón.'
+        'Dentro del detalle, agregar una tarea o una nota se guarda al toque, sin tener que darle "Guardar cambios" — solo los datos generales (título, cliente, etapa, valor, etc.) usan ese botón.',
+        'Usa <b>Reporte de ventas</b> para ver el pronóstico ponderado de los próximos 6 meses (valor de lo abierto × probabilidad de su etapa, agrupado por fecha de cierre estimada) y los motivos de pérdida más repetidos entre lo que se ha marcado "Perdida".'
       ]))
       + guiaTip('No duplica a Clientes', [
           'Una oportunidad ligada a un cliente YA DADO DE ALTA en Clientes siempre muestra su nombre vigente — si ese cliente se renombra después, la tarjeta se actualiza sola, nunca se queda con el texto capturado al crear la oportunidad.',
@@ -31156,6 +31271,7 @@ $('vista').addEventListener('click', ev=>{
     if(a === 'nuevo-cliente'){ if(exigirPermiso()) modalCliente(null); }
     else if(a === 'nuevo-sitio'){ if(exigirPermiso()) modalSitio(estado.clienteId, null); }
     else if(a === 'nueva-oportunidad'){ if(exigirPermiso()) modalOportunidad(null); }
+    else if(a === 'reporte-crm') modalReporteCRM();
     else if(a === 'ir-clientes') irAClientes();
     else if(a === 'ir-polizas') irAPolizas();
     else if(a === 'nueva-poliza'){ if(exigirPermiso()) modalPoliza(null); }

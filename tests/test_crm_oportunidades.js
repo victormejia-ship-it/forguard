@@ -32,7 +32,16 @@
    del modal se regeneran en vivo contra sitiosDe()/datos.cotizaciones cada
    vez que cambia el cliente elegido. contactoProspecto, en cambio, es la
    ÚNICA excepción a "nunca duplicar datos de contacto": existe justo porque
-   un prospecto nuevo no vive todavía en ningún otro lado del sistema. */
+   un prospecto nuevo no vive todavía en ningún otro lado del sistema.
+
+   SEGUNDA AMPLIACIÓN (12-oct-2026, mismo día, pedido de Victor: "necesito
+   que pueda ser un CRM completo... a ese alcance se requiere"):
+   oportunidadEstancada() (sin actividad real en 14+ días, nunca
+   ganada/perdida) con su propio KPI, insignia en tarjeta y filtro de
+   estado; modalReporteCRM() agrega pronóstico de ventas ponderado por mes
+   de cierre (solo lo abierto) y motivos de pérdida agrupados por texto
+   exacto (best effort: es texto libre, no un catálogo). Ambos son de solo
+   lectura — Viewer también los ve. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -257,6 +266,52 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.waitForTimeout(100);
   chkF('Quitar el cliente limpia el Sitio (ya no tiene a quién pertenecer)', (await page.locator('#opSitio').innerText()).includes('Elige un cliente'));
   await page.evaluate(() => cerrarModal());
+
+  // --------- 15) Estancadas, filtro de estado y Reporte de ventas ---------
+  // (12-oct-2026, mismo día, pedido de Victor: "necesito que pueda ser un
+  // CRM completo... a ese alcance se requiere"). "Estancada" se calcula de
+  // la última actividad real (o la fecha de creación si no tiene ninguna)
+  // — ganada/perdida NUNCA cuentan, ya no están en movimiento.
+  await page.evaluate(() => {
+    datos.oportunidades = [
+      normalizarOportunidad({ id:'vieja', titulo:'Vieja sin tocar', etapa:'propuesta', valorEstimado:10000, probabilidad:50, fechaCreacion:'2020-01-01', fechaCierreEstimada: hoyISO() }),
+      normalizarOportunidad({ id:'fresca', titulo:'Fresca', etapa:'propuesta', valorEstimado:5000, probabilidad:50, fechaCreacion: hoyISO(), fechaCierreEstimada: hoyISO() }),
+      normalizarOportunidad({ id:'perdida1', titulo:'Perdida 1', etapa:'perdida', valorEstimado:1000, motivoPerdida:'Precio muy alto' }),
+      normalizarOportunidad({ id:'perdida2', titulo:'Perdida 2', etapa:'perdida', valorEstimado:1000, motivoPerdida:'precio muy alto' }),
+      normalizarOportunidad({ id:'perdida3', titulo:'Perdida 3', etapa:'perdida', valorEstimado:1000, motivoPerdida:'Eligieron otro proveedor' })
+    ];
+    render();
+  });
+  await page.waitForTimeout(200);
+  chkF('Una oportunidad sin actividad reciente se marca estancada', await page.evaluate(() => oportunidadEstancada(oportunidadPorId('vieja'))));
+  chkF('Una recién creada NO se marca estancada', !(await page.evaluate(() => oportunidadEstancada(oportunidadPorId('fresca')))));
+  chkF('Perdida nunca cuenta como estancada, aunque lleve años sin tocarse', !(await page.evaluate(() => oportunidadEstancada(oportunidadPorId('perdida1')))));
+  chkF('El KPI "Estancadas" refleja la cuenta', (await page.locator('.kpis').textContent()).includes('Estancadas'));
+  chkF('La tarjeta de la estancada trae su insignia', (await page.locator('[data-oportunidad="vieja"]').textContent()).includes('Estancada'));
+  chkF('La tarjeta fresca NO trae esa insignia', !(await page.locator('[data-oportunidad="fresca"]').textContent()).includes('Estancada'));
+
+  await page.selectOption('#filtroEstadoCRM', 'estancadas');
+  await page.waitForTimeout(150);
+  chkF('El filtro "Solo estancadas" deja en el tablero solo a la vieja', await page.locator('.tarjeta-crm').count() === 1 && await page.locator('[data-oportunidad="vieja"]').count() === 1);
+  await page.selectOption('#filtroEstadoCRM', '');
+  await page.waitForTimeout(150);
+
+  await page.click('[data-accion="reporte-crm"]');
+  await page.waitForTimeout(150);
+  const modalReporte = await page.locator('#modalCuerpo').innerText();
+  chkF('El Reporte de ventas muestra el pronóstico', modalReporte.includes('Pronóstico de ventas'));
+  chkF('...y los motivos de pérdida', modalReporte.includes('Motivos de pérdida'));
+  chkF('Agrupa motivos de pérdida iguales SIN importar mayúsculas (2 veces "Precio muy alto")', /Precio muy alto[\s\S]{0,15}2/.test(modalReporte));
+  chkF('Un motivo distinto se lista aparte', modalReporte.includes('Eligieron otro proveedor'));
+  chkF('El pronóstico de este mes suma las 2 oportunidades abiertas ($15,000 bruto)', modalReporte.includes('$15,000'));
+  await page.evaluate(() => cerrarModal());
+
+  // Viewer también puede ver el reporte (es información, no edición)
+  await page.evaluate(() => { sesion.rol='viewer'; render(); });
+  await page.waitForTimeout(150);
+  chkF('Viewer también ve el botón "Reporte de ventas"', await page.locator('[data-accion="reporte-crm"]').count() === 1);
+  await page.evaluate(() => { sesion.rol='owner'; render(); });
+  await page.waitForTimeout(150);
 
   chkF('No hubo errores de página en todo el escenario', errores.length === 0);
   console.log('Errores capturados:', JSON.stringify(errores));
