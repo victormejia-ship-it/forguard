@@ -7319,12 +7319,39 @@ function normalizarTareaCRM(t){
     asignadoA: (t && t.asignadoA ? String(t.asignadoA) : '').trim()
   };
 }
+/* Contacto propio del PROSPECTO (12-oct-2026, pedido de Victor: "mete...
+   contacto del prospecto"). No es lo mismo que el contacto de un sitio
+   (ver normalizarSitio → contactos[]): ese vive dentro de un cliente que
+   YA existe formalmente, y una oportunidad nunca duplica eso (ver el
+   comentario del módulo, arriba). Este contacto es para la empresa/persona
+   que TODAVÍA no es cliente — es la única parte de la oportunidad donde sí
+   se captura un dato de contacto a mano, porque en ese momento no hay
+   ningún otro lugar del sistema donde ya viva. */
+function normalizarContactoOportunidad(c){
+  return {
+    nombre:   (c && c.nombre   ? String(c.nombre)   : '').trim(),
+    puesto:   (c && c.puesto   ? String(c.puesto)   : '').trim(),
+    correo:   (c && c.correo   ? String(c.correo)   : '').trim(),
+    telefono: (c && c.telefono ? String(c.telefono) : '').trim()
+  };
+}
 function normalizarOportunidad(o){
   const etapa = ETAPAS_OPORTUNIDAD.includes(o && o.etapa) ? o.etapa : 'prospecto';
   return {
     id: (o && o.id) || nuevoId(),
     clienteId: (o && o.clienteId ? String(o.clienteId) : '').trim(),
     prospectoNombre: aOracion((o && o.prospectoNombre ? String(o.prospectoNombre) : '').trim()),
+    contactoProspecto: normalizarContactoOportunidad(o && o.contactoProspecto),
+    /* Sitio del CLIENTE (datos.sitios, mismo que ya usan Pólizas/Cotizaciones
+       vía sitioId) — solo tiene sentido si clienteId ya apunta a un cliente
+       real, nunca a un prospecto (un prospecto todavía no tiene sitios). */
+    sitioId: (o && o.sitioId ? String(o.sitioId) : '').trim(),
+    /* Cotización ya levantada en el módulo de Cotizaciones que sustenta el
+       valor de esta oportunidad — igual que sitioId, solo aplica a
+       clienteId (una cotización siempre pertenece a un cliente). Ligar en
+       vez de capturar el valor a mano evita que la oportunidad diga un
+       monto y la cotización otro. */
+    cotizacionId: (o && o.cotizacionId ? String(o.cotizacionId) : '').trim(),
     titulo: (o && o.titulo ? String(o.titulo) : '').trim(),
     etapa,
     valorEstimado: Math.max(0, Math.round(Number(o && o.valorEstimado) || 0)),
@@ -7518,16 +7545,21 @@ function vistaCRM(){
 
 function tarjetaOportunidadHTML(op){
   const cli = op.clienteId ? clientePorId(op.clienteId) : null;
+  const sitio = op.sitioId ? sitioPorId(op.sitioId) : null;
+  const cotizacion = op.cotizacionId ? cotizacionPorId(op.cotizacionId) : null;
   const pendientes = tareasPendientesOportunidad(op);
   const vencida = tieneTareaVencida(op);
   return '<div class="tarjeta tarjeta-crm" draggable="' + (puedeEditar() ? 'true' : 'false') + '" data-oportunidad="' + esc(op.id) + '" tabindex="0" role="button">'
     +   '<div class="t-nombre" style="font-size:13.5px; margin-bottom:8px">' + esc(op.titulo || 'Sin título') + '</div>'
     +   '<div class="t-cabeza" style="gap:8px; margin-bottom:8px">'
     +     (cli ? avatarCliente(cli, 24) : '<div class="t-avatar" style="width:24px; height:24px; font-size:10px">' + esc(iniciales(nombreOportunidad(op))) + '</div>')
-    +     '<div class="t-sub" style="margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">' + esc(nombreOportunidad(op)) + '</div>'
+    +     '<div class="t-sub" style="margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">' + esc(nombreOportunidad(op)) + (sitio ? ' — ' + esc(sitio.nombre) : '') + '</div>'
     +   '</div>'
-    +   (op.etiquetas.length
-          ? '<div style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px">' + op.etiquetas.map(e => '<span class="insignia i-info">' + esc(e) + '</span>').join('') + '</div>'
+    +   (op.etiquetas.length || cotizacion
+          ? '<div style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px">'
+            + (cotizacion ? '<span class="insignia i-ok">' + esc(cotizacion.folio || 'Cotización') + '</span>' : '')
+            + op.etiquetas.map(e => '<span class="insignia i-info">' + esc(e) + '</span>').join('')
+            + '</div>'
           : '')
     +   '<div class="t-pie" style="margin-top:0; padding-top:8px; justify-content:space-between">'
     +     '<span style="font-weight:700; color:var(--navy-texto); font-variant-numeric:tabular-nums">' + dinero(op.valorEstimado) + '</span>'
@@ -7557,6 +7589,26 @@ function pedirMotivoPerdida(op, alConfirmar){
   };
 }
 
+/* Sitio y cotización SOLO existen si ya hay un cliente real detrás (ver los
+   comentarios de sitioId/cotizacionId en normalizarOportunidad) — por eso
+   ambos selects se regeneran en vivo cuando cambia #opCliente (mismo patrón
+   que #vsCliente→#vsSitio en modalVisita) y muestran un placeholder
+   explicando por qué están vacíos en vez de aparecer mudos. */
+function opcSitiosOportunidadHTML(clienteId, sel){
+  if(!clienteId) return '<option value="">— Elige un cliente arriba —</option>';
+  const sitios = sitiosDe(clienteId).slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+  if(!sitios.length) return '<option value="">— Este cliente no tiene sitios registrados —</option>';
+  return '<option value="">— Ninguno —</option>'
+    + sitios.map(s => '<option value="' + esc(s.id) + '"' + (s.id===sel?' selected':'') + '>' + esc(s.nombre) + '</option>').join('');
+}
+function opcCotizacionesOportunidadHTML(clienteId, sel){
+  if(!clienteId) return '<option value="">— Elige un cliente arriba —</option>';
+  const cotis = datos.cotizaciones.filter(q => q.clienteId === clienteId).slice().sort((a,b)=> b.fecha.localeCompare(a.fecha));
+  if(!cotis.length) return '<option value="">— Este cliente no tiene cotizaciones —</option>';
+  return '<option value="">— Ninguna —</option>'
+    + cotis.map(q => '<option value="' + esc(q.id) + '"' + (q.id===sel?' selected':'') + '>' + esc(q.folio || 'Sin folio') + ' · ' + dinero(calcularCotizacion(q).totalCliente) + '</option>').join('');
+}
+
 /* Tareas y notas de una oportunidad YA GUARDADA se confirman al toque (igual
    que el selector de propiedad en Equipos RATIONAL) — no tiene sentido
    obligar a abrir el formulario completo y darle "Guardar cambios" nada más
@@ -7579,6 +7631,19 @@ function modalOportunidad(id){
     +     clientesOrd.map(c => '<option value="' + esc(c.id) + '"' + (op.clienteId===c.id?' selected':'') + '>' + esc(c.nombre) + '</option>').join('')
     +   '</select></div>'
     +   '<div class="campo"><label>Nombre del prospecto</label><input type="text" id="opProspecto" placeholder="Si todavía no es cliente" value="' + esc(op.prospectoNombre) + '"' + (soloLectura?' readonly':'') + '></div>'
+    + '</div>'
+    + '<div class="seccion-titulo" style="margin-top:4px">Contacto para esta oportunidad</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Nombre</label><input type="text" id="opContactoNombre" placeholder="Con quién se está negociando" value="' + esc(op.contactoProspecto.nombre) + '"' + (soloLectura?' readonly':'') + '></div>'
+    +   '<div class="campo"><label>Puesto</label><input type="text" id="opContactoPuesto" placeholder="Ej. Gerente de compras" value="' + esc(op.contactoProspecto.puesto) + '"' + (soloLectura?' readonly':'') + '></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Teléfono</label><input type="tel" id="opContactoTelefono" value="' + esc(op.contactoProspecto.telefono) + '"' + (soloLectura?' readonly':'') + '></div>'
+    +   '<div class="campo"><label>Correo</label><input type="email" id="opContactoCorreo" value="' + esc(op.contactoProspecto.correo) + '"' + (soloLectura?' readonly':'') + '></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Sitio del cliente</label><select id="opSitio"' + (soloLectura?' disabled':'') + '>' + opcSitiosOportunidadHTML(op.clienteId, op.sitioId) + '</select></div>'
+    +   '<div class="campo"><label>Cotización vinculada</label><select id="opCotizacion"' + (soloLectura?' disabled':'') + '>' + opcCotizacionesOportunidadHTML(op.clienteId, op.cotizacionId) + '</select></div>'
     + '</div>'
     + '<div class="fila2">'
     +   '<div class="campo"><label>Etapa</label><select id="opEtapa"' + (soloLectura?' disabled':'') + '>'
@@ -7625,6 +7690,11 @@ function modalOportunidad(id){
     $('opEtapa').addEventListener('change', ()=>{
       $('campoMotivoPerdidaCRM').style.display = $('opEtapa').value === 'perdida' ? '' : 'none';
     });
+    $('opCliente').addEventListener('change', ()=>{
+      const clienteId = $('opCliente').value;
+      $('opSitio').innerHTML = opcSitiosOportunidadHTML(clienteId, '');
+      $('opCotizacion').innerHTML = opcCotizacionesOportunidadHTML(clienteId, '');
+    });
   }
 
   if(existente) wirearDetalleOportunidad(op);
@@ -7656,6 +7726,11 @@ function modalOportunidad(id){
 
     Object.assign(op, {
       titulo, clienteId: $('opCliente').value, prospectoNombre: $('opProspecto').value.trim(),
+      contactoProspecto: normalizarContactoOportunidad({
+        nombre: $('opContactoNombre').value, puesto: $('opContactoPuesto').value,
+        telefono: $('opContactoTelefono').value, correo: $('opContactoCorreo').value
+      }),
+      sitioId: $('opSitio').value, cotizacionId: $('opCotizacion').value,
       valorEstimado: aNumero($('opValor').value), responsableId: $('opResponsable').value,
       fechaCierreEstimada: $('opFechaCierre').value,
       etiquetas: $('opEtiquetas').value.split(',').map(e=>e.trim()).filter(Boolean)
@@ -15052,7 +15127,8 @@ const TEMAS_AYUDA = [
         'Módulo nuevo (12-oct-2026, pedido de Victor) — un tablero tipo Kanban con seis columnas fijas: <b>Prospecto, Calificado, Propuesta, Negociación, Ganada</b> y <b>Perdida</b>. Arriba, cuatro indicadores: pipeline abierto (la suma de todo lo que no está cerrado), tasa de cierre ganado, valor promedio por oportunidad y cuántas tienen una tarea vencida.',
         'Arrastra una tarjeta a otra columna para moverla de etapa — la probabilidad de cierre se ajusta sola según la etapa (10/30/50/75/100/0%), y queda una entrada en su historial. Soltar sobre <b>Perdida</b> pide el motivo antes de mover.',
         'Haz clic en cualquier tarjeta para abrir su detalle completo: datos generales, etiquetas, tareas pendientes y la línea de tiempo de toda su actividad (llamadas, correos, reuniones, notas y cada cambio de etapa, con quién y cuándo).',
-        'Usa <b>Nueva oportunidad</b> para dar de alta una: título, a qué cliente ya existente se liga (o el nombre del prospecto si todavía no lo es), etapa inicial, valor estimado, responsable y fecha de cierre esperada.',
+        'Usa <b>Nueva oportunidad</b> para dar de alta una: título, a qué cliente ya existente se liga (o el nombre del prospecto si todavía no lo es), un contacto para esta oportunidad (nombre, puesto, teléfono y correo), etapa inicial, valor estimado, responsable y fecha de cierre esperada.',
+        'Si ya hay un cliente elegido, puedes ligar la oportunidad a uno de SUS sitios y a una de SUS cotizaciones ya levantadas en el módulo de Cotizaciones — ambos selects se llenan solos al elegir el cliente, y la tarjeta del tablero muestra el sitio junto al nombre del cliente y el folio de la cotización vinculada.',
         'Dentro del detalle, agregar una tarea o una nota se guarda al toque, sin tener que darle "Guardar cambios" — solo los datos generales (título, cliente, etapa, valor, etc.) usan ese botón.'
       ]))
       + guiaTip('No duplica a Clientes', [

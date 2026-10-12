@@ -23,7 +23,16 @@
    - Candado propio en firestore.rules (puedeEditar(): Owner/Admin/Analyst,
      igual que Cotizaciones — nunca Técnico/Reportero/control_activos, ese
      trabajo no es suyo) — Viewer sigue de solo lectura, como en el resto de
-     la app. */
+     la app.
+
+   AMPLIACIÓN (12-oct-2026, mismo día, pedido de Victor: "Mete sitio del
+   cliente, contacto del prospecto y vínculo a Cotización"): sitioId y
+   cotizacionId SOLO existen si clienteId ya apunta a un cliente real —un
+   prospecto no tiene sitios ni cotizaciones propias—, así que ambos selects
+   del modal se regeneran en vivo contra sitiosDe()/datos.cotizaciones cada
+   vez que cambia el cliente elegido. contactoProspecto, en cambio, es la
+   ÚNICA excepción a "nunca duplicar datos de contacto": existe justo porque
+   un prospecto nuevo no vive todavía en ningún otro lado del sistema. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -47,6 +56,8 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     ocultarAcceso();
     datos.clientes = [normalizarCliente({ id:'c1', nombre:'BORGWARNER' })];
     datos.personal = [normalizarPersona({ id:'p1', nombre:'Marisol Peña', puesto:'Ventas' })];
+    datos.sitios = [normalizarSitio({ id:'s1', clienteId:'c1', nombre:'Sucursal Monterrey' })];
+    datos.cotizaciones = [normalizarCotizacion({ id:'q1', clienteId:'c1', folio:'COT-0099', partidas:[{ concepto:'Servicio', cantidad:1, precioCosto:2000 }] })];
     datos.oportunidades = [
       normalizarOportunidad({ id:'op1', clienteId:'c1', titulo:'Renovación anual', etapa:'negociacion', valorEstimado:184000, responsableId:'p1', etiquetas:['Cuenta clave'] }),
       normalizarOportunidad({ id:'op2', prospectoNombre:'Grupo Sierra Azul', titulo:'Implementación nueva', etapa:'propuesta', valorEstimado:96000 }),
@@ -204,6 +215,48 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     const tiene = await page.evaluate((r) => { sesion.rol = r; return modulosPermitidos().includes('crm'); }, rol);
     chkF('El rol "' + rol + '" no ve el módulo CRM', !tiene);
   }
+
+  // --------- 14) Sitio del cliente, contacto del prospecto y cotización vinculada ---------
+  // (12-oct-2026, pedido de Victor: "mete sitio del cliente, contacto del
+  // prospecto y vínculo a Cotización"). Sitio y Cotización SOLO tienen
+  // sentido con un cliente real detrás (ver normalizarOportunidad) — por
+  // eso ambos selects se regeneran en vivo al cambiar #opCliente.
+  await page.evaluate(() => { cerrarModal(); sesion.rol='owner'; render(); });
+  await page.waitForTimeout(150);
+  await page.click('[data-accion="nueva-oportunidad"]');
+  await page.waitForTimeout(150);
+  chkF('Sin cliente elegido, Sitio avisa que hay que elegir cliente primero', (await page.locator('#opSitio').innerText()).includes('Elige un cliente'));
+  chkF('...y lo mismo la Cotización', (await page.locator('#opCotizacion').innerText()).includes('Elige un cliente'));
+  await page.selectOption('#opCliente', 'c1');
+  await page.waitForTimeout(100);
+  chkF('Al elegir el cliente, el Sitio se llena con SUS sitios', (await page.locator('#opSitio option').allTextContents()).some(t => t.includes('Sucursal Monterrey')));
+  chkF('...y la Cotización con SUS cotizaciones', (await page.locator('#opCotizacion option').allTextContents()).some(t => t.includes('COT-0099')));
+  await page.fill('#opTitulo', 'Oportunidad con sitio y cotización');
+  await page.selectOption('#opSitio', 's1');
+  await page.selectOption('#opCotizacion', 'q1');
+  await page.fill('#opContactoNombre', 'Laura Gómez');
+  await page.fill('#opContactoPuesto', 'Compras');
+  await page.fill('#opContactoTelefono', '81-5555-0000');
+  await page.fill('#opContactoCorreo', 'laura@prueba.com');
+  await page.click('[data-modal="guardar"]');
+  await page.waitForTimeout(200);
+  const opConSitio = await page.evaluate(() => datos.oportunidades.find(o => o.titulo === 'Oportunidad con sitio y cotización'));
+  chkF('Queda guardado el sitio del cliente', !!opConSitio && opConSitio.sitioId === 's1');
+  chkF('...la cotización vinculada', !!opConSitio && opConSitio.cotizacionId === 'q1');
+  chkF('...y el contacto completo', !!opConSitio && opConSitio.contactoProspecto.nombre === 'Laura Gómez' && opConSitio.contactoProspecto.puesto === 'Compras' && opConSitio.contactoProspecto.telefono === '81-5555-0000' && opConSitio.contactoProspecto.correo === 'laura@prueba.com');
+  const tarjetaConSitio = page.locator('[data-oportunidad="' + opConSitio.id + '"]');
+  chkF('La tarjeta del tablero muestra el sitio junto al nombre del cliente', (await tarjetaConSitio.textContent()).includes('Sucursal Monterrey'));
+  chkF('...y el folio de la cotización vinculada como insignia', (await tarjetaConSitio.textContent()).includes('COT-0099'));
+
+  await page.click('[data-oportunidad="' + opConSitio.id + '"]');
+  await page.waitForTimeout(150);
+  chkF('Al reabrir, el Sitio sigue seleccionado', await page.locator('#opSitio').inputValue() === 's1');
+  chkF('...y la Cotización también', await page.locator('#opCotizacion').inputValue() === 'q1');
+  chkF('...y el contacto precargado', await page.locator('#opContactoNombre').inputValue() === 'Laura Gómez');
+  await page.selectOption('#opCliente', '');
+  await page.waitForTimeout(100);
+  chkF('Quitar el cliente limpia el Sitio (ya no tiene a quién pertenecer)', (await page.locator('#opSitio').innerText()).includes('Elige un cliente'));
+  await page.evaluate(() => cerrarModal());
 
   chkF('No hubo errores de página en todo el escenario', errores.length === 0);
   console.log('Errores capturados:', JSON.stringify(errores));
