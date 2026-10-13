@@ -10687,6 +10687,20 @@ function normalizarSitio(s){
     forpassTipoCargo: ['renta','venta','licencia'].includes(s.forpassTipoCargo) ? s.forpassTipoCargo : 'renta',
     forpassFacturacion: ['mensual','semestral','anual'].includes(s.forpassFacturacion) ? s.forpassFacturacion : 'mensual',
     forpassCosto: Math.max(0, Number(s.forpassCosto) || 0),
+    /* Renta mensual ADEMÁS de la venta (13-oct-2026, caso real de INOAC:
+       "vendimos un equipo... pero tambien tendremos una renta mensual").
+       Solo tiene sentido con forpassTipoCargo 'venta' —si ya es renta o
+       licencia, ESE campo ya es la mensualidad recurrente, no hace falta
+       otro encima—, así que se fuerza a 0 para cualquier otro tipo de cargo
+       aunque alguien ya la hubiera capturado antes de cambiar el tipo: un
+       campo que sigue vivo "por si acaso" detrás de un control que ya no se
+       ve es exactamente la clase de dato fantasma que ya nos costó caro una
+       vez (ver el comentario de mesesServicio/frecuencia en Pólizas). Se
+       suma en calcular() a CADA mes del calendario (es mensual de verdad,
+       sin importar cómo se facture la venta) y se separa de vuelta hacia
+       "FORPASS – renta / licenciamiento" en Resultados —ver
+       periodosForpassEnAnio()— sin que la venta deje de contar como venta. */
+    forpassRentaAdicional: s.forpassTipoCargo === 'venta' ? Math.max(0, Math.round(Number(s.forpassRentaAdicional) || 0)) : 0,
     fechaInicio: /^\d{4}-\d{2}-\d{2}$/.test(s.fechaInicio||'') ? s.fechaInicio : hoyISO(),
     meses, pagos,
     notas: s.notas || '',
@@ -11120,7 +11134,14 @@ function calcular(s){
      anual con 12 mensualidades de contrato cobra UNA sola vez (mes 1, por
      el total anual que ya trae `mensualidad`), no doce veces. */
   const periodoMeses = { mensual:1, semestral:6, anual:12 }[s.forpassFacturacion] || 1;
-  const montos = Array.from({length:s.meses}, (_,i)=> (i % periodoMeses === 0 ? s.mensualidad : 0) + (i === 0 ? extras : 0));
+  /* Renta ADEMÁS de la venta (ver el comentario de forpassRentaAdicional en
+     normalizarSitio): a diferencia de `mensualidad`, esta SIEMPRE se cobra
+     cada mes del contrato, sin importar `forpassFacturacion` — la venta
+     puede facturarse una sola vez al año y la renta seguir siendo mensual.
+     normalizarSitio ya la deja en 0 para cualquier tipo que no sea 'venta',
+     así que sumarla aquí sin condicionar por tipo es seguro. */
+  const rentaAdicionalMensual = s.forpassRentaAdicional || 0;
+  const montos = Array.from({length:s.meses}, (_,i)=> (i % periodoMeses === 0 ? s.mensualidad : 0) + (i === 0 ? extras : 0) + rentaAdicionalMensual);
   const primerPago = montos[0];
   const valorContrato = montos.reduce((t,m)=> t + m, 0);
   const cobrado = s.pagos.reduce((t,p,i)=> t + (p ? montos[i] : 0), 0);
@@ -11132,7 +11153,7 @@ function calcular(s){
   return { hoy, fin, pagados, pendientes, debidas, atrasadas, proximo, diasRest,
            vigente, suscripcion, diasVigencia, estatus, tono, activo, forpassActivos,
            cortesiaCant, modulosCobrados,
-           extras, montos, primerPago, valorContrato, cobrado, adeudo };
+           extras, rentaAdicionalMensual, montos, primerPago, valorContrato, cobrado, adeudo };
 }
 
 const ETIQUETA_TIPO = { hw:'Software + Hardware', sw:'Solo Software' };
@@ -11212,7 +11233,7 @@ function resumir(sitios){
               pausados:0, bajas:0, cubiertos:0 };
   sitios.forEach(s=>{
     const c = calcular(s);
-    if(c.activo){ r.sitiosActivos++; r.forpass += s.modulos; r.mrr += s.mensualidad; }
+    if(c.activo){ r.sitiosActivos++; r.forpass += s.modulos; r.mrr += s.mensualidad + c.rentaAdicionalMensual; }
     if(c.tono === 'error'){ r.atrasados++; r.mensualidadesAtrasadas += c.atrasadas; r.adeudo += c.adeudo; }
     else if(c.estatus === 'Por pagar') r.porPagar++;
     if(c.activo && c.diasVigencia >= 0 && c.diasVigencia <= 45) r.porVencer++;
@@ -14342,7 +14363,14 @@ function detalleCostoProyectoImagen(campo){
    renglón de Resultados ("FORPASS – renta / licenciamiento"): a nivel de
    negocio son la misma mecánica de cobro recurrente, la única diferencia
    es si lo que se renta es hardware o una licencia de software. 'venta'
-   alimenta "FORPASS – venta de equipos".
+   alimenta "FORPASS – venta de equipos" — EXCEPTO la parte de renta
+   adicional que ese mismo sitio pueda tener (forpassRentaAdicional,
+   13-oct-2026, caso real de INOAC: vendieron el equipo y ADEMÁS cobran una
+   renta mensual aparte): esa rebanada de cada mes sí es renta de verdad,
+   así que `periodosForpassEnAnio` la separa del resto para que cada
+   renglón de Resultados se quede con lo que de verdad le toca, sin que la
+   venta dejara de contar como venta ni la renta se perdiera adentro de
+   "venta de equipos".
 
    Costo ("Hardware / equipos FORPASS"): `forpassCosto` es capex —se paga
    una sola vez al instalar, sin importar cómo se le cobre después al
@@ -14355,27 +14383,61 @@ function periodosForpassEnAnio(s, anio){
     if(!c.montos[i]) continue;
     const fecha = sumarMeses(s.fechaInicio, i);
     if(fecha.slice(0,4) !== String(anio)) continue;
-    periodos.push({ mes: Number(fecha.slice(5,7)) - 1, monto: c.montos[i] });
+    periodos.push({ mes: Number(fecha.slice(5,7)) - 1, monto: c.montos[i],
+                    montoRenta: c.rentaAdicionalMensual, montoVenta: c.montos[i] - c.rentaAdicionalMensual });
   }
   return periodos;
 }
-function montosPorMesForpassIngreso(tipos){
+/* Todo lo de sitios 'renta'/'licencia' (completo), MÁS la rebanada de renta
+   adicional de un sitio 'venta' que además cobre una — sigue siendo renta
+   aunque viva dentro de un sitio clasificado como venta. */
+function montosPorMesForpassRenta(){
   return (anio) => {
     const totales = Array(12).fill(0);
     datos.sitios
-      .filter(s => s.modulos > 0 && s.estado === 'activo' && tipos.includes(s.forpassTipoCargo))
-      .forEach(s => periodosForpassEnAnio(s, anio).forEach(per => { totales[per.mes] += per.monto; }));
+      .filter(s => s.modulos > 0 && s.estado === 'activo')
+      .forEach(s=>{
+        const rentaPura = s.forpassTipoCargo === 'renta' || s.forpassTipoCargo === 'licencia';
+        if(!rentaPura && !(s.forpassTipoCargo === 'venta' && s.forpassRentaAdicional)) return;
+        periodosForpassEnAnio(s, anio).forEach(per => { totales[per.mes] += rentaPura ? per.monto : per.montoRenta; });
+      });
     return totales;
   };
 }
-function detalleForpassIngreso(tipos){
+function detalleForpassRenta(){
   return (anio, mes) => {
     const items = [];
     datos.sitios
-      .filter(s => s.modulos > 0 && s.estado === 'activo' && tipos.includes(s.forpassTipoCargo))
-      .forEach(s => {
+      .filter(s => s.modulos > 0 && s.estado === 'activo')
+      .forEach(s=>{
+        const rentaPura = s.forpassTipoCargo === 'renta' || s.forpassTipoCargo === 'licencia';
+        if(!rentaPura && !(s.forpassTipoCargo === 'venta' && s.forpassRentaAdicional)) return;
         let monto = 0;
-        periodosForpassEnAnio(s, anio).forEach(per => { if(mes == null || per.mes === mes) monto += per.monto; });
+        periodosForpassEnAnio(s, anio).forEach(per => { if(mes == null || per.mes === mes) monto += rentaPura ? per.monto : per.montoRenta; });
+        if(monto) items.push({ etiqueta: (s.nombre || 'Sitio') + ' — ' + ((clientePorId(s.clienteId)||{}).nombre || 'Sin cliente'), monto, accion:'ir-forpass-sitio', accionId:s.id });
+      });
+    return items;
+  };
+}
+/* Solo sitios 'venta', y solo la parte que de verdad es venta (sin la
+   rebanada de renta adicional, que ya se fue a montosPorMesForpassRenta). */
+function montosPorMesForpassVenta(){
+  return (anio) => {
+    const totales = Array(12).fill(0);
+    datos.sitios
+      .filter(s => s.modulos > 0 && s.estado === 'activo' && s.forpassTipoCargo === 'venta')
+      .forEach(s => periodosForpassEnAnio(s, anio).forEach(per => { totales[per.mes] += per.montoVenta; }));
+    return totales;
+  };
+}
+function detalleForpassVenta(){
+  return (anio, mes) => {
+    const items = [];
+    datos.sitios
+      .filter(s => s.modulos > 0 && s.estado === 'activo' && s.forpassTipoCargo === 'venta')
+      .forEach(s=>{
+        let monto = 0;
+        periodosForpassEnAnio(s, anio).forEach(per => { if(mes == null || per.mes === mes) monto += per.montoVenta; });
         if(monto) items.push({ etiqueta: (s.nombre || 'Sitio') + ' — ' + ((clientePorId(s.clienteId)||{}).nombre || 'Sin cliente'), monto, accion:'ir-forpass-sitio', accionId:s.id });
       });
     return items;
@@ -14438,8 +14500,8 @@ const PILARES_PROFORMA = [
     ] },
   { id:'tecnologia', nombre:'Tecnología y Control',
     ingresos: [
-      { id:'forpass-renta', label:'FORPASS – renta / licenciamiento', montosPorMes: montosPorMesForpassIngreso(['renta','licencia']), detalle: detalleForpassIngreso(['renta','licencia']) },
-      { id:'forpass-venta-equipos', label:'FORPASS – venta de equipos', montosPorMes: montosPorMesForpassIngreso(['venta']), detalle: detalleForpassIngreso(['venta']) },
+      { id:'forpass-renta', label:'FORPASS – renta / licenciamiento', montosPorMes: montosPorMesForpassRenta(), detalle: detalleForpassRenta() },
+      { id:'forpass-venta-equipos', label:'FORPASS – venta de equipos', montosPorMes: montosPorMesForpassVenta(), detalle: detalleForpassVenta() },
       { id:'otros-tecnologia', label:'Otros ingresos de tecnología', montosPorMes: sinDatosTodavia() }
     ],
     costos: [
@@ -15312,6 +15374,7 @@ const TEMAS_AYUDA = [
             '<b>Facturación</b> (Mensual/Semestral/Anual) dice cada cuántas mensualidades del contrato hay un cobro real — mismo mecanismo que ya usa Pólizas (mensual/anual), aquí con Semestral de más. Con Anual y un contrato de 12 mensualidades, se cobra UNA sola vez por el total del periodo, no doce veces — así se captura también una orden de compra global.',
             '<b>Costo de los Forpass instalados</b> es nuestro costo (nunca lo que se le cobra al cliente) — se reconoce una sola vez, en la fecha de inicio, sin importar la facturación: es lo que cuesta instalar el hardware, se paga una vez sin importar cómo se le cobre después al cliente.',
             'Los 3 campos son nuevos y nacen con default Renta/Mensual/$0 en cualquier sitio capturado antes de este cambio — nada se recalcula distinto para lo que ya existía.',
+            'Cuando el Tipo de cargo es <b>Venta</b>, aparece además <b>Renta mensual adicional</b> (13-oct-2026, caso real de INOAC: "vendimos un equipo... pero también tendremos una renta mensual") — para cuando, además de venderse el equipo, también se cobra algo cada mes (ej. software o un servicio aparte). Se suma al mismo cobro mensual de siempre (un solo calendario, las mismas 12 casillas de "Marcar pagada"), pero para Resultados esa parte se separa sola hacia "FORPASS – renta / licenciamiento", sin que la venta deje de contar como venta. Si el Tipo de cargo cambia a Renta o Licencia, este campo desaparece y se pone en $0 — ya no aplica, ESE tipo ya es mensual de por sí.',
             'Todavía "inicialmente ningún sitio real tiene Forpass" (palabras de Victor) — los 3 renglones de Resultados solo cuentan sitios con "Forpass instalados" (módulos) mayor a 0 Y estado Activo, mismo candado que usa Pólizas.'
           ])) },
 
@@ -16202,7 +16265,8 @@ function tarjetaSitio(s, i){
 
        +   '<div class="t-datos">'
        +     '<div class="t-dato"><div class="d-label">Siguiente pago</div><div class="d-valor ' + tonoProx + '">' + esc(txtProx) + '</div><div class="d-label" style="text-transform:none; letter-spacing:0; font-weight:500; margin-top:2px">' + esc(pieProx) + '</div></div>'
-       +     '<div class="t-dato"><div class="d-label">Mensualidad</div><div class="d-valor">' + dinero(s.mensualidad) + '</div></div>'
+       +     '<div class="t-dato"><div class="d-label">' + (s.forpassRentaAdicional ? 'Venta' : 'Mensualidad') + '</div><div class="d-valor">' + dinero(s.mensualidad) + '</div>'
+       +       (s.forpassRentaAdicional ? '<div class="d-label" style="text-transform:none; letter-spacing:0; font-weight:500; margin-top:2px">+ ' + dinero(s.forpassRentaAdicional) + ' renta/mes</div>' : '') + '</div>'
        +     '<div class="t-dato"><div class="d-label">Inicio</div><div class="d-valor chico">' + fmtFecha(s.fechaInicio) + '</div></div>'
        +     '<div class="t-dato"><div class="d-label">Vigencia</div><div class="d-valor chico">' + fmtFecha(c.fin)
        +       '</div><div class="d-label" style="text-transform:none; letter-spacing:0; font-weight:500; margin-top:2px">'
@@ -27224,6 +27288,18 @@ function modalSitio(clienteId, sitioId){
     +       '<option value="anual"' + (s && s.forpassFacturacion==='anual' ? ' selected':'') + '>Anual — un solo cobro por el periodo</option>'
     +     '</select></div>'
     +   '</div>'
+    /* 13-oct-2026, pedido de Victor con el caso real de INOAC: "vendimos un
+       equipo... pero tambien tendremos una renta mensual". Solo aplica a
+       'venta' (si ya es renta/licencia, ESE campo ya es mensual, no hace
+       falta otro encima) — se suma a cada mes del calendario sin importar
+       la facturación de la venta (esta renta siempre es mensual, aunque la
+       venta se facture una sola vez al año), y para Resultados esa parte se
+       separa sola hacia "FORPASS – renta / licenciamiento" (ver calcular()
+       y periodosForpassEnAnio()) — la venta no deja de ser venta por tener
+       también una renta. */
+    +   '<div class="campo" id="wrapRentaAdicional"><label>Renta mensual adicional (MX$, sin IVA)</label>'
+    +     '<input type="text" id="sRentaAdicional" inputmode="decimal" placeholder="Ej. 5,950" value="' + (s && s.forpassRentaAdicional ? numero(s.forpassRentaAdicional) : '') + '">'
+    +     '<div class="pista">Para cuando ADEMÁS de la venta hay una renta mensual (ej. del software o un servicio aparte) — se cobra cada mes, sin importar cómo se facture la venta. En $0 si no aplica.</div></div>'
     +   '<div class="campo"><label>Costo de los Forpass instalados (nuestro costo, MX$, sin IVA)</label>'
     +     '<input type="text" id="sForpassCosto" inputmode="decimal" placeholder="Ej. 8,000" value="' + (s && s.forpassCosto ? numero(s.forpassCosto) : '') + '">'
     +     '<div class="pista">Lo que a Forguard le cuesta el hardware/instalación de este sitio — no lo que se le cobra al cliente. Se reconoce una sola vez, al inicio. Puede quedar en $0 si no aplica.</div></div>'
@@ -27288,6 +27364,7 @@ function modalSitio(clienteId, sitioId){
       forpassFacturacion: $('sForpassFacturacion').value,
       forpassCosto: aNumero($('sForpassCosto').value),
       mensualidad: aNumero($('sMensualidad').value),
+      forpassRentaAdicional: aNumero($('sRentaAdicional').value),
       incOnboarding: $('sIncOnboarding').checked,
       onboarding: aNumero($('sOnboarding').value),
       incViaticos: $('sIncViaticos').checked,
@@ -27363,15 +27440,19 @@ function modalSitio(clienteId, sitioId){
           : '<div class="r-fila"><span>Cada ' + etiqueta.toLowerCase() + '</span><span>' + dinero(f.mensualidad) + '</span></div>')
       + '<div class="r-fila"><span>' + nCobrosReales + ' ' + plural(nCobrosReales,'cobro','cobros') + ' en ' + f.meses + ' ' + plural(f.meses,'mes','meses') + '</span><span>' + dinero(f.mensualidad * nCobrosReales) + '</span></div>'
       + (c.extras ? '<div class="r-fila"><span>Onboarding y viáticos (una vez)</span><span>' + dinero(c.extras) + '</span></div>' : '')
+      + (c.rentaAdicionalMensual
+          ? '<div class="r-fila"><span>Renta adicional (cada mes, los ' + f.meses + ')</span><span>' + dinero(c.rentaAdicionalMensual) + '</span></div>'
+          : '')
       + '<div class="r-fila r-total"><span>Valor total del contrato</span><span>' + dinero(c.valorContrato) + '</span></div>';
 
     $('wrapOnboarding').style.display = f.incOnboarding ? '' : 'none';
     $('wrapViaticos').style.display   = f.incViaticos   ? '' : 'none';
+    $('wrapRentaAdicional').style.display = f.forpassTipoCargo === 'venta' ? '' : 'none';
   }
 
   function refrescar(){ pintarMeses(); pintarResumen(); }
 
-  ['sNombre','sCliente','sModulos','sEstado','sTipo','sForpassTipoCargo','sForpassFacturacion','sForpassCosto','sMensualidad',
+  ['sNombre','sCliente','sModulos','sEstado','sTipo','sForpassTipoCargo','sForpassFacturacion','sForpassCosto','sMensualidad','sRentaAdicional',
    'sTieneCortesia','sCortesiaCant','sCortesiaAbsorbe','sCortesiaAutorizo','sCortesiaCuando','sCortesiaPorque',
    'sIncOnboarding','sOnboarding','sIncViaticos','sViaticos','sInicio','sNotas']
     .forEach(id => $(id).addEventListener('input', refrescar));
@@ -27401,7 +27482,7 @@ function modalSitio(clienteId, sitioId){
 
   $('sMeses').addEventListener('input', refrescar);
   $('sInicio').addEventListener('change', refrescar);
-  ['sMensualidad','sOnboarding','sViaticos','sForpassCosto'].forEach(id=>{
+  ['sMensualidad','sRentaAdicional','sOnboarding','sViaticos','sForpassCosto'].forEach(id=>{
     $(id).addEventListener('input', ()=> formatearMiles($(id)));
   });
   $('mesesModal').addEventListener('click', ev=>{
