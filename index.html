@@ -10604,6 +10604,24 @@ function normalizarSitio(s){
     notas:    x && x.notas    ? String(x.notas)    : ''
   })).filter(x => x.nombre || x.puesto || x.correo || x.telefono || x.notas);
 
+  /* Inventario de los kioscos físicos de ESTE sitio: número de serie, modelo
+     y cuándo se instaló cada uno (12-oct-2026, pedido de Victor: "permite
+     agregar activos de Forpass para ingresar sus datos"). A propósito es
+     PURAMENTE informativo — ni aquí ni en calcular() se usa para nada de
+     dinero: el costo/venta de Forpass sigue siendo el que YA existía por
+     SITIO (forpassCosto/mensualidad, unas líneas abajo), exactamente como
+     antes de esto. "modulos" (cuántos Forpass tiene el sitio, para la
+     cobranza) tampoco se deriva de este arreglo ni al revés: un sitio puede
+     tener "modulos" capturado sin haber registrado todavía el detalle de
+     cada kiosco uno por uno, y no pasa nada. */
+  const kioscos = (Array.isArray(s.kioscos) ? s.kioscos : []).map(x=>({
+    serie:  x && x.serie  ? String(x.serie)  : '',
+    modelo: x && x.modelo ? String(x.modelo) : '',
+    fechaInstalacion: /^\d{4}-\d{2}-\d{2}$/.test(x && x.fechaInstalacion) ? x.fechaInstalacion : '',
+    estatus: (x && x.estatus === 'baja') ? 'baja' : 'activo',
+    notas:  x && x.notas  ? String(x.notas)  : ''
+  })).filter(x => x.serie || x.modelo || x.fechaInstalacion || x.notas);
+
   /* Quién de nuestro equipo tiene el sitio a su cargo. */
   const e = s.encargado || {};
   const encargado = {
@@ -10614,7 +10632,7 @@ function normalizarSitio(s){
 
   const modulos = Math.max(0, parseInt(s.modulos,10) || 0);
   return {
-    pagosDetalle, contactos, encargado,
+    pagosDetalle, contactos, encargado, kioscos,
     id: s.id || nuevoId(),
     clienteId: s.clienteId || '',
     nombre: s.nombre || 'Sitio',
@@ -15265,6 +15283,7 @@ const TEMAS_AYUDA = [
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
         'Usa el icono de <b>Contactos</b> en la tarjeta del sitio para llevar "quién manda la OC": nombre, puesto, correo y teléfono de cada persona, con enlaces directos para llamar o escribir.',
+        'Usa el icono de <b>Equipos</b> en la tarjeta del sitio para llevar el inventario de SUS kioscos físicos: número de serie, modelo, fecha de instalación y si alguno ya está de baja. Es información de consulta (qué equipo es cuál) — no cambia "Forpass instalados" ni la mensualidad/costo del sitio, que se capturan aparte.',
         'Un Admin asigna el <b>encargado</b> de cada sitio; cualquiera puede después filtrar la lista de sitios por encargado (incluido "Sin asignar").',
         'Si te equivocaste al capturar un pago, ábrelo de nuevo y usa <b>Deshacer captura</b> para regresarlo a pendiente.',
         'Cada tarjeta de sitio trae accesos directos a SU póliza, SUS cotizaciones, SUS reportes y SUS activos, si existen, sin tener que volver a buscarlos.',
@@ -15797,7 +15816,7 @@ function vistaClientes(){
   let h = '';
 
   h += '<div class="titulo-zona"><div>'
-     +   '<h2>Clientes</h2>'
+     +   '<h2>Forpass</h2>'
      +   '<p>' + numero(mios.length) + ' ' + plural(mios.length,'cliente','clientes')
      +   ' · ' + numero(r.sitios) + ' ' + plural(r.sitios,'sitio','sitios') + ' registrados'
      +   (soloPoliza ? ' · ' + numero(soloPoliza) + ' más solo con póliza' : '') + '</p>'
@@ -16126,6 +16145,15 @@ function tarjetaSitio(s, i){
        +             'title="Ver el plan de pagos mes por mes" aria-label="Plan de pagos de ' + esc(s.nombre) + '">'
        +             '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>'
        +           '</button>'
+       /* Inventario de los kioscos físicos de este sitio (número de serie,
+          modelo, fecha de instalación) — puramente informativo, no toca
+          dinero (ver el comentario de `kioscos` en normalizarSitio). */
+       +           '<button type="button" class="icono-btn' + (s.kioscos.length ? '' : ' sin-datos') + '" '
+       +             'data-kioscos="' + esc(s.id) + '" '
+       +             'title="' + (s.kioscos.length
+                        ? esc(numero(s.kioscos.length) + ' ' + plural(s.kioscos.length,'kiosco registrado','kioscos registrados') + ' de ' + s.modulos + ' instalados')
+                        : 'Falta registrar el detalle de los kioscos instalados') + '" '
+       +             'aria-label="Equipos de ' + esc(s.nombre) + '">' + ICONO.activo + '</button>'
        /* El puente de vuelta, solo si este kiosco tiene póliza ligada: de aquí
           se brinca a su mantenimiento y de allá se regresa. */
        +           (datos.polizas.some(q => q.sitioId === s.id)
@@ -24585,7 +24613,14 @@ function render(){
     : estado.modulo === 'clientes'     ? (estado.vista === 'resumen-cliente' ? vistaResumenCliente() : vistaResumenClientes())
     : estado.modulo === 'resultados'   ? vistaResultados()
     : estado.modulo === 'ayuda'        ? (estado.vista === 'ayuda-tema' ? vistaAyudaTema() : vistaAyuda())
-    : (estado.vista === 'cliente' ? vistaCliente() : vistaClientes());
+    /* 'forpass' SIEMPRE caía aquí por eliminación, nunca por un caso propio
+       (12-oct-2026, Victor: "al seleccionar forpass en la parte de arriba
+       dice clientes") — funcionaba porque es el único módulo de MODULOS sin
+       su propio renglón arriba, pero cualquier módulo nuevo que se agregara
+       sin el suyo habría caído aquí por el mismo accidente. Ahora es un
+       caso explícito, igual que todos los demás. */
+    : estado.modulo === 'forpass'      ? (estado.vista === 'cliente' ? vistaCliente() : vistaClientes())
+    : vistaResumenClientes();
 
   const be = $('buscaEquipo');
   if(be) be.addEventListener('input', ()=>{ estado.busca = be.value; renderConservandoFoco(be, 'buscaEquipo'); });
@@ -27323,11 +27358,12 @@ function modalSitio(clienteId, sitioId){
       $('sCortesiaAutorizo').setAttribute('aria-invalid','true'); $('sCortesiaAutorizo').focus();
       aviso('Falta quién autorizó el Forpass de cortesía.', true); return;
     }
-    /* El formulario no trae todo lo del sitio: las OC de cada pago, el contacto
-       y el encargado se administran por separado. Hay que arrastrarlos aquí o
-       normalizarSitio los deja en blanco y se borran al editar. */
+    /* El formulario no trae todo lo del sitio: las OC de cada pago, el contacto,
+       el encargado y el inventario de kioscos se administran por separado. Hay
+       que arrastrarlos aquí o normalizarSitio los deja en blanco y se borran
+       al editar. */
     const conservado = s
-      ? { pagosDetalle: s.pagosDetalle, contactos: s.contactos, encargado: s.encargado }
+      ? { pagosDetalle: s.pagosDetalle, contactos: s.contactos, encargado: s.encargado, kioscos: s.kioscos }
       : {};
     const limpio = normalizarSitio(Object.assign({}, conservado, f, { pagos:pagosTmp, id: s ? s.id : nuevoId() }));
     if(s){ Object.assign(s, limpio); }
@@ -30564,6 +30600,119 @@ function modalContactos(sitioId){
   } : null;
 }
 
+/* -------------------- Modal: inventario de kioscos de un sitio --------------------
+   Mismo molde que modalContactos() de arriba: una lista de trabajo (`lista`)
+   que se edita completa en memoria y se guarda de un golpe con "Guardar
+   cambios" — no al toque como tareas/notas de una oportunidad, porque aquí sí
+   tiene sentido corregir varios renglones y cancelar todo junto si uno se
+   equivocó. Puramente informativo (serie, modelo, fecha de instalación): NO
+   toca ni reemplaza "modulos" ni forpassCosto/mensualidad, que siguen siendo
+   el dato real para cobranza y Resultados (ver el comentario de `kioscos` en
+   normalizarSitio) — por eso se avisa, sin bloquear nada, si el número de
+   kioscos capturados no cuadra con "modulos". */
+function modalKioscosSitio(sitioId){
+  const s = sitioPorId(sitioId);
+  if(!s) return;
+  const puedo = puedeEditar();
+  let lista = s.kioscos.map(x => Object.assign({}, x));
+
+  function vista(){
+    if(!lista.length){
+      return '<div class="vacio-chico">Todavía no hay ningún kiosco registrado para este sitio. '
+           + (puedo ? 'Agrega el número de serie de cada uno.' : 'Pide a alguien con permiso de captura que lo registre.') + '</div>';
+    }
+    return lista.map(x=>
+        '<div class="contacto-vista">'
+      +   '<div class="cv-icono">' + ICONO.activo + '</div>'
+      +   '<div style="flex:1; min-width:0">'
+      +     '<div class="cv-nombre">' + esc(x.serie || 'Sin número de serie') + (x.estatus==='baja' ? ' <span class="insignia i-neutro">Baja</span>' : '') + '</div>'
+      +     (x.modelo ? '<div class="cv-puesto">' + esc(x.modelo) + '</div>' : '')
+      +     (x.fechaInstalacion ? '<div class="cv-datos"><span>Instalado el ' + fmtFecha(x.fechaInstalacion) + '</span></div>' : '')
+      +     (x.notas ? '<div class="cv-notas">' + esc(x.notas) + '</div>' : '')
+      +   '</div>'
+      + '</div>').join('');
+  }
+
+  function formulario(){
+    return lista.map((x,i)=>
+        '<div class="contacto">'
+      +   '<button type="button" class="btn btn-peligro btn-mini c-quitar" data-quitar-kiosco="' + i + '" title="Quitar">' + ICONO.basura + '</button>'
+      +   '<div class="fila2">'
+      +     '<div class="campo"><label>Número de serie</label>'
+      +       '<input type="text" data-kc="serie" data-i="' + i + '" placeholder="Ej. FP-00231" value="' + esc(x.serie) + '"></div>'
+      +     '<div class="campo"><label>Modelo</label>'
+      +       '<input type="text" data-kc="modelo" data-i="' + i + '" placeholder="Ej. Kiosco Touch 15&quot;" value="' + esc(x.modelo) + '"></div>'
+      +   '</div>'
+      +   '<div class="fila2">'
+      +     '<div class="campo"><label>Fecha de instalación</label>'
+      +       '<input type="date" data-kc="fechaInstalacion" data-i="' + i + '" value="' + esc(x.fechaInstalacion) + '"></div>'
+      +     '<div class="campo"><label>Estatus</label><select data-kc="estatus" data-i="' + i + '">'
+      +       '<option value="activo"' + (x.estatus!=='baja'?' selected':'') + '>Activo</option>'
+      +       '<option value="baja"' + (x.estatus==='baja'?' selected':'') + '>De baja (retirado)</option>'
+      +     '</select></div>'
+      +   '</div>'
+      +   '<div class="campo" style="margin-bottom:0"><label>Notas</label>'
+      +     '<input type="text" data-kc="notas" data-i="' + i + '" placeholder="Ej. sustituyó al que se dañó en julio" value="' + esc(x.notas) + '"></div>'
+      + '</div>').join('')
+      + '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarKiosco">' + ICONO.mas + 'Agregar kiosco</button>';
+  }
+
+  function pintar(){
+    const activos = lista.filter(x => x.estatus !== 'baja').length;
+    $('modalCuerpo').innerHTML =
+        '<p class="pista" style="margin:0 0 16px">Inventario de los kioscos físicos de <b>' + esc(s.nombre) + '</b> — '
+      + 'solo para saber cuál es cuál; no cambia la cobranza ni el costo del sitio.'
+      + (activos !== s.modulos ? ' <b>' + numero(activos) + ' de ' + numero(s.modulos) + ' módulos</b> tienen su kiosco capturado aquí.' : '')
+      + '</p>'
+      + (puedo ? formulario() : vista());
+
+    if(puedo){
+      $('btnAgregarKiosco').addEventListener('click', ()=>{
+        lista.push({ serie:'', modelo:'', fechaInstalacion:'', estatus:'activo', notas:'' });
+        pintar();
+        const campos = $('modalCuerpo').querySelectorAll('[data-kc="serie"]');
+        if(campos.length) campos[campos.length-1].focus();
+      });
+    }
+  }
+
+  abrirModal('Kioscos instalados · ' + s.nombre, '',
+      (puedo ? '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+             + '<button type="button" class="btn btn-primario" data-modal="guardar">Guardar cambios</button>'
+             : '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>'));
+
+  /* Estos van UNA sola vez: #modalCuerpo sobrevive a los redibujos, y si se
+     conectaran dentro de pintar() se irían acumulando (ver el mismo
+     comentario en modalContactos). */
+  if(puedo){
+    $('modalCuerpo').addEventListener('input', ev=>{
+      const campo = ev.target.closest('[data-kc]');
+      if(!campo || !lista[+campo.dataset.i]) return;
+      lista[+campo.dataset.i][campo.dataset.kc] = campo.value;
+    });
+    $('modalCuerpo').addEventListener('click', ev=>{
+      const q = ev.target.closest('[data-quitar-kiosco]');
+      if(!q) return;
+      lista.splice(+q.dataset.quitarKiosco, 1);
+      pintar();
+    });
+  }
+  pintar();
+
+  cerrarModalActual = puedo ? ()=>{
+    /* Se descartan los renglones completamente vacíos. */
+    const limpios = lista
+      .map(x=>({ serie:x.serie.trim(), modelo:x.modelo.trim(), fechaInstalacion:x.fechaInstalacion,
+                 estatus: x.estatus === 'baja' ? 'baja' : 'activo', notas:x.notas.trim() }))
+      .filter(x => x.serie || x.modelo || x.fechaInstalacion || x.notas);
+
+    s.kioscos = limpios;
+    guardarSitio(s, 'editó', 'actualizó el inventario de kioscos (' + limpios.length + ')');
+    cerrarModal(); render();
+    aviso(limpios.length ? 'Inventario de kioscos guardado.' : 'Se quitaron los kioscos registrados.');
+  } : null;
+}
+
 /* -------------------- Modal: vigencias por vencer -------------------------
    El indicador cuenta los contratos activos que terminan dentro de 45 días.
    Aquí se ve cuáles son, para poder renovarlos a tiempo. Se añaden aparte los
@@ -32076,6 +32225,9 @@ $('vista').addEventListener('click', ev=>{
 
   const cont = t.closest('[data-contactos]');
   if(cont){ modalContactos(cont.dataset.contactos); return; }
+
+  const kioscosB = t.closest('[data-kioscos]');
+  if(kioscosB){ modalKioscosSitio(kioscosB.dataset.kioscos); return; }
 
   const encB = t.closest('[data-encargado]');
   if(encB){ modalEncargado(encB.dataset.encargado); return; }
