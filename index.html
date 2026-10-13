@@ -5369,16 +5369,34 @@ function guardarPermisosModulos(detalle){
    forpass... necesito que pueda ingresar diferentes tipos de forpass con
    diferentes costos"). Mismo molde de documento único que segmentos/
    permisosModulos arriba: una lista corta, de pocos cambios, que administra
-   un Admin/Owner. Cada "tipo" es un nombre + UN costo total (como los dos
-   totales resaltados en su Excel: "Total reemplazo solo equipo" y "Total
-   con mueble") — no la lista completa de componentes (DSK/IMP/LDT/...), que
-   es el desglose propio de Victor para llegar a esos totales, no algo que
-   haya pedido capturar renglón por renglón dentro de la app. */
+   un Admin/Owner.
+
+   AMPLIACIÓN (mismo día, viendo el formulario ya construido): "que en el
+   catalogo pueda ser el desglose del equipo, cada concepto con cada precio,
+   para poder determinar ese costo" — su Excel real traía justo eso (DSK
+   Desktop, IMP Impresora, LDT Lectora de Tarjetas, etc., cada uno con su
+   costo, sumando a los totales resaltados "Total reemplazo solo equipo" y
+   "Total con mueble"). Cada tipo ahora trae `componentes` ([{id, concepto,
+   costo}], lista de trabajo en memoria, mismo patrón que `modalKioscosSitio`)
+   y `costo` se CALCULA como la suma de sus componentes — nunca se captura
+   aparte, para que nunca quede desincronizado de su propio desglose. Un tipo
+   viejo sin desglose (de antes de esta ampliación) conserva el costo plano
+   que ya tenía: `componentes` nace vacío y `costo` se respeta tal cual hasta
+   que alguien le agregue conceptos. */
+function normalizarComponenteForpass(c){
+  return {
+    id: (c && c.id ? String(c.id) : '').trim() || nuevoId(),
+    concepto: (c && c.concepto ? String(c.concepto) : '').trim(),
+    costo: Math.max(0, Number(c && c.costo) || 0)
+  };
+}
 function normalizarTipoForpass(t){
+  const componentes = (Array.isArray(t && t.componentes) ? t.componentes : []).map(normalizarComponenteForpass);
   return {
     id: (t && t.id ? String(t.id) : '').trim() || nuevoId(),
     nombre: (t && t.nombre ? String(t.nombre) : '').trim(),
-    costo: Math.max(0, Number(t && t.costo) || 0)
+    componentes,
+    costo: componentes.length ? componentes.reduce((a,c)=> a + c.costo, 0) : Math.max(0, Number(t && t.costo) || 0)
   };
 }
 function normalizarCatalogoForpass(arr){
@@ -5566,7 +5584,9 @@ function bloqueCatalogoForpass(){
      +   (lista.length
          ? '<div class="rodillo"><table class="tabla"><thead><tr><th>Tipo de Forpass</th><th>Costo</th>'
            + (puede ? '<th class="acciones">Acciones</th>' : '') + '</tr></thead><tbody>'
-           + lista.map(t => '<tr><td>' + esc(t.nombre) + '</td><td>' + dinero(t.costo) + '</td>'
+           + lista.map(t => '<tr><td>' + esc(t.nombre)
+               + (t.componentes.length ? ' <span class="pista" style="display:inline">(' + t.componentes.length + ' ' + plural(t.componentes.length,'concepto','conceptos') + ')</span>' : '')
+               + '</td><td>' + dinero(t.costo) + '</td>'
              + (puede ? '<td class="acciones">'
                  + '<button type="button" class="btn btn-suave btn-mini" data-editar-tipo-forpass="' + esc(t.id) + '" title="Editar">' + ICONO.lapiz + '</button>'
                  + '<button type="button" class="btn btn-peligro btn-mini" data-quitar-tipo-forpass="' + esc(t.id) + '" title="Quitar">' + ICONO.basura + '</button>'
@@ -5576,33 +5596,89 @@ function bloqueCatalogoForpass(){
          : '<p class="pista">Todavía no hay ningún tipo de Forpass capturado.</p>')
      + '</div>';
 }
-/* Alta/edición de un tipo de Forpass — mismo patrón chico que modalEquipo(). */
+/* Alta/edición de un tipo de Forpass. El costo se arma de un desglose de
+   componentes (13-oct-2026, Victor viendo el formulario con un solo campo
+   de costo: "que en el catalogo pueda ser el desglose del equipo, cada
+   concepto con cada precio, para poder determinar ese costo" — igual que su
+   Excel real, DSK/IMP/LDT/... sumando al total). Mismo patrón de "lista de
+   trabajo en memoria" que modalKioscosSitio(): un arreglo local editable con
+   Guardar/Cancelar de un solo golpe, sin tocar datos.catalogoForpass hasta
+   confirmar. El costo total NUNCA se captura directo — siempre es la suma
+   de los componentes (ver normalizarTipoForpass), así que no puede quedar
+   desincronizado de su propio desglose. */
 function modalTipoForpass(id){
   if(!exigirAdmin('cambiar el catálogo de Forpass')) return;
   const t = id ? datos.catalogoForpass.find(x => x.id === id) : null;
+  let nombre = t ? t.nombre : '';
+  let componentes = (t ? t.componentes : []).map(c => Object.assign({}, c));
 
-  const cuerpo =
-      '<div class="campo"><label>Tipo de Forpass *</label>'
-    +   '<input type="text" id="tfNombre" placeholder="Ej. Forpass solo equipo" value="' + esc(t ? t.nombre : '') + '"></div>'
-    + '<div class="campo"><label>Costo *</label>'
-    +   '<input type="text" inputmode="decimal" id="tfCosto" value="' + (t && t.costo ? numero(t.costo) : '') + '">'
-    +   '<div class="pista">Es una sugerencia: al elegir este tipo en un sitio, el costo se copia y ahí se puede cambiar libre.</div></div>';
+  const total = ()=> componentes.reduce((a,c)=> a + (Number(c.costo) || 0), 0);
 
-  abrirModal(t ? 'Editar ' + t.nombre : 'Agregar tipo de Forpass', cuerpo,
+  function pintar(){
+    $('modalCuerpo').innerHTML =
+        '<div class="campo"><label>Tipo de Forpass *</label>'
+      +   '<input type="text" id="tfNombre" placeholder="Ej. Forpass solo equipo" value="' + esc(nombre) + '"></div>'
+      + '<div class="seccion"><h4>Desglose de componentes</h4>'
+      +   '<div class="pista" style="margin-top:-6px">Cada concepto con su costo — el costo total se calcula solo, sumando todos.</div>'
+      +   (componentes.length ? componentes.map((c,i) =>
+              '<div class="fila2" style="align-items:flex-end; margin-top:10px">'
+            +   '<div class="campo" style="margin-bottom:0"><label>Concepto</label>'
+            +     '<input type="text" data-tfc="concepto" data-i="' + i + '" placeholder="Ej. Desktop" value="' + esc(c.concepto) + '"></div>'
+            +   '<div class="campo" style="margin-bottom:0"><label>Costo</label>'
+            +     '<input type="text" inputmode="decimal" data-tfc="costo" data-i="' + i + '" value="' + (c.costo ? numero(c.costo) : '') + '"></div>'
+            +   '<button type="button" class="btn btn-peligro btn-mini" data-quitar-componente="' + i + '" title="Quitar">' + ICONO.basura + '</button>'
+            + '</div>').join('')
+          : '<p class="pista">Todavía no hay ningún concepto capturado.</p>')
+      +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarComponente" style="margin-top:10px">' + ICONO.mas + 'Agregar concepto</button>'
+      + '</div>'
+      + '<div class="r-fila r-total" id="tfTotalFila" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--borde)"><span>Costo total</span><span>' + dinero(total()) + '</span></div>';
+
+    $('btnAgregarComponente').addEventListener('click', ()=>{
+      componentes.push({ id: nuevoId(), concepto:'', costo:0 });
+      pintar();
+      const campos = $('modalCuerpo').querySelectorAll('[data-tfc="concepto"]');
+      if(campos.length) campos[campos.length-1].focus();
+    });
+  }
+
+  abrirModal(t ? 'Editar ' + t.nombre : 'Agregar tipo de Forpass', '',
       '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
     + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (t ? 'Guardar cambios' : 'Agregar') + '</button>');
 
-  $('tfCosto').addEventListener('input', ()=> formatearMiles($('tfCosto')));
+  /* Igual que modalKioscosSitio: los listeners van UNA sola vez sobre
+     #modalCuerpo (que sobrevive a pintar()), nunca dentro de pintar() mismo
+     o se irían acumulando en cada redibujo. */
+  $('modalCuerpo').addEventListener('input', ev=>{
+    if(ev.target.id === 'tfNombre'){ nombre = ev.target.value; return; }
+    const campo = ev.target.closest('[data-tfc]');
+    if(!campo || !componentes[+campo.dataset.i]) return;
+    if(campo.dataset.tfc === 'costo'){
+      formatearMiles(campo);
+      componentes[+campo.dataset.i].costo = aNumero(campo.value);
+      const totalEl = $('tfTotalFila'); if(totalEl) totalEl.lastElementChild.textContent = dinero(total());
+    } else {
+      componentes[+campo.dataset.i].concepto = campo.value;
+    }
+  });
+  $('modalCuerpo').addEventListener('click', ev=>{
+    const q = ev.target.closest('[data-quitar-componente]');
+    if(!q) return;
+    componentes.splice(+q.dataset.quitarComponente, 1);
+    pintar();
+  });
+  pintar();
 
   cerrarModalActual = ()=>{
-    const nombre = $('tfNombre').value.trim();
-    if(!nombre){ $('tfNombre').setAttribute('aria-invalid','true'); $('tfNombre').focus(); aviso('El tipo de Forpass necesita un nombre.', true); return; }
-    const costo = aNumero($('tfCosto').value);
-    if(!costo){ $('tfCosto').setAttribute('aria-invalid','true'); $('tfCosto').focus(); aviso('Captura el costo de este tipo de Forpass.', true); return; }
-    const nuevo = normalizarTipoForpass({ id: t ? t.id : nuevoId(), nombre, costo });
+    const nombreFinal = nombre.trim();
+    if(!nombreFinal){ aviso('El tipo de Forpass necesita un nombre.', true); return; }
+    const limpios = componentes
+      .map(c => ({ concepto: String(c.concepto || '').trim(), costo: Number(c.costo) || 0 }))
+      .filter(c => c.concepto || c.costo);
+    if(!limpios.length){ aviso('Agrega al menos un concepto con su costo para el desglose.', true); return; }
+    const nuevo = normalizarTipoForpass({ id: t ? t.id : nuevoId(), nombre: nombreFinal, componentes: limpios });
     const i = datos.catalogoForpass.findIndex(x => x.id === nuevo.id);
     if(i === -1) datos.catalogoForpass.push(nuevo); else datos.catalogoForpass[i] = nuevo;
-    guardarCatalogoForpass((t ? 'editó ' : 'agregó ') + nombre + ' · ' + dinero(costo));
+    guardarCatalogoForpass((t ? 'editó ' : 'agregó ') + nombreFinal + ' · ' + dinero(nuevo.costo) + ' (' + limpios.length + ' ' + plural(limpios.length,'concepto','conceptos') + ')');
     cerrarModal(); render();
     aviso(t ? 'Tipo de Forpass actualizado.' : 'Tipo de Forpass agregado.');
   };
@@ -15505,7 +15581,7 @@ const TEMAS_AYUDA = [
             'Todavía "inicialmente ningún sitio real tiene Forpass" (palabras de Victor) — los 3 renglones de Resultados solo cuentan sitios con "Forpass instalados" (módulos) mayor a 0 Y estado Activo, mismo candado que usa Pólizas.'
           ])
         + guiaTip('Catálogo de Forpass y devengo del costo en 6 meses (13-oct-2026)', [
-            'Administración → <b>Catálogo de Forpass</b> (solo Owner/Admin) es donde se dan de alta los distintos tipos de Forpass con su costo — por ejemplo "Forpass solo equipo" y "Forpass con mueble", cada uno con su propio total.',
+            'Administración → <b>Catálogo de Forpass</b> (solo Owner/Admin) es donde se dan de alta los distintos tipos de Forpass — por ejemplo "Forpass solo equipo" y "Forpass con mueble". El costo de cada tipo NUNCA se captura directo: se arma de un <b>desglose de componentes</b> (cada concepto con su propio costo, ej. Desktop, Impresora, Lectora de tarjetas...), igual que una cotización de hardware real — el costo total se calcula solo, sumando todos los conceptos capturados.',
             'Al capturar o editar un sitio, el select <b>Tipo de Forpass</b> solo sirve para autollenar el costo de una vez: al elegir un tipo se copia su número al campo "Costo de los Forpass instalados" y de ahí en adelante es un valor normal, libre de editar — si después cambias el costo de ese tipo en el catálogo, los sitios que ya lo usaron NO se mueven solos. También se puede capturar el costo directo a mano, sin elegir ningún tipo.',
             'El costo ya no se reconoce todo de un jalón en el mes de inicio: se <b>devenga repartido en 6 meses</b>, a partes lo más iguales posible (el residuo de redondear, si lo hay, cae en el sexto mes) — así "Hardware / equipos FORPASS" en Resultados refleja mejor cuándo se recupera ese costo, en vez de un solo bulto golpeando un mes.',
             'Por ser Resultados un reporte que siempre se recalcula en vivo (nunca una foto congelada), este cambio también mueve cómo se ve el costo de los sitios que YA EXISTÍAN antes del 13-oct-2026 — su forpassCosto no cambia, solo cómo se reparte en el tiempo.'

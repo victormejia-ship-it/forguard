@@ -1,27 +1,36 @@
-/* Catálogo de Forpass + devengo del costo en 6 meses (13-oct-2026, pedido
-   de Victor con una captura de Excel de costos de kiosco): "en la parte
-   del forpass necesito tambien definir el costo de cada uno de los
-   forpass... necesito que pueda ingresar diferentes tipos de forpass con
+/* Catálogo de Forpass (desglose de componentes) + devengo del costo en 6
+   meses (13-oct-2026, pedido de Victor con una captura de Excel de costos
+   de kiosco): "en la parte del forpass necesito tambien definir el costo
+   de cada uno de los forpass, necesito que añadas esta seccion en ese
+   modulo, necesito que pueda ingresar diferentes tipos de forpass con
    diferentes costos, en donde tengo que definir cada costo de forpass" +
    "Añadiendo que el costo del forpass si es cargado a un cliente necesito
-   que ese costo se devengue en 6 meses".
+   que ese costo se devengue en 6 meses". AMPLIACIÓN, mismo día viendo el
+   formulario ya construido con un solo campo de costo: "que en el catalogo
+   pueda ser el desglose del equipo, cada concepto con cada precio, para
+   poder determinar ese costo".
 
-   La captura mostraba dos totales resaltados en amarillo: "Total reemplazo
-   solo equipo" ($29,693) y "Total con mueble" ($42,493) — de ahí que cada
-   "tipo de Forpass" del catálogo sea un nombre + UN costo total, no el
-   desglose de componentes (DSK/IMP/LDT/...) que Victor usó para llegar a
-   esos totales; ese desglose es su cuenta propia, no algo que haya pedido
-   capturar renglón por renglón dentro de la app.
+   La captura real de Victor traía justo eso: DSK Desktop $9,999, IMP
+   Impresora $3,499, LDT Lectora de Tarjetas $3,599, LQR Lector de Qr
+   $2,899, MTR Monitor $5,599, CAM Camara $1,599, UPS Bateria UPS $2,499,
+   sumando al total resaltado "Total reemplazo solo equipo" ($29,693).
 
-   Administración → "Catálogo de Forpass" (bloqueCatalogoForpass) es el
-   mismo molde de documento único que Segmentos/Permisos por módulo: lo
-   administra un Admin/Owner, datos.catalogoForpass vive en
-   /catalogoForpass/lista. modalSitio() ofrece un select "Tipo de Forpass"
-   que SOLO sirve para autollenar el costo una vez — "copiar, no
-   referenciar": el número se copia a forpassCosto y queda libre de editar;
-   si el costo del tipo cambia después en el catálogo, los sitios que ya lo
-   usaron no se mueven solos (mismo principio que ya usa vendedor/encargado
-   en otras partes de la app).
+   Cada "tipo de Forpass" del catálogo (datos.catalogoForpass, documento
+   único con el mismo molde que /segmentos y /permisosModulos, administrado
+   desde Administración → "Catálogo de Forpass", solo Owner/Admin) trae un
+   `componentes` ([{id, concepto, costo}], lista de trabajo en memoria en
+   modalTipoForpass() con el mismo patrón de modalKioscosSitio: agregar/
+   quitar renglones con Guardar/Cancelar de un solo golpe) y un `costo` que
+   SIEMPRE se calcula como la suma de esos componentes — nunca se captura
+   aparte, para que nunca quede desincronizado de su propio desglose (ver
+   normalizarTipoForpass).
+
+   En modalSitio(), el select "Tipo de Forpass" SOLO sirve para autollenar
+   el costo total una vez — "copiar, no referenciar": el número se copia a
+   forpassCosto y queda libre de editar; si el costo de ese tipo cambia
+   después en el catálogo (porque se edita su desglose), los sitios que ya
+   lo usaron NO se mueven solos (mismo principio que ya usa vendedor/
+   encargado en otras partes de la app).
 
    Devengo en 6 meses: antes, montosPorMesForpassCosto()/detalleForpassCosto()
    reconocían TODO forpassCosto de un jalón en el mes de fechaInicio. Ahora
@@ -55,6 +64,15 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     datos.clientes = [normalizarCliente({ id:'c1', nombre:'Cliente Prueba' })];
   });
 
+  // Agrega un renglón de componente en el modal de tipo de Forpass, ya abierto.
+  async function agregarComponente(concepto, costo){
+    await page.click('#btnAgregarComponente');
+    await page.waitForTimeout(50);
+    const idx = (await page.locator('[data-tfc="concepto"]').count()) - 1;
+    await page.fill('[data-tfc="concepto"][data-i="' + idx + '"]', concepto);
+    await page.fill('[data-tfc="costo"][data-i="' + idx + '"]', String(costo));
+  }
+
   // --------- 1) devengoCostoForpass(): siempre 6 meses, suma exacta ---------
   const math = await page.evaluate(() => {
     const d = devengoCostoForpass({ forpassCosto: 29693, fechaInicio: '2026-01-01' });
@@ -68,56 +86,78 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   const sinCosto = await page.evaluate(() => devengoCostoForpass({ forpassCosto: 0, fechaInicio: '2026-01-01' }));
   chkF('Sin forpassCosto, el devengo no genera ningún periodo', sinCosto.length === 0);
 
-  // --------- 2) Catálogo de Forpass: alta/edición/baja desde Administración ---------
+  // --------- 2) Catálogo de Forpass: el costo se arma de un desglose de componentes ---------
   await page.evaluate(() => { estado.vista = 'admin'; estado.clienteId = null; render(); });
   await page.waitForTimeout(200);
   chkF('El bloque "Catálogo de Forpass" aparece en Administración', (await page.locator('text=Catálogo de Forpass').count()) >= 1);
   chkF('Arranca vacío', (await page.locator('text=Todavía no hay ningún tipo de Forpass').count()) === 1);
 
+  // Captura real de Victor: 7 componentes sumando al "Total reemplazo solo equipo"
   await page.click('[data-accion="nuevo-tipo-forpass"]');
   await page.waitForTimeout(150);
   await page.fill('#tfNombre', 'Forpass solo equipo');
-  await page.fill('#tfCosto', '29693');
+  chkF('Sin ningún componente, no hay campo de costo directo que capturar (el total se calcula solo)', (await page.locator('#tfCosto').count()) === 0);
+  for(const [concepto, costo] of [
+    ['Desktop', 9999], ['Impresora', 3499], ['Lectora de Tarjetas', 3599],
+    ['Lector de Qr', 2899], ['Monitor', 5599], ['Camara', 1599], ['Bateria UPS', 2499]
+  ]) await agregarComponente(concepto, costo);
+  await page.waitForTimeout(100);
+  const totalEnVivo = await page.locator('#tfTotalFila').innerText();
+  chkF('El total en vivo refleja la suma de los 7 conceptos del Excel real ($29,693)', totalEnVivo.includes('29,693'));
   await page.click('[data-modal="guardar"]');
   await page.waitForTimeout(200);
-  let catalogo = await page.evaluate(() => datos.catalogoForpass);
-  chkF('Se agrega el primer tipo con su costo', catalogo.length === 1 && catalogo[0].nombre === 'Forpass solo equipo' && catalogo[0].costo === 29693);
 
+  const tipo1 = await page.evaluate(() => datos.catalogoForpass[0]);
+  chkF('Se guardan los 7 componentes capturados', tipo1.componentes.length === 7);
+  chkF('El costo total guardado es la suma EXACTA de los componentes ($29,693, igual que el Excel real)', tipo1.costo === 29693);
+  chkF('Cada componente conserva su concepto y costo reales', tipo1.componentes[0].concepto === 'Desktop' && tipo1.componentes[0].costo === 9999);
+
+  // Segundo tipo, más simple: un solo concepto ("Forpass con mueble")
   await page.click('[data-accion="nuevo-tipo-forpass"]');
   await page.waitForTimeout(150);
   await page.fill('#tfNombre', 'Forpass con mueble');
-  await page.fill('#tfCosto', '42493');
+  await agregarComponente('Equipo + mueble', 42493);
   await page.click('[data-modal="guardar"]');
   await page.waitForTimeout(200);
-  chkF('Se pueden capturar varios tipos con costos distintos', (await page.evaluate(() => datos.catalogoForpass.length)) === 2);
+  chkF('Se pueden capturar varios tipos, cada uno con su propio desglose', (await page.evaluate(() => datos.catalogoForpass.length)) === 2);
 
-  // Editar: cambia el costo de un tipo ya guardado
-  const id1 = await page.evaluate(() => datos.catalogoForpass.find(t => t.nombre === 'Forpass solo equipo').id);
+  // Editar: quitar un componente recalcula el total en vivo y al guardar
+  const id1 = tipo1.id;
   await page.click('[data-editar-tipo-forpass="' + id1 + '"]');
   await page.waitForTimeout(150);
-  await page.fill('#tfCosto', '31000');
+  await page.click('[data-quitar-componente="6"]'); // quita "Bateria UPS" ($2,499)
+  await page.waitForTimeout(100);
+  const totalTrasQuitar = await page.locator('#tfTotalFila').innerText();
+  chkF('Quitar un componente recalcula el total en vivo (29,693 − 2,499 = 27,194)', totalTrasQuitar.includes('27,194'));
   await page.click('[data-modal="guardar"]');
   await page.waitForTimeout(200);
-  chkF('Editar un tipo cambia su costo', (await page.evaluate((id)=> datos.catalogoForpass.find(t=>t.id===id).costo, id1)) === 31000);
+  const tipo1Editado = await page.evaluate((id)=> datos.catalogoForpass.find(t=>t.id===id), id1);
+  chkF('El costo guardado tras editar refleja la nueva suma (sin el componente quitado)', tipo1Editado.costo === 27194 && tipo1Editado.componentes.length === 6);
 
-  // Validación: sin nombre o sin costo, no deja guardar
+  // Validación: sin nombre, o sin ningún componente, no deja guardar
   await page.click('[data-accion="nuevo-tipo-forpass"]');
   await page.waitForTimeout(150);
   await page.click('[data-modal="guardar"]');
   await page.waitForTimeout(100);
   chkF('Sin nombre no se guarda (el modal sigue abierto)', await page.evaluate(() => $('telon').classList.contains('abierto')));
+  await page.fill('#tfNombre', 'Tipo sin desglose');
+  await page.click('[data-modal="guardar"]');
+  await page.waitForTimeout(100);
+  chkF('Sin ningún concepto capturado, tampoco se guarda', await page.evaluate(() => $('telon').classList.contains('abierto')));
   await page.evaluate(() => cerrarModal());
 
-  // Quitar: con confirmación, no afecta sitios ya guardados (ver más abajo)
-  const id2 = await page.evaluate(() => datos.catalogoForpass.find(t => t.nombre === 'Forpass con mueble').id);
+  // La tabla del catálogo muestra el conteo de conceptos de cada tipo
+  const filaTabla = await page.locator('tr', { hasText: 'Forpass solo equipo' }).innerText();
+  chkF('La tabla del catálogo muestra el conteo de conceptos', filaTabla.includes('6 conceptos'));
 
   // --------- 3) modalSitio(): el select autollena el costo — "copiar, no referenciar" ---------
+  const id2 = await page.evaluate(() => datos.catalogoForpass.find(t => t.nombre === 'Forpass con mueble').id);
   await page.evaluate(() => { modalSitio('c1', null); });
   await page.waitForTimeout(150);
   chkF('El select "Tipo de Forpass" aparece cuando hay catálogo', (await page.locator('#sTipoForpass').count()) === 1);
   await page.selectOption('#sTipoForpass', id2);
   await page.waitForTimeout(100);
-  chkF('Elegir un tipo autollena el costo ($42,493)', (await page.inputValue('#sForpassCosto')).includes('42,493'));
+  chkF('Elegir un tipo autollena el costo con su total calculado ($42,493)', (await page.inputValue('#sForpassCosto')).includes('42,493'));
   // Sigue siendo un campo libre: se puede cambiar después de autollenado
   await page.fill('#sForpassCosto', '40000');
   chkF('El costo autollenado se puede seguir editando libre, sin quedar atado al select', (await page.inputValue('#sForpassCosto')) === '40,000');
@@ -131,13 +171,17 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   const sitioGuardado = await page.evaluate(() => datos.sitios.find(s => s.nombre === 'Sitio Catálogo'));
   chkF('Se guarda el costo EDITADO (40,000), no el que traía el tipo elegido (42,493)', sitioGuardado.forpassCosto === 40000);
 
-  // Cambiar el costo del tipo en el catálogo NO mueve retroactivamente al sitio ya guardado
-  await page.evaluate((id) => { datos.catalogoForpass.find(t => t.id === id).costo = 99999; }, id2);
-  chkF('Cambiar el costo de un tipo en el catálogo no reescribe sitios ya guardados con ese tipo', (await page.evaluate(() => datos.sitios.find(s => s.nombre === 'Sitio Catálogo').forpassCosto)) === 40000);
-
-  // Quitar el tipo del catálogo tampoco afecta al sitio que ya lo usó
+  // Cambiar el desglose del tipo en el catálogo NO mueve retroactivamente al sitio ya guardado
   await page.evaluate(() => { estado.vista = 'admin'; estado.clienteId = null; render(); });
   await page.waitForTimeout(150);
+  await page.click('[data-editar-tipo-forpass="' + id2 + '"]');
+  await page.waitForTimeout(150);
+  await agregarComponente('Extra', 99999);
+  await page.click('[data-modal="guardar"]');
+  await page.waitForTimeout(200);
+  chkF('Cambiar el desglose de un tipo en el catálogo no reescribe sitios ya guardados con ese tipo', (await page.evaluate(() => datos.sitios.find(s => s.nombre === 'Sitio Catálogo').forpassCosto)) === 40000);
+
+  // Quitar el tipo del catálogo tampoco afecta al sitio que ya lo usó
   await page.click('[data-quitar-tipo-forpass="' + id2 + '"]');
   await page.waitForTimeout(150);
   await page.click('[data-modal="guardar"]');
