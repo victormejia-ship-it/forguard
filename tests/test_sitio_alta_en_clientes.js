@@ -105,10 +105,18 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   });
   await page.waitForTimeout(150);
   chkF('Sin ningún cliente, Forpass ya no ofrece "Agregar cliente" en su estado vacío', await page.locator('[data-accion="nuevo-cliente"]').count() === 0);
-  chkF('En cambio ofrece un botón para ir a Clientes', await page.locator('[data-accion="ir-modulo-clientes"]').count() === 1);
-  await page.click('[data-accion="ir-modulo-clientes"]');
+  /* 13-oct-2026: el botón del estado vacío cambió de "Ir a Clientes" a
+     "Agregar Forpass" (ver test_forpass_modulo_y_kioscos.js) — pero sin
+     NINGÚN cliente en todo el sistema, ese mismo botón sigue aterrizando en
+     Clientes (no tiene de dónde elegir), así que el comportamiento de fondo
+     que esta prueba protege no cambió, solo el botón que lo dispara. */
+  /* Sale 2 veces a propósito: una en el encabezado y otra en este mismo
+     estado vacío (mismo patrón que "Nueva oportunidad" en CRM) — no es un
+     único botón, así que se cuenta "al menos uno" en vez de exactamente uno. */
+  chkF('En cambio ofrece "Agregar Forpass"', await page.locator('[data-accion="agregar-forpass"]').count() >= 1);
+  await page.locator('[data-accion="agregar-forpass"]').first().click();
   await page.waitForTimeout(150);
-  chkF('"Ir a Clientes" desde el estado vacío de Forpass sí cambia al módulo clientes', await page.evaluate(() => estado.modulo === 'clientes'));
+  chkF('Sin ningún cliente, "Agregar Forpass" desde el estado vacío sí cambia al módulo clientes', await page.evaluate(() => estado.modulo === 'clientes'));
   await page.evaluate(() => {
     datos.clientes = window.__clientesGuardados; datos.sitios = window.__sitiosGuardados;
   });

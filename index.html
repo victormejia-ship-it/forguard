@@ -15276,7 +15276,7 @@ const TEMAS_AYUDA = [
       guiaSeccion('Lo básico', guiaPasos([
         'La pantalla de <b>Forpass</b> trae 5 KPIs: Forpass activos, Mensualidad total (MRR), Sitios atrasados, Por pagar (7 días) y Vigencias por vencer — los tres últimos son clickeables y filtran la lista. Los mismos 5 se ven también arriba en <b>Clientes</b>, para tener la salud de esta cartera a la vista sin cambiar de pestaña.',
         'Busca por cliente o nombre de sitio; filtra "Solo con atrasos" o "Solo con Forpass activos"; alterna tarjetas/tabla.',
-        'Los datos DEL CLIENTE y de SUS SITIOS (nombre, zona, cliente, tipo de contratación, etc.) se dan de alta y se editan solo desde <b>Clientes</b> (30-sep-2026, pedido de Victor) — Forpass es la pantalla de consulta y cobranza de los sitios que YA existen, no un segundo lugar para crearlos o tocar su identidad. Desde la ficha de un cliente en Clientes puedes saltar directo aquí con <b>"Ver en Forpass"</b> (o, si el cliente todavía no tiene ni un sitio, esta pantalla te regresa a su ficha en Clientes para que lo agregues ahí).',
+        'El CLIENTE en sí (darlo de alta por primera vez: nombre, logo, contacto) sigue siendo solo de <b>Clientes</b> (30-sep-2026, pedido de Victor) — Forpass nunca inventa un cliente nuevo. Pero activar Forpass en uno de SUS sitios, o crear ese sitio si todavía no existe, sí se puede hacer directo desde aquí con <b>"Agregar Forpass"</b> (13-oct-2026): primero eliges el cliente, luego uno de sus sitios YA dado de alta (para activarle Forpass) o "Es un sitio nuevo" — el sitio queda ligado a ese cliente siempre, igual que si se hubiera creado desde Clientes. Desde la ficha de un cliente en Clientes también puedes saltar directo aquí con <b>"Ver en Forpass"</b>.',
         'Cada sitio, al darlo de alta o editarlo en Clientes, trae Nombre*, Cliente, Zona (con sugerencias guardadas y color), Forpass instalados (módulos)*, Estado (Activo/Pausado/Baja), Tipo de contratación* (Software+Hardware o Solo Software), <b>Tipo de cargo*</b> (Renta/Licencia/Venta, ver más abajo), Mensualidad* (se llama distinto según el tipo de cargo), <b>Facturación</b> (Mensual/Semestral/Anual) y el <b>Costo de los Forpass instalados</b> (nuestro costo, no lo que se cobra), si incluyó onboarding y/o viáticos (con su monto), Fecha de inicio*, Meses de contrato* y cuántas mensualidades ya vienen pagadas — todo esto es lo que alimenta lo que ves aquí en Forpass.',
         'En la tarjeta de cada sitio, haz clic en el número de un mes para <b>marcarlo como pagado</b> — se abre un formulario con Quién captura, Número de OC* y si ya se facturó.',
         'Abre <b>Plan de pagos</b> para ver el calendario completo de ese sitio, mes por mes, con su estatus (Pagada/Facturada/Vencida/Pendiente).'
@@ -15826,9 +15826,12 @@ function vistaClientes(){
         vivir aquí duplicado con el módulo Clientes solo confundía. */
      /* "Agregar cliente" también se fue de aquí (30-sep-2026, pedido de
         Victor: "el modulo que debe regir es el de cliente, forpass es un
-        anexo") — dar de alta un cliente es del módulo Clientes, Forpass ya
-        no captura nada de identidad del cliente, solo consulta/cobranza de
-        los sitios de los que ya existen. */
+        anexo") — dar de alta un cliente SIGUE siendo solo de Clientes.
+        "Agregar Forpass", en cambio, sí vive aquí (13-oct-2026, pedido de
+        Victor viendo esta pantalla vacía): activar Forpass en un sitio que
+        YA tiene cliente, o crear ese sitio ligado a un cliente existente,
+        es justo el trabajo de ESTA pantalla — ver modalElegirSitioParaForpass(). */
+     +   (puedeEditar() ? '<button type="button" class="btn btn-primario" data-accion="agregar-forpass">' + ICONO.mas + 'Agregar Forpass</button>' : '')
      + '</div></div>';
 
   h += '<div class="kpis">'
@@ -15848,8 +15851,8 @@ function vistaClientes(){
 
   if(!mios.length){
     h += puedeEditar()
-      ? vistaVacia('edificio','Todavía no hay clientes','Los clientes se dan de alta desde Clientes, no desde aquí — ahí mismo puedes registrar sus sitios y activarles Forpass.','ir-modulo-clientes','Ir a Clientes')
-      : vistaVacia('edificio','Todavía no hay clientes','Cuando alguien del equipo dé de alta el primer cliente, va a aparecer aquí.','','');
+      ? vistaVacia('edificio','Todavía no hay ningún Forpass activo','Actívalo en un sitio que ya exista, o crea el sitio aquí mismo — siempre ligado a un cliente de Clientes.','agregar-forpass','Agregar Forpass')
+      : vistaVacia('edificio','Todavía no hay ningún Forpass activo','Cuando alguien del equipo active el primero, va a aparecer aquí.','','');
     return h;
   }
 
@@ -27071,6 +27074,66 @@ function fusionarClientes(idConservar, idDescartar, asignacionSitios){
   aviso('«' + descartar.nombre + '» se fusionó con «' + conservar.nombre + '».' + (totalMovido ? ' Se movieron ' + totalMovido + ' ' + plural(totalMovido,'registro','registros') + '.' : ''));
 }
 
+/* ------------------- Modal: elegir a quién agregarle Forpass -------------------
+   13-oct-2026, pedido de Victor viendo la pantalla vacía de Forpass: "en esta
+   seccion permite agregar forpass no clientes, si damos de alta que primero
+   de la opcion de cargarlo a un comedor que ya este dado de alta, o en su
+   defecto si no lo tenemos que pueda crearse el sitio, pero siempre ligado a
+   la seccion de clientes". Antes, el único botón de esta pantalla vacía era
+   "Ir a Clientes" — un atajo de navegación nada más, que obligaba a salir de
+   Forpass para dar de alta el sitio y luego regresar. Este modal es el primer
+   paso de un flujo de dos pasos: aquí se elige CLIENTE y, de SUS sitios, uno
+   YA existente (para activarle Forpass) o "— Es un sitio nuevo —"; con esa
+   elección se abre modalSitio(clienteId, sitioId) — el formulario real de
+   Forpass (módulos, mensualidad, tipo de cargo, etc.), sin duplicar nada de
+   su lógica. El sitio SIEMPRE queda ligado a un cliente real porque
+   modalSitio() ya lo exige así (valida `clienteId` al guardar) — no se
+   inventa una puerta para crear un sitio huérfano. Dar de alta un CLIENTE
+   nuevo, en cambio, sigue siendo solo de Clientes (pedido explícito de
+   Victor, 30-sep-2026: "el modulo que debe regir es el de cliente, forpass
+   es un anexo") — este flujo no reabre esa puerta, solo evita el rodeo
+   cuando el cliente YA existe. */
+function modalElegirSitioParaForpass(){
+  const clientesOrd = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+  const cuerpo =
+      '<p class="pista" style="margin:0 0 16px">Primero elige el cliente. Si el sitio (comedor, sucursal…) ya está dado de alta, actívale Forpass directo; si no existe todavía, se crea aquí mismo, ya ligado a ese cliente.</p>'
+    + '<div class="campo"><label>Cliente *</label><select id="efCliente">'
+    +   '<option value="">— Elige uno —</option>'
+    +   clientesOrd.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="campo"><label>¿A cuál sitio?</label><select id="efSitio" disabled>'
+    +   '<option value="">— Elige primero un cliente —</option>'
+    + '</select></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Continuar</button>';
+
+  abrirModal('Agregar Forpass', cuerpo, pie);
+
+  $('efCliente').addEventListener('change', ()=>{
+    const clienteId = $('efCliente').value;
+    const sel = $('efSitio');
+    if(!clienteId){
+      sel.disabled = true;
+      sel.innerHTML = '<option value="">— Elige primero un cliente —</option>';
+      return;
+    }
+    const sitios = sitiosDe(clienteId).slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+    sel.disabled = false;
+    sel.innerHTML = '<option value="__nuevo__">— Es un sitio nuevo —</option>'
+      + sitios.map(s => '<option value="' + esc(s.id) + '">' + esc(s.nombre) + (s.modulos > 0 ? ' (ya tiene Forpass)' : '') + '</option>').join('');
+  });
+
+  cerrarModalActual = ()=>{
+    const clienteId = $('efCliente').value;
+    if(!clienteId){ aviso('Elige un cliente primero.', true); return; }
+    const sitioVal = $('efSitio').value;
+    cerrarModal();
+    modalSitio(clienteId, sitioVal && sitioVal !== '__nuevo__' ? sitioVal : null);
+  };
+}
+
 /* ---------------------------- Modal: sitio ---------------------------- */
 function modalSitio(clienteId, sitioId){
   const s = sitioId ? sitioPorId(sitioId) : null;
@@ -31429,6 +31492,14 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ir-cliente-forpass') irAlClienteEnForpass(estado.clienteId);
     else if(a === 'ir-cliente-en-clientes') irAlClienteEnClientes(estado.clienteId);
     else if(a === 'ir-modulo-clientes') irAModulo('clientes');
+    else if(a === 'agregar-forpass'){
+      if(!exigirPermiso()) return;
+      /* Si de verdad no hay ningún cliente en todo el sistema (no solo "sin
+         Forpass"), este flujo no tiene de dónde elegir — ahí sí hace falta
+         el rodeo a Clientes, que es donde se da de alta uno nuevo. */
+      if(!datos.clientes.length){ aviso('Todavía no hay ningún cliente dado de alta. Créalo primero desde Clientes.', true); irAModulo('clientes'); }
+      else modalElegirSitioParaForpass();
+    }
     else if(a === 'ir-polizas-cliente'){ const c = clientePorId(estado.clienteId); if(c) irAPolizasDe(c.nombre); }
     else if(a === 'ver-cotizaciones-cliente'){ const c = clientePorId(estado.clienteId); if(c) verCotizacionesDe(c.nombre); }
     else if(a === 'ver-cotizaciones-sitio') verCotizacionesDe(acc.dataset.sitioNombre || '');
