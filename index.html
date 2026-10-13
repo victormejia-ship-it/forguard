@@ -15344,6 +15344,7 @@ const TEMAS_AYUDA = [
         'Abre <b>Plan de pagos</b> para ver el calendario completo de ese sitio, mes por mes, con su estatus (Pagada/Facturada/Vencida/Pendiente).'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
+        'Usa el icono de <b>Editar</b> (lápiz) en la tarjeta del sitio para cambiar sus datos sin salir de Forpass — nombre, zona, módulos, mensualidad, tipo de cargo, vigencia, etc. Es el mismo formulario de siempre (el que ya usa Clientes), solo que ahora también está aquí.',
         'Usa el icono de <b>Contactos</b> en la tarjeta del sitio para llevar "quién manda la OC": nombre, puesto, correo y teléfono de cada persona, con enlaces directos para llamar o escribir.',
         'Usa el icono de <b>Equipos</b> en la tarjeta del sitio para llevar el inventario de SUS kioscos físicos: número de serie, modelo, fecha de instalación y si alguno ya está de baja. Es información de consulta (qué equipo es cuál) — no cambia "Forpass instalados" ni la mensualidad/costo del sitio, que se capturan aparte.',
         'Un Admin asigna el <b>encargado</b> de cada sitio; cualquiera puede después filtrar la lista de sitios por encargado (incluido "Sin asignar").',
@@ -16202,6 +16203,17 @@ function tarjetaSitio(s, i){
        +       '<div class="t-nombre" style="display:flex; align-items:center; gap:9px">'
        +         '<span class="punto ' + clasePunto + '"></span>' + esc(s.nombre)
        +         '<span class="t-iconos">'
+       /* 13-oct-2026, pedido de Victor señalando esta misma tarjeta: "lo que
+          necesito es poder editar la información de este recuadro en dado
+          caso de ser necesario" — nombre/zona/módulos/mensualidad/tipo de
+          cargo/vigencia de ESTE sitio solo se editaban desde Clientes, nunca
+          desde Forpass. Reusa el mismo data-editar-sitio/modalSitio() que ya
+          usa Clientes (ver el delegado de clics): no es un formulario nuevo,
+          es el mismo acceso, solo que ahora también está aquí. Editar el
+          CLIENTE en sí (nombre, logo, contacto de la empresa) sigue siendo
+          solo de Clientes, eso no cambió. */
+       +           (puedeEditar() ? '<button type="button" class="icono-btn" data-editar-sitio="' + esc(s.id) + '" '
+       +             'title="Editar este sitio" aria-label="Editar ' + esc(s.nombre) + '">' + ICONO.lapiz + '</button>' : '')
        +           '<button type="button" class="icono-btn' + (s.contactos.length ? '' : ' sin-datos') + '" '
        +             'data-contactos="' + esc(s.id) + '" '
        +             'title="' + (s.contactos.length

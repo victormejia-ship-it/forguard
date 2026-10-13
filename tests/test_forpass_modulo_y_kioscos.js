@@ -54,7 +54,18 @@
    porque modalSitio() ya lo exige así al guardar — no se abrió una puerta
    para crear un sitio huérfano. Dar de alta un cliente nuevo sigue siendo
    SOLO de Clientes (eso no cambió); el único caso sin cliente alguno en
-   el sistema manda ahí, porque este flujo no tiene de dónde elegir. */
+   el sistema manda ahí, porque este flujo no tiene de dónde elegir.
+
+   SEGUNDA AMPLIACIÓN, mismo día, Victor señalando ESTA MISMA tarjeta (la
+   de un sitio dentro de Forpass): "lo que necesito es poder editar la
+   información de este recuadro en dado caso de ser necesario". Antes,
+   nombre/zona/módulos/mensualidad/tipo de cargo/vigencia de un sitio solo
+   se editaban desde Clientes — Forpass era de puro consulta/cobranza.
+   Nuevo ícono "Editar" en la tarjeta reutiliza el MISMO data-editar-sitio/
+   modalSitio() que ya usa Clientes (ver el delegado de clics global): no
+   es un formulario nuevo ni una puerta nueva a "editar el cliente" (eso
+   sigue siendo solo de Clientes), solo ahora el mismo acceso también vive
+   aquí, sin tener que navegar a otra pestaña. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -232,6 +243,36 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.click('[data-accion="agregar-forpass"]');
   await page.waitForTimeout(200);
   chkF('Sin ningún cliente de verdad, manda a Clientes en vez de abrir un picker vacío', await page.evaluate(() => estado.modulo === 'clientes'));
+
+  // --------- 8) "Editar" un sitio directo desde la tarjeta de Forpass ---------
+  // (13-oct-2026, mismo día, pedido de Victor señalando esta misma tarjeta:
+  // "lo que necesito es poder editar la información de este recuadro en
+  // dado caso de ser necesario"). Antes, nombre/zona/módulos/mensualidad/
+  // tipo de cargo/vigencia de un sitio solo se editaban desde Clientes —
+  // Forpass era de puro consulta/cobranza. El ícono nuevo reutiliza el
+  // MISMO data-editar-sitio/modalSitio() que ya usa Clientes (no es un
+  // formulario nuevo, ni una puerta nueva a "editar el cliente"): solo
+  // ahora también está disponible aquí, sin tener que navegar a Clientes.
+  await page.evaluate(() => {
+    datos.clientes = [normalizarCliente({ id:'cE', nombre:'INOAC' })];
+    datos.sitios = [normalizarSitio({ id:'sE', clienteId:'cE', nombre:'Inoac Polytec', modulos:1, mensualidad:87000, forpassTipoCargo:'venta', fechaInicio:'2026-06-01' })];
+    irAModulo('forpass'); estado.vista='cliente'; estado.clienteId='cE'; render();
+  });
+  await page.waitForTimeout(200);
+  chkF('El ícono de "Editar" vive en la tarjeta del sitio, dentro de Forpass', await page.locator('[data-editar-sitio="sE"]').count() === 1);
+  await page.click('[data-editar-sitio="sE"]');
+  await page.waitForTimeout(150);
+  chkF('Abre el MISMO modalSitio en modo "Editar sitio"', (await page.locator('#modalTitulo').textContent()).includes('Editar sitio'));
+  chkF('...con los datos reales del sitio precargados', await page.locator('#sNombre').inputValue() === 'Inoac Polytec');
+  await page.fill('#sModulos', '2');
+  await page.click('[data-modal="guardar"]');
+  await page.waitForTimeout(200);
+  chkF('El cambio queda guardado de verdad', (await page.evaluate(() => sitioPorId('sE'))).modulos === 2);
+
+  await page.evaluate(() => { sesion.rol='viewer'; render(); });
+  await page.waitForTimeout(150);
+  chkF('Viewer NO ve el ícono de "Editar" en la tarjeta de Forpass', await page.locator('[data-editar-sitio="sE"]').count() === 0);
+  await page.evaluate(() => { sesion.rol='owner'; });
 
   chkF('No hubo errores de página en todo el escenario', errores.length === 0);
   console.log('Errores capturados:', JSON.stringify(errores));

@@ -153,12 +153,19 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Tras guardar desde Clientes, se queda en el módulo clientes (no salta a Forpass)', trasEditar.modulo === 'clientes');
   chkF('Tras guardar desde Clientes, se queda en resumen-cliente', trasEditar.vista === 'resumen-cliente');
 
-  // --------- 3) "Ver cobranza en Forpass" navega a Forpass; ahí YA NO hay Agregar/Editar/Eliminar sitio ---------
+  // --------- 3) "Ver cobranza en Forpass" navega a Forpass; ahí NO hay Agregar/Eliminar sitio, pero Editar SÍ ---------
+  // (13-oct-2026: "Editar sitio" SÍ volvió a Forpass —ícono de lápiz en la
+  // tarjeta, pedido de Victor: "lo que necesito es poder editar la
+  // información de este recuadro"— reusando el mismo data-editar-sitio/
+  // modalSitio() de siempre; ver test_forpass_modulo_y_kioscos.js. Lo que
+  // sigue sin existir en Forpass es dar de ALTA un sitio nuevo y
+  // ELIMINARLO por completo (destructivo) — eso sigue siendo solo de
+  // Clientes.)
   await page.click('[data-accion="ir-cliente-forpass"]');
   await page.waitForTimeout(150);
   chkF('"Ver cobranza en Forpass" sí cambia al módulo forpass', await page.evaluate(() => estado.modulo === 'forpass'));
   chkF('En Forpass, ya no existe ningún botón "Agregar sitio"', await page.locator('[data-accion="nuevo-sitio"]').count() === 0);
-  chkF('En Forpass, ya no existe "Editar sitio" para este sitio', await page.locator('[data-editar-sitio="s1"]').count() === 0);
+  chkF('En Forpass, "Editar sitio" SÍ existe para este sitio', await page.locator('[data-editar-sitio="s1"]').count() === 1);
   chkF('En Forpass, ya no existe "Eliminar sitio" (destructivo) para este sitio', await page.locator('[data-borrar-sitio="s1"]').count() === 0);
   chkF('En Forpass, en cambio sí aparece "Quitar Forpass" para este sitio', await page.locator('[data-quitar-forpass="s1"]').count() === 1);
 
