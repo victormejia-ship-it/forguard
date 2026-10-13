@@ -15479,6 +15479,7 @@ const TEMAS_AYUDA = [
         'Un Admin define <b>Precios de grupo</b> por cliente (precio y costo especiales para ciertos equipos), activables con la casilla "Usar precios de grupo" al armar una póliza nueva de ese cliente; si un renglón viejo se desalinea, aparece <b>Actualizar al de grupo</b>.',
         'La <b>Lista de precios</b> es el catálogo compartido de equipos: costo de insumos + mano de obra, margen calculado en vivo, servicios/año, categoría (decide el mes de arranque) y peso (usado en el % de funcionamiento de Levantamientos). Botones "Sugerir categorías" (clasifica solo por nombre) e "Importar costos" (carga la hoja de costos compartida de un jalón).',
         'Usa <b>Recalcular calendario</b> dentro del calendario de un contrato para mover al mes que les toca hoy los equipos con categoría asignada, sin tocar los renglones capturados "a mano".',
+        '<b>Reordenar meses de servicio</b>, junto al botón anterior, es distinto: en vez de escalonar por categoría, mira cuántos equipos caen en cada uno de los 12 meses de TODO el contrato y mueve el arranque de cada renglón para parejar esa carga — sin tocar la frecuencia de nadie (sigue siendo el mismo número de servicios al año que se vendió) ni los renglones "a mano" ni los del seguro.',
         'Puedes <b>Deshacer registro</b> de un servicio o <b>Deshacer captura</b> de un cobro si te equivocaste.',
         '<b>Duplicar</b> un renglón, capturar números de serie por unidad cuando la cantidad es mayor a 1, y generar código de barras/QR por renglón (control interno).',
         '<b>Importar desde Excel</b> reconoce la tabla de equipos de la hoja "BASE" y abre el formulario ya prellenado para que lo revises antes de guardar — nunca guarda solo.'
@@ -28140,6 +28141,74 @@ function recalcularCalendarioPoliza(id){
   aviso(cambiados + ' ' + plural(cambiados,'equipo reacomodado','equipos reacomodados') + ' según su categoría.');
 }
 
+/* "Reordenar meses de servicio" (12-oct-2026, pedido de Victor: "añade una
+   manera de como poder reordenar conforme a las reglas los mttos. en las
+   polizas"). Distinto de recalcularCalendarioPoliza() de arriba: ese
+   escalona por CATEGORÍA del equipo sin ver qué tan cargado queda cada mes;
+   esto sí mira la carga real de TODA la póliza —cuántos equipos (por
+   cantidad) caen en cada uno de los 12 meses— y reacomoda el ARRANQUE de
+   cada renglón para parejarla lo más posible.
+
+   "Conforme a las reglas" es justo lo que ya imponen mesesRegulares()/
+   arranquesDe(): un renglón solo puede arrancar en uno de los meses que le
+   dan EXACTAMENTE su frecuencia — la frecuencia de cada equipo (cuántos
+   servicios al año, lo que se vendió) nunca se toca aquí, solo se elige
+   CUÁL de sus arranques válidos usar. Tampoco se tocan los renglones "a
+   mano" (mesArranqueDe === null, mismo respeto que recalcularCalendarioPoliza)
+   ni los del seguro (esSegurista: no cuentan como un equipo en la carga —
+   ver "Mes más cargado" en cuerpoCalendarioPoliza—, así que moverlos no
+   ayudaría a nada que sí se esté midiendo).
+
+   Algoritmo voraz y determinista: los de MÁS frecuencia se acomodan
+   primero (ya ocupan más meses de por sí y tienen MENOS arranques válidos
+   entre los que elegir, así que definen la base de carga); los de MENOS
+   frecuencia —más flexibles— se van acomodando después en los huecos que
+   van quedando. Para cada renglón se prueba cada arranque válido para SU
+   frecuencia y se elige el que deja el mes más cargado de la póliza lo más
+   bajo posible; un empate se rompe por el arranque más chico, para que el
+   resultado sea siempre el mismo con los mismos datos (nunca "a veces un
+   resultado, a veces otro" con un clic repetido sin cambiar nada). */
+function balancearCalendarioPoliza(id){
+  const p = polizaPorId(id);
+  if(!p) return;
+  if(!exigirPermiso()) return;
+
+  const fijos = p.partidas.filter(x => esSegurista(x) || mesArranqueDe(x) === null);
+  const movibles = p.partidas.filter(x => !esSegurista(x) && mesArranqueDe(x) !== null);
+  if(!movibles.length){
+    aviso('No hay ningún equipo que se pueda reordenar: todos están capturados "a mano" o son del seguro.', true);
+    return;
+  }
+
+  const carga = Array(MESES_POLIZA).fill(0);
+  fijos.forEach(x => x.mesesServicio.forEach(m => { carga[m] += x.cantidad; }));
+
+  let cambiados = 0;
+  movibles.slice().sort((a,b)=> b.frecuencia - a.frecuencia).forEach(x=>{
+    const actual = mesArranqueDe(x);
+    let mejor = actual, mejorPico = Infinity;
+    arranquesDe(x.frecuencia).forEach(a=>{
+      const meses = mesesRegulares(a, x.frecuencia);
+      const pico = Math.max(...meses.map(m => carga[m] + x.cantidad));
+      if(pico < mejorPico){ mejorPico = pico; mejor = a; }
+    });
+    if(mejor !== actual){
+      x.mesesServicio = mesesRegulares(mejor, x.frecuencia);
+      cambiados++;
+    }
+    x.mesesServicio.forEach(m => { carga[m] += x.cantidad; });
+  });
+
+  if(!cambiados){
+    aviso('El calendario ya estaba lo más parejo posible entre los 12 meses. No hubo nada que mover.', true);
+    return;
+  }
+  guardarPoliza(p, 'reordenó el calendario de', cambiados + ' ' + plural(cambiados,'equipo movido','equipos movidos'));
+  render();
+  modalCalendario(id);
+  aviso(cambiados + ' ' + plural(cambiados,'equipo movido','equipos movidos') + ' para parejar la carga mensual.');
+}
+
 /* Gantt del calendario de una póliza: mismo formato que la hoja "Calendario
    de Mantenimientos" del documento impreso — un renglón por equipo, una
    columna por mes, celda sombreada cuando ese mes le toca. Aquí además el
@@ -28310,6 +28379,11 @@ function cuerpoCalendarioPoliza(p, marcable, permiteRecalcular, verDetalle){
     + (permiteRecalcular
         ? '<button type="button" class="btn btn-suave btn-mini" style="margin-top:10px" data-recalcular-calendario="' + esc(p.id) + '">'
           + ICONO.organigrama + ' Recalcular calendario por categoría</button>'
+          /* Distinto de "Recalcular por categoría": ese escalona por TIPO de
+             equipo sin ver qué tan cargado queda cada mes; esto sí mira la
+             carga real de TODA la póliza y reacomoda para parejarla. */
+          + ' <button type="button" class="btn btn-suave btn-mini" style="margin-top:10px" data-balancear-calendario="' + esc(p.id) + '">'
+          + ICONO.medidor + ' Reordenar meses de servicio</button>'
         : '')
     + (marcable ? '<div class="pista" style="margin:10px 0 0">Pica un equipo para registrar que su mantenimiento ya se hizo.</div>' : '')
     + '<div class="cal-meses">'
@@ -28409,6 +28483,17 @@ function modalCalendario(id){
           + 'marcados "a mano" a propósito. Si algún servicio ya registrado queda fuera del nuevo calendario, se sigue '
           + 'viendo (marcado "fuera de calendario"), nunca se borra.\n\n¿Recalcular el calendario de esta póliza?'
         )) recalcularCalendarioPoliza(recal.dataset.recalcularCalendario);
+        return;
+      }
+      const bal = ev.target.closest('[data-balancear-calendario]');
+      if(bal){
+        if(window.confirm(
+          'Va a revisar la carga de TODA la póliza mes a mes y, respetando la frecuencia de cada equipo (nunca la '
+          + 'cambia), va a elegir en qué mes arranca cada uno para que el trabajo quede lo más parejo posible entre '
+          + 'los 12 meses. No toca renglones capturados a mano ni los del seguro. Si algún servicio ya registrado '
+          + 'queda fuera del nuevo calendario, se sigue viendo (marcado "fuera de calendario"), nunca se borra.'
+          + '\n\n¿Reordenar los meses de servicio de esta póliza?'
+        )) balancearCalendarioPoliza(bal.dataset.balancearCalendario);
         return;
       }
       const b = ev.target.closest('[data-servicio]');
