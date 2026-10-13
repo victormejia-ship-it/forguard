@@ -135,9 +135,22 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('...el resto de los meses solo trae el $1,000 mensual de s1 (s4/s5/s6 nunca se cuelan)',
     forpass.renta.filter((_,i)=> ![0,2,5,8].includes(i)).every(m => m === 1000));
   chkF('"FORPASS – venta de equipos": junio $15,000 (s3), el resto del año en $0', forpass.venta[5] === 15000 && forpass.venta.filter((_,i)=> i !== 5).every(m => m === 0));
-  chkF('"Hardware / equipos FORPASS": enero $6,000 (costo de s1), marzo $2,000 (costo de s2), junio $9,000 (costo de s3)',
-    forpass.hardware[0] === 6000 && forpass.hardware[2] === 2000 && forpass.hardware[5] === 9000);
-  chkF('El resto de los meses de "Hardware / equipos FORPASS" en $0', forpass.hardware.filter((_,i)=> ![0,2,5].includes(i)).every(m => m === 0));
+  /* "Hardware / equipos FORPASS" (13-oct-2026: ahora se devenga en 6 meses,
+     ver devengoCostoForpass() y test_catalogo_forpass_devengo.js — antes
+     cada costo se reconocía TODO de un jalón en el mes de fechaInicio).
+     s1 ($6,000 desde enero) reparte 1,000 por mes en ene-jun. s2 ($2,000
+     desde marzo) reparte 333/333/333/333/333/335 en mar-ago (repartirEnteros
+     deja el residuo en el sexto mes). s3 ($9,000 desde junio) reparte 1,500
+     por mes en jun-nov. */
+  chkF('Enero y febrero: solo el devengo de s1 ($1,000/mes)', forpass.hardware[0] === 1000 && forpass.hardware[1] === 1000);
+  chkF('Marzo a mayo: s1 ($1,000) + s2 ($333/mes) = $1,333', [2,3,4].every(i => forpass.hardware[i] === 1333));
+  chkF('Junio: se juntan los 3 devengos ($1,000 de s1 + $333 de s2 + $1,500 de s3 = $2,833)', forpass.hardware[5] === 2833);
+  chkF('Julio: ya terminó s1 — $333 de s2 + $1,500 de s3 = $1,833', forpass.hardware[6] === 1833);
+  chkF('Agosto: último mes de s2, con el residuo del reparto ($335) + $1,500 de s3 = $1,835', forpass.hardware[7] === 1835);
+  chkF('Septiembre a noviembre: ya solo queda s3 ($1,500/mes)', [8,9,10].every(i => forpass.hardware[i] === 1500));
+  chkF('Diciembre: los tres devengos ya terminaron, $0', forpass.hardware[11] === 0);
+  chkF('La suma de los 12 meses sigue siendo EXACTAMENTE el total de los 3 costos ($6,000+$2,000+$9,000=$17,000)',
+    forpass.hardware.reduce((a,b)=>a+b,0) === 17000);
   chkF('Detalle de "renta/licenciamiento" en marzo: los 2 sitios reales (s1 y s2), con enlace a Forpass',
     forpass.detalleMarzo.length === 2 && forpass.detalleMarzo.every(it => it.accion === 'ir-forpass-sitio'));
   chkF('Detalle de "Hardware" en el año: los 3 sitios reales con costo (s1/s2/s3) — s4/s5/s6 no aparecen',

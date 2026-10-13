@@ -3012,7 +3012,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{} };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{}, catalogoForpass:[] };
 
 function cargar(){
   try{
@@ -3063,7 +3063,8 @@ function cargar(){
         checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational),
         propiedadEquiposRational: (Array.isArray(d.propiedadEquiposRational) ? d.propiedadEquiposRational : []).map(normalizarPropiedadEquipoRational),
         oportunidades: (Array.isArray(d.oportunidades) ? d.oportunidades : []).map(normalizarOportunidad),
-        permisosModulos: normalizarPermisosModulos(d.permisosModulos) };
+        permisosModulos: normalizarPermisosModulos(d.permisosModulos),
+        catalogoForpass: normalizarCatalogoForpass(d.catalogoForpass) };
     }
   }catch(e){ console.warn('No se pudo leer el respaldo local:', e); }
 }
@@ -3189,7 +3190,8 @@ async function restaurarSnapshotIndexedDB(){
       checklistRational: (Array.isArray(d.checklistRational) ? d.checklistRational : []).map(normalizarItemChecklistRational),
       propiedadEquiposRational: (Array.isArray(d.propiedadEquiposRational) ? d.propiedadEquiposRational : []).map(normalizarPropiedadEquipoRational),
       oportunidades: (Array.isArray(d.oportunidades) ? d.oportunidades : []).map(normalizarOportunidad),
-      permisosModulos: normalizarPermisosModulos(d.permisosModulos) };
+      permisosModulos: normalizarPermisosModulos(d.permisosModulos),
+        catalogoForpass: normalizarCatalogoForpass(d.catalogoForpass) };
     render();
   }catch(e){ console.warn('No se pudo leer el respaldo grande (IndexedDB):', e); }
 }
@@ -4309,7 +4311,7 @@ function limpiarSesionYDatos(){
      undefined hasta que bajarDeLaNube() alcanzara a repoblarlas, y un
      render() de por medio —con cola pendiente o sin internet— tronaba con
      cualquier vista que las tocara.) */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{} };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{}, catalogoForpass:[] };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -5006,7 +5008,7 @@ async function bajarDeLaNube(soloColecciones){
   /* Si no se pidió una colección en este refresco, ni se intenta leerla —
      null de una vez, en vez de disparar la red y tirar la respuesta. */
   const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr, pq, op, pm] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr, pq, op, pm, cf] = await Promise.all([
     p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
     p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
     p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
@@ -5028,7 +5030,8 @@ async function bajarDeLaNube(soloColecciones){
     p('checklistRational', () => leerChecklistRational()),
     p('propiedadEquiposRational', () => listarNubeSuave('propiedadEquiposRational', 200)),
     p('oportunidades', () => listarNubeSuave('oportunidades', 200)),
-    p('permisosModulos', () => leerPermisosModulos())
+    p('permisosModulos', () => leerPermisosModulos()),
+    p('catalogoForpass', () => leerCatalogoForpass())
   ]);
   if(!soloColecciones && !cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -5071,7 +5074,8 @@ async function bajarDeLaNube(soloColecciones){
             checklistRational: cr === null ? datos.checklistRational : cr,
             propiedadEquiposRational: (pq === null ? datos.propiedadEquiposRational : pq.map(normalizarPropiedadEquipoRational)),
             oportunidades: (op === null ? datos.oportunidades : op.map(normalizarOportunidad)),
-            permisosModulos: pm === null ? datos.permisosModulos : pm };
+            permisosModulos: pm === null ? datos.permisosModulos : pm,
+            catalogoForpass: cf === null ? datos.catalogoForpass : cf };
   /* Veredicto de auditoría (21-sep-2026): un registro con un rechazo
      definitivo pendiente (ver colaRechazada arriba) nunca llegó a existir
      del lado del servidor, así que el reemplazo de arriba lo deja fuera sin
@@ -5360,6 +5364,41 @@ function guardarPermisosModulos(detalle){
   anotar('actualizó', 'permisos por módulo', detalle);
 }
 
+/* Catálogo de Forpass (13-oct-2026, pedido de Victor con una captura de
+   Excel de costos de kiosco: "necesito definir el costo de cada uno de los
+   forpass... necesito que pueda ingresar diferentes tipos de forpass con
+   diferentes costos"). Mismo molde de documento único que segmentos/
+   permisosModulos arriba: una lista corta, de pocos cambios, que administra
+   un Admin/Owner. Cada "tipo" es un nombre + UN costo total (como los dos
+   totales resaltados en su Excel: "Total reemplazo solo equipo" y "Total
+   con mueble") — no la lista completa de componentes (DSK/IMP/LDT/...), que
+   es el desglose propio de Victor para llegar a esos totales, no algo que
+   haya pedido capturar renglón por renglón dentro de la app. */
+function normalizarTipoForpass(t){
+  return {
+    id: (t && t.id ? String(t.id) : '').trim() || nuevoId(),
+    nombre: (t && t.nombre ? String(t.nombre) : '').trim(),
+    costo: Math.max(0, Number(t && t.costo) || 0)
+  };
+}
+function normalizarCatalogoForpass(arr){
+  return (Array.isArray(arr) ? arr : []).map(normalizarTipoForpass);
+}
+async function leerCatalogoForpass(){
+  try{
+    const d = await pedirNube('/catalogoForpass/lista', { method:'GET' }, true);
+    return normalizarCatalogoForpass((d && d.fields) ? deCampos(d.fields).valores : []);
+  }catch(e){
+    console.warn('No se pudo leer el catálogo de Forpass; se usa el de arranque:', String(e.message || e));
+    return [];
+  }
+}
+function guardarCatalogoForpass(detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'catalogoForpass', id:'lista', obj:{ valores: datos.catalogoForpass } });
+  anotar('actualizó', 'catálogo de Forpass', datos.catalogoForpass.length + ' ' + plural(datos.catalogoForpass.length,'tipo','tipos'), detalle);
+}
+
 /* Pinta los campos de un módulo dentro de un formulario (modalCliente o
    modalSitio). `prefijo` distingue los id de los inputs entre los dos
    formularios para que nunca choquen. */
@@ -5506,6 +5545,67 @@ function bloquePermisosModulos(){
            + '</div>'
          : '')
      + '</div>';
+}
+
+/* Catálogo de Forpass — mismo molde de "bloque" que Segmentos/Parámetros
+   arriba, dentro del Panel de Administración. Cada tipo (ej. "Forpass solo
+   equipo", "Forpass con mueble") trae un costo que, al elegirse en
+   modalSitio(), autollena forpassCosto — ver ahí "copiar, no referenciar":
+   el costo se copia al sitio y se puede seguir editando libre, nunca queda
+   amarrado a este catálogo. */
+function bloqueCatalogoForpass(){
+  const puede = esAdmin();
+  const lista = datos.catalogoForpass;
+  return '<div class="bloque"><div class="bloque-cabeza"><div>'
+     +   '<h3>Catálogo de Forpass</h3>'
+     +   '<p>Tipos de Forpass y su costo (equipo, o equipo con mueble, etc.) — se ofrecen al capturar un sitio y '
+     +   'autollenan el costo, que ahí se puede seguir cambiando libre.'
+     +   (puede ? '' : ' Solo un Admin puede cambiarlos.') + '</p></div>'
+     +   '<div class="acciones">' + (puede ? '<button type="button" class="btn btn-primario btn-mini" data-accion="nuevo-tipo-forpass">'
+     +     ICONO.mas + 'Agregar tipo</button>' : '') + '</div></div>'
+     +   (lista.length
+         ? '<div class="rodillo"><table class="tabla"><thead><tr><th>Tipo de Forpass</th><th>Costo</th>'
+           + (puede ? '<th class="acciones">Acciones</th>' : '') + '</tr></thead><tbody>'
+           + lista.map(t => '<tr><td>' + esc(t.nombre) + '</td><td>' + dinero(t.costo) + '</td>'
+             + (puede ? '<td class="acciones">'
+                 + '<button type="button" class="btn btn-suave btn-mini" data-editar-tipo-forpass="' + esc(t.id) + '" title="Editar">' + ICONO.lapiz + '</button>'
+                 + '<button type="button" class="btn btn-peligro btn-mini" data-quitar-tipo-forpass="' + esc(t.id) + '" title="Quitar">' + ICONO.basura + '</button>'
+               + '</td>' : '')
+             + '</tr>').join('')
+           + '</tbody></table></div>'
+         : '<p class="pista">Todavía no hay ningún tipo de Forpass capturado.</p>')
+     + '</div>';
+}
+/* Alta/edición de un tipo de Forpass — mismo patrón chico que modalEquipo(). */
+function modalTipoForpass(id){
+  if(!exigirAdmin('cambiar el catálogo de Forpass')) return;
+  const t = id ? datos.catalogoForpass.find(x => x.id === id) : null;
+
+  const cuerpo =
+      '<div class="campo"><label>Tipo de Forpass *</label>'
+    +   '<input type="text" id="tfNombre" placeholder="Ej. Forpass solo equipo" value="' + esc(t ? t.nombre : '') + '"></div>'
+    + '<div class="campo"><label>Costo *</label>'
+    +   '<input type="text" inputmode="decimal" id="tfCosto" value="' + (t && t.costo ? numero(t.costo) : '') + '">'
+    +   '<div class="pista">Es una sugerencia: al elegir este tipo en un sitio, el costo se copia y ahí se puede cambiar libre.</div></div>';
+
+  abrirModal(t ? 'Editar ' + t.nombre : 'Agregar tipo de Forpass', cuerpo,
+      '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+    + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (t ? 'Guardar cambios' : 'Agregar') + '</button>');
+
+  $('tfCosto').addEventListener('input', ()=> formatearMiles($('tfCosto')));
+
+  cerrarModalActual = ()=>{
+    const nombre = $('tfNombre').value.trim();
+    if(!nombre){ $('tfNombre').setAttribute('aria-invalid','true'); $('tfNombre').focus(); aviso('El tipo de Forpass necesita un nombre.', true); return; }
+    const costo = aNumero($('tfCosto').value);
+    if(!costo){ $('tfCosto').setAttribute('aria-invalid','true'); $('tfCosto').focus(); aviso('Captura el costo de este tipo de Forpass.', true); return; }
+    const nuevo = normalizarTipoForpass({ id: t ? t.id : nuevoId(), nombre, costo });
+    const i = datos.catalogoForpass.findIndex(x => x.id === nuevo.id);
+    if(i === -1) datos.catalogoForpass.push(nuevo); else datos.catalogoForpass[i] = nuevo;
+    guardarCatalogoForpass((t ? 'editó ' : 'agregó ') + nombre + ' · ' + dinero(costo));
+    cerrarModal(); render();
+    aviso(t ? 'Tipo de Forpass actualizado.' : 'Tipo de Forpass agregado.');
+  };
 }
 
 /* ===================== COTIZACIONES DE SERVICIO =====================
@@ -14443,19 +14543,45 @@ function detalleForpassVenta(){
     return items;
   };
 }
+/* Devengo del costo de Forpass en 6 meses (13-oct-2026, pedido de Victor:
+   "el costo del forpass si es cargado a un cliente necesito que ese costo
+   se devengue en 6 meses" — antes se reconocía TODO de un jalón en el mes
+   de fechaInicio). repartirEnteros() garantiza que los 6 montos sumen
+   SIEMPRE exactamente forpassCosto, sin que el redondeo deje un centavo de
+   diferencia; el residuo, si lo hay, cae en el sexto mes — mismo criterio
+   que cualquier otro reparto de la app. Resultados se recalcula en vivo
+   (nunca es una foto congelada), así que este cambio también mueve cómo se
+   ve el costo de CUALQUIER sitio que ya existía: antes un bulto en un solo
+   mes, ahora repartido en los 6 siguientes a partir de fechaInicio — sin
+   importar si ese devengo cae en un año calendario distinto al de
+   fechaInicio, cada mes se atribuye al año que de verdad le toca. */
+function devengoCostoForpass(s){
+  if(!s.forpassCosto) return [];
+  return repartirEnteros(s.forpassCosto, 6).map((monto, i) => ({ fecha: sumarMeses(s.fechaInicio, i), monto }));
+}
 function montosPorMesForpassCosto(anio){
   const totales = Array(12).fill(0);
   datos.sitios
-    .filter(s => s.modulos > 0 && s.estado === 'activo' && s.forpassCosto && s.fechaInicio.slice(0,4) === String(anio))
-    .forEach(s => { totales[Number(s.fechaInicio.slice(5,7)) - 1] += s.forpassCosto; });
+    .filter(s => s.modulos > 0 && s.estado === 'activo' && s.forpassCosto)
+    .forEach(s => devengoCostoForpass(s).forEach(per => {
+      if(per.fecha.slice(0,4) === String(anio)) totales[Number(per.fecha.slice(5,7)) - 1] += per.monto;
+    }));
   return totales;
 }
 function detalleForpassCosto(anio, mes){
   const m = mes == null ? null : Number(mes);
-  return datos.sitios
-    .filter(s => s.modulos > 0 && s.estado === 'activo' && s.forpassCosto && s.fechaInicio.slice(0,4) === String(anio))
-    .filter(s => m == null || Number(s.fechaInicio.slice(5,7)) - 1 === m)
-    .map(s => ({ etiqueta: (s.nombre || 'Sitio') + ' — ' + ((clientePorId(s.clienteId)||{}).nombre || 'Sin cliente'), monto: s.forpassCosto, accion:'ir-forpass-sitio', accionId:s.id }));
+  const items = [];
+  datos.sitios
+    .filter(s => s.modulos > 0 && s.estado === 'activo' && s.forpassCosto)
+    .forEach(s => {
+      let monto = 0;
+      devengoCostoForpass(s).forEach(per => {
+        if(per.fecha.slice(0,4) !== String(anio)) return;
+        if(m == null || Number(per.fecha.slice(5,7)) - 1 === m) monto += per.monto;
+      });
+      if(monto) items.push({ etiqueta: (s.nombre || 'Sitio') + ' — ' + ((clientePorId(s.clienteId)||{}).nombre || 'Sin cliente'), monto, accion:'ir-forpass-sitio', accionId:s.id });
+    });
+  return items;
 }
 
 const PILARES_PROFORMA = [
@@ -15373,10 +15499,16 @@ const TEMAS_AYUDA = [
         + guiaTip('Forpass como línea de negocio (29/30-sep-2026, pedido de Victor)', [
             'Cada sitio ahora trae <b>Tipo de cargo</b>: <b>Renta</b> o <b>Licencia</b> (recurrentes — la Mensualidad se cobra según la Facturación) o <b>Venta</b> (pago único o a meses — el campo de siempre se etiqueta "Precio de venta" y no lleva Facturación con sentido de renta). Renta y Licencia alimentan el mismo renglón de Resultados ("FORPASS – renta / licenciamiento": a nivel de negocio son la misma mecánica de cobro, solo cambia si lo rentado es hardware o una licencia de software); Venta alimenta "FORPASS – venta de equipos".',
             '<b>Facturación</b> (Mensual/Semestral/Anual) dice cada cuántas mensualidades del contrato hay un cobro real — mismo mecanismo que ya usa Pólizas (mensual/anual), aquí con Semestral de más. Con Anual y un contrato de 12 mensualidades, se cobra UNA sola vez por el total del periodo, no doce veces — así se captura también una orden de compra global.',
-            '<b>Costo de los Forpass instalados</b> es nuestro costo (nunca lo que se le cobra al cliente) — se reconoce una sola vez, en la fecha de inicio, sin importar la facturación: es lo que cuesta instalar el hardware, se paga una vez sin importar cómo se le cobre después al cliente.',
+            '<b>Costo de los Forpass instalados</b> es nuestro costo (nunca lo que se le cobra al cliente): es lo que cuesta instalar el hardware, sin importar cómo se le cobre después al cliente. Se puede capturar a mano o elegir un <b>Tipo de Forpass</b> del catálogo para autollenarlo (ver tip de abajo). Desde el 13-oct-2026 se devenga repartido en <b>6 meses</b> a partir de la fecha de inicio (antes se reconocía todo de un jalón en el mes 1) — ver "FORPASS – devengo del costo en 6 meses" más abajo.',
             'Los 3 campos son nuevos y nacen con default Renta/Mensual/$0 en cualquier sitio capturado antes de este cambio — nada se recalcula distinto para lo que ya existía.',
             'Cuando el Tipo de cargo es <b>Venta</b>, aparece además <b>Renta mensual adicional</b> (13-oct-2026, caso real de INOAC: "vendimos un equipo... pero también tendremos una renta mensual") — para cuando, además de venderse el equipo, también se cobra algo cada mes (ej. software o un servicio aparte). Se suma al mismo cobro mensual de siempre (un solo calendario, las mismas 12 casillas de "Marcar pagada"), pero para Resultados esa parte se separa sola hacia "FORPASS – renta / licenciamiento", sin que la venta deje de contar como venta. Si el Tipo de cargo cambia a Renta o Licencia, este campo desaparece y se pone en $0 — ya no aplica, ESE tipo ya es mensual de por sí.',
             'Todavía "inicialmente ningún sitio real tiene Forpass" (palabras de Victor) — los 3 renglones de Resultados solo cuentan sitios con "Forpass instalados" (módulos) mayor a 0 Y estado Activo, mismo candado que usa Pólizas.'
+          ])
+        + guiaTip('Catálogo de Forpass y devengo del costo en 6 meses (13-oct-2026)', [
+            'Administración → <b>Catálogo de Forpass</b> (solo Owner/Admin) es donde se dan de alta los distintos tipos de Forpass con su costo — por ejemplo "Forpass solo equipo" y "Forpass con mueble", cada uno con su propio total.',
+            'Al capturar o editar un sitio, el select <b>Tipo de Forpass</b> solo sirve para autollenar el costo de una vez: al elegir un tipo se copia su número al campo "Costo de los Forpass instalados" y de ahí en adelante es un valor normal, libre de editar — si después cambias el costo de ese tipo en el catálogo, los sitios que ya lo usaron NO se mueven solos. También se puede capturar el costo directo a mano, sin elegir ningún tipo.',
+            'El costo ya no se reconoce todo de un jalón en el mes de inicio: se <b>devenga repartido en 6 meses</b>, a partes lo más iguales posible (el residuo de redondear, si lo hay, cae en el sexto mes) — así "Hardware / equipos FORPASS" en Resultados refleja mejor cuándo se recupera ese costo, en vez de un solo bulto golpeando un mes.',
+            'Por ser Resultados un reporte que siempre se recalcula en vivo (nunca una foto congelada), este cambio también mueve cómo se ve el costo de los sitios que YA EXISTÍAN antes del 13-oct-2026 — su forpassCosto no cambia, solo cómo se reparte en el tiempo.'
           ])) },
 
   { id:'mi-agenda', titulo:'Mi agenda',
@@ -15757,6 +15889,7 @@ const TEMAS_AYUDA = [
       + guiaSeccion('Uso intermedio', guiaPasos([
         '<b>Segmentos</b>: agrega o quita las sugerencias de "zona" que se ofrecen al capturar un sitio (no restringen nada, solo sugieren).',
         '<b>Parámetros de clientes</b> y <b>Parámetros de sitios</b>: agrega campos personalizados (Texto/Número/Fecha/Sí-No) sin tocar código — aparecen solos en el formulario correspondiente y como chips en las tarjetas.',
+        '<b>Catálogo de Forpass</b>: define los distintos tipos de Forpass con su costo (ej. "Forpass solo equipo", "Forpass con mueble") — se ofrecen al capturar un sitio, en Forpass, para autollenar su costo (ver la guía del módulo Forpass para el detalle del devengo en 6 meses).',
         'Desde la pantalla de Clientes: <b>Descargar Excel</b> (disponible para cualquiera), y solo para Admin/Owner, <b>Respaldo JSON</b> y <b>Restaurar</b> para mover toda la base de un jalón.'
       ]))
       + guiaSeccion('Funciones avanzadas', ''
@@ -25474,6 +25607,7 @@ function vistaAdmin(){
      + '</div>';
 
   h += bloquePermisosModulos();
+  h += bloqueCatalogoForpass();
 
   /* Portal de clientes: aparte de "Cuentas" (el equipo de Forguard) porque
      son cosas distintas — alguien de afuera pidiendo entrar, no un permiso
@@ -27312,9 +27446,22 @@ function modalSitio(clienteId, sitioId){
     +   '<div class="campo" id="wrapRentaAdicional"><label>Renta mensual adicional (MX$, sin IVA)</label>'
     +     '<input type="text" id="sRentaAdicional" inputmode="decimal" placeholder="Ej. 5,950" value="' + (s && s.forpassRentaAdicional ? numero(s.forpassRentaAdicional) : '') + '">'
     +     '<div class="pista">Para cuando ADEMÁS de la venta hay una renta mensual (ej. del software o un servicio aparte) — se cobra cada mes, sin importar cómo se facture la venta. En $0 si no aplica.</div></div>'
+    /* Catálogo de Forpass (13-oct-2026, ver bloqueCatalogoForpass()): elegir
+       un tipo AUTOLLENA el costo de abajo, pero "copiar, no referenciar" —
+       el número se copia a sForpassCosto y de ahí en adelante se puede
+       cambiar libre, sin quedar amarrado al catálogo (si luego alguien
+       cambia el costo del tipo en el catálogo, este sitio no se mueve solo).
+       El select es solo una ayuda para capturar; lo único que se guarda del
+       sitio es forpassCosto. */
+    +   (datos.catalogoForpass.length
+        ? '<div class="campo"><label>Tipo de Forpass (opcional)</label><select id="sTipoForpass">'
+          + '<option value="">— Elegir para autollenar el costo, o capturarlo a mano —</option>'
+          + datos.catalogoForpass.map(ti => '<option value="' + esc(ti.id) + '">' + esc(ti.nombre) + ' — ' + dinero(ti.costo) + '</option>').join('')
+          + '</select></div>'
+        : '')
     +   '<div class="campo"><label>Costo de los Forpass instalados (nuestro costo, MX$, sin IVA)</label>'
     +     '<input type="text" id="sForpassCosto" inputmode="decimal" placeholder="Ej. 8,000" value="' + (s && s.forpassCosto ? numero(s.forpassCosto) : '') + '">'
-    +     '<div class="pista">Lo que a Forguard le cuesta el hardware/instalación de este sitio — no lo que se le cobra al cliente. Se reconoce una sola vez, al inicio. Puede quedar en $0 si no aplica.</div></div>'
+    +     '<div class="pista">Lo que a Forguard le cuesta el hardware/instalación de este sitio — no lo que se le cobra al cliente. Se reconoce repartido en 6 meses a partir del inicio. Puede quedar en $0 si no aplica.</div></div>'
 
     +   '<div class="aviso" style="margin:2px 0 14px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-5M12 8h.01"/></svg>'
     +     '<div>El onboarding y los viáticos se cobran <b>una sola vez, en el pago 1</b>. '
@@ -27468,6 +27615,18 @@ function modalSitio(clienteId, sitioId){
    'sTieneCortesia','sCortesiaCant','sCortesiaAbsorbe','sCortesiaAutorizo','sCortesiaCuando','sCortesiaPorque',
    'sIncOnboarding','sOnboarding','sIncViaticos','sViaticos','sInicio','sNotas']
     .forEach(id => $(id).addEventListener('input', refrescar));
+  /* "Copiar, no referenciar" (ver nota arriba de sTipoForpass): el select
+     solo sirve para rellenar sForpassCosto UNA VEZ al elegirlo; de ahí en
+     adelante es un número normal y editable, sin ningún lazo vivo al
+     catálogo. */
+  if($('sTipoForpass')){
+    $('sTipoForpass').addEventListener('change', ()=>{
+      const tipo = datos.catalogoForpass.find(x => x.id === $('sTipoForpass').value);
+      if(!tipo) return;
+      $('sForpassCosto').value = numero(tipo.costo);
+      refrescar();
+    });
+  }
   /* Paleta de color de la etiqueta. Si el usuario no ha tocado el color y
      escribe una zona que ya existe en otro sitio, se hereda ese color para que
      la misma plaza no acabe con tres colores distintos. */
@@ -32214,6 +32373,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ver-agenda') irAAgenda(false);
     else if(a === 'ver-agenda-pendiente') irAAgenda(true);
     else if(a === 'nuevo-equipo') modalEquipo(null);
+    else if(a === 'nuevo-tipo-forpass') modalTipoForpass(null);
     else if(a === 'guardar-catalogo') sembrarCatalogo();
     else if(a === 'importar-costos'){
       if(!exigirAdmin('importar costos al catálogo')) return;
@@ -32483,6 +32643,26 @@ $('vista').addEventListener('click', ev=>{
 
   const edE = t.closest('[data-editar-equipo]');
   if(edE){ modalEquipo(edE.dataset.editarEquipo); return; }
+
+  const edTF = t.closest('[data-editar-tipo-forpass]');
+  if(edTF){ modalTipoForpass(edTF.dataset.editarTipoForpass); return; }
+
+  const qTF = t.closest('[data-quitar-tipo-forpass]');
+  if(qTF){
+    if(!exigirAdmin('cambiar el catálogo de Forpass')) return;
+    const tipo = datos.catalogoForpass.find(x => x.id === qTF.dataset.quitarTipoForpass);
+    if(!tipo) return;
+    confirmar('Quitar "' + tipo.nombre + '"',
+      'Los sitios que ya tienen este costo capturado no cambian — es solo para que ya no se ofrezca al capturar uno nuevo.',
+      'Quitar',
+      ()=>{
+        datos.catalogoForpass = datos.catalogoForpass.filter(x => x.id !== tipo.id);
+        guardarCatalogoForpass('quitó ' + tipo.nombre);
+        render();
+        aviso('Tipo de Forpass quitado.');
+      });
+    return;
+  }
 
   const dupE = t.closest('[data-duplicar-equipo]');
   if(dupE){ modalEquipo(null, dupE.dataset.duplicarEquipo); return; }
@@ -34094,7 +34274,7 @@ function salirSilencioso(tambienLosDatos){
     /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
        21-sep-2026): faltaban proveedores/gastosProveedor/refacciones/
        ordenesCompra. */
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{} };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{}, catalogoForpass:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;

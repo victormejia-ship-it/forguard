@@ -587,6 +587,15 @@ service cloud.firestore {
       allow write: if esAdmin();
     }
 
+    /* --- Catálogo de Forpass (13-oct-2026) ---
+       Mismo molde que /segmentos y /permisosModulos: un documento único.
+       Lo ve cualquiera con acceso (se ofrece al capturar un sitio), solo
+       Owner/Admin lo cambia — mismo nivel que la Lista de precios. */
+    match /catalogoForpass/{doc} {
+      allow read:  if conAcceso() && !esCliente();
+      allow write: if esAdmin();
+    }
+
     /* --- Checklist de certificación RATIONAL ---
        Mismo molde que /catalogo y /segmentos: un documento único con un
        arreglo adentro. Un técnico necesita LEERLO para marcar los puntos al
