@@ -535,6 +535,7 @@ function sheetHead(titulo,dosLineas){
   <table class="metabar"><tr>
     <td><div class="k">${esc((POLIZA.textos && POLIZA.textos.conceptoEtiqueta) || 'Concepto Cotizado:')}</div><div class="v">${esc(CONCEPTO_DOCUMENTO)}</div></td>
     <td><div class="k">Cliente</div><div class="v">${esc(POLIZA.cliente.nombre)}${POLIZA.cliente.sitio?` ${esc(POLIZA.cliente.sitio)}`:""}</div></td>
+    ${POLIZA.razonSocialFacturacion?`<td><div class="k">Facturar a</div><div class="v">${esc(POLIZA.razonSocialFacturacion)}</div></td>`:""}
   </tr></table>`;
 }
 function sheetFoot(nota){

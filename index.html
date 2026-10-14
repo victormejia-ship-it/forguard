@@ -3279,12 +3279,28 @@ function guardarLocal(){
 }
 function nuevoId(){ return 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
+/* Razones sociales propias bajo las que se puede facturar a un cliente
+   (14-oct-2026, pedido explícito de Victor): "necesito diferencia a que
+   razon social se debe facturar... encuentra la manera de que podamos
+   diferenciar a nuestros clientes con que razon social se debe emitir".
+   Es un dato DEL CLIENTE (uno solo, válido para todo lo suyo — cotizaciones,
+   pólizas, levantamientos, proyectos de imagen — no algo que se elija
+   cotización por cotización, decisión explícita de Victor), y se imprime en
+   TODO documento donde ya sale el nombre del cliente (ver metaHTML() de cada
+   plantilla en docs/). '' = sin especificar, para que un cliente de antes de
+   esta fecha no amanezca facturado bajo una razón social que nadie eligió. */
+const RAZONES_SOCIALES = [
+  'PLATO EXPRESS OPERACIONES, S.A. DE C.V.',
+  'PLATO EXPRESS SERVICIOS COMPARTIDOS, S.A. DE C.V.',
+  'KOOK CATERING, S.A. DE C.V.'
+];
 function normalizarCliente(c){
   return {
     id: c.id || nuevoId(),
     nombre: c.nombre || 'Cliente',
     contacto: c.contacto || '',
     notas: c.notas || '',
+    razonSocialFacturacion: RAZONES_SOCIALES.includes(c && c.razonSocialFacturacion) ? c.razonSocialFacturacion : '',
     /* Logo del cliente ya reducido, guardado dentro del propio registro. */
     logo: typeof c.logo === 'string' && c.logo.startsWith('data:image/') ? c.logo : '',
     /* ¿Este cliente incluye Forpass? Es la casilla que se marca en su ficha,
@@ -12202,6 +12218,10 @@ function armarPayloadPoliza(p, soloCalendario){
         return { nombre: sitio, sitio: '' };
       return { nombre, sitio };
     })(),
+    /* 14-oct-2026, pedido de Victor: "necesito diferencia a que razon
+       social se debe facturar" — dato del cliente, copiado tal cual para
+       imprimirse (ver sheetHead() en plantilla_poliza_forguard.html). */
+    razonSocialFacturacion: cli ? cli.razonSocialFacturacion : '',
     folio: p.folio || '',
     estatus: p.estatus,
 
@@ -12364,6 +12384,11 @@ function armarPayloadCotizacion(q, lado){
     equipoRegistroInterno: q.equipoRegistroInterno || '',
     comedor: s ? s.nombre : '',
     cliente: cli ? cli.nombre : '',
+    /* 14-oct-2026, pedido de Victor: "necesito diferencia a que razon
+       social se debe facturar" — es un dato del cliente (ver
+       normalizarCliente/RAZONES_SOCIALES), copiado aquí tal cual para
+       imprimirse en el documento (plantilla_cotizacion.html no calcula). */
+    razonSocialFacturacion: cli ? cli.razonSocialFacturacion : '',
     zona: s ? s.zona : '',
     tipoMtto: q.tipoMtto || '',
     cargoA: q.cargoA === 'comedor' ? 'Comedor' : 'Cliente',
@@ -12518,6 +12543,9 @@ function armarPayloadLevantamiento(l){
     folio: l.folio || '',
     fecha: fechaDocumento(l.fecha),
     cliente: cli ? cli.nombre : '',
+    /* 14-oct-2026, pedido de Victor: "necesito diferencia a que razon
+       social se debe facturar" — dato del cliente, copiado tal cual. */
+    razonSocialFacturacion: cli ? cli.razonSocialFacturacion : '',
     sitio: l.sitioNombre || '',
     realizo: l.realizoNombre || '',
     notasGenerales: l.notasGenerales || '',
@@ -12650,6 +12678,10 @@ function armarPayloadProyectoImagen(p, usarCosto){
        mayúsculas — se formatean aquí, una sola vez, capitalizando cada
        palabra (nombre propio), sin tocar el dato tal como se guardó. */
     cliente: aNombrePropioTolerante(p.clienteNombre || 'Prospecto'),
+    /* 14-oct-2026, pedido de Victor: "necesito diferencia a que razon
+       social se debe facturar" — dato del cliente; un "Prospecto" sin
+       clienteId real (p.clienteId vacío) todavía no tiene uno definido. */
+    razonSocialFacturacion: (p.clienteId && clientePorId(p.clienteId)) ? clientePorId(p.clienteId).razonSocialFacturacion : '',
     sitio: aNombrePropioTolerante(p.sitioNombre || ''),
     nombreProyecto: aNombrePropioTolerante(p.nombreProyecto || ''),
     tipoEtiqueta: ETIQUETA_TIPO_PROYECTO_IMAGEN[p.tipo],
@@ -14074,6 +14106,7 @@ function vistaResumenCliente(){
      +     '<div>'
      +       '<h2>' + esc(c.nombre) + '</h2>'
      +       (c.contacto ? '<p>' + esc(c.contacto) + '</p>' : '')
+     +       (c.razonSocialFacturacion ? '<p class="pista">Facturar a: ' + esc(c.razonSocialFacturacion) + '</p>' : '')
      +       chipsPersonalizados('clientes', c)
      +     '</div>'
      +   '</div>'
@@ -15637,7 +15670,7 @@ const TEMAS_AYUDA = [
     resumen:'El expediente único de cada cliente: todo lo que tiene en Forpass, Pólizas, Cotizaciones, Reportes y Activos, en un solo lugar.',
     contenido:
       guiaSeccion('Lo básico', guiaPasos([
-        'Usa <b>Agregar cliente</b>: Logo (opcional, con recorte y zoom), Nombre*, Contacto, Notas, casilla "Incluye Forpass", más cualquier campo personalizado que haya definido Administración.',
+        'Usa <b>Agregar cliente</b>: Logo (opcional, con recorte y zoom), Nombre*, Contacto, <b>Razón social de facturación</b> (opcional), Notas, casilla "Incluye Forpass", más cualquier campo personalizado que haya definido Administración.',
         'Busca con <b>Buscar cliente…</b> por nombre.',
         'Haz clic en un cliente para abrir su <b>resumen 360°</b>: 4 KPIs (Sitios Forpass, Pólizas, Cotizaciones, Reportes) y, debajo, un bloque por módulo con hasta 8 renglones y un enlace "ver todas/todos" si tiene más — cada renglón te lleva directo a su módulo. El bloque <b>Sitios</b> es la excepción (02-oct-2026): como un sitio no tiene un módulo propio al que mandar (vive repartido entre Clientes y Forpass, y Forpass solo lista los que ya tienen Forpass activo), su "y N más…" no navega a ningún lado — expande la lista completa ahí mismo, con "Ver menos" para volver a compactarla.',
         '<b>Agregar/editar/eliminar un sitio</b> vive aquí, en el bloque "Sitios" del resumen 360° (30-sep-2026, pedido de Victor: el alta de un sitio es del módulo Clientes, no de Forpass) — el mismo formulario trae, adentro, la sección para activar Forpass en ese sitio si aplica (módulos, tipo de cargo, mensualidad, etc.); si el sitio ya tiene Forpass, "Ver cobranza en Forpass" te lleva a esa pantalla para consultar su calendario de pagos.',
@@ -15658,6 +15691,12 @@ const TEMAS_AYUDA = [
             'La casilla "Incluye Forpass" tiene un tercer estado interno para clientes viejos capturados antes de que existiera — se "gradúa" solo la primera vez que alguien abre y guarda su formulario.',
             'Un cliente con sitios capturados solo aparece en Forpass si AL MENOS uno de ellos de verdad tiene Forpass instalado (módulos mayor a 0, sin importar si está Activo o Pausado) — 30-sep-2026: antes bastaba con que un sitio estuviera "Activo" aunque tuviera 0 módulos, así que un cliente sin ningún Forpass real podía seguir apareciendo aquí. Si todos los sitios de un cliente se quedan en 0 módulos (nunca tuvieron Forpass, o se lo quitaron con "Quitar Forpass" en Forpass), el cliente sigue existiendo (lo sigues viendo en Clientes) pero desaparece de la lista de Forpass hasta que alguno vuelva a tener módulos. <b>Ojo:</b> "desaparece de la lista" no es lo mismo que "se eliminó" — si un cliente no aparece en Forpass, revisa primero si alguno de sus sitios tiene Forpass instalado antes de darle a Eliminar pensando que ya no existe.',
             'El logo se reduce y comprime solo al subirlo (máximo ~120 KB guardado) para no inflar la base de datos.'
+          ])
+        + guiaTip('Razón social de facturación (14-oct-2026)', [
+            'Victor opera bajo tres razones sociales propias (PLATO EXPRESS OPERACIONES, PLATO EXPRESS SERVICIOS COMPARTIDOS y KOOK CATERING) y necesitaba diferenciar, cliente por cliente, con cuál de las tres se le factura.',
+            'Es un dato DEL CLIENTE —no de cada cotización o póliza por separado—, así que se captura una sola vez en su ficha y aplica a todo lo suyo.',
+            'Se imprime como "Facturar a" en los documentos de Cotizaciones, Pólizas, Levantamientos y Proyectos de Imagen, junto al nombre del cliente — en blanco si todavía no se ha elegido ninguna.',
+            'Un cliente capturado antes de este cambio simplemente no trae nada ahí ("Sin especificar") hasta que alguien edite su ficha y elija una.'
           ])
         + guiaTip('"Eliminar cliente" es de verdad definitivo (30-sep-2026)', [
             'Solo borra el cliente y SUS SITIOS — pólizas, cotizaciones, reportes y levantamientos de ese cliente NO se borran, se quedan huérfanos (sin cliente al que pertenecer). La ventana de confirmación te dice si tiene algo de eso antes de que confirmes.',
@@ -27009,6 +27048,12 @@ function modalCliente(id){
     +   '<input type="text" id="cNombre" placeholder="Ej. Mercado Libre" value="' + esc(c ? c.nombre : '') + '"></div>'
     + '<div class="campo"><label>Contacto (opcional)</label>'
     +   '<input type="text" id="cContacto" placeholder="Ej. Juan Pérez · compras@cliente.com" value="' + esc(c ? c.contacto : '') + '"></div>'
+    + '<div class="campo"><label>Razón social de facturación (opcional)</label>'
+    +   '<select id="cRazonSocial">'
+    +     '<option value=""' + (!c || !c.razonSocialFacturacion ? ' selected' : '') + '>— Sin especificar —</option>'
+    +     RAZONES_SOCIALES.map(rs => '<option value="' + esc(rs) + '"' + (c && c.razonSocialFacturacion === rs ? ' selected' : '') + '>' + esc(rs) + '</option>').join('')
+    +   '</select>'
+    +   '<div class="pista">Bajo cuál de nuestras razones sociales se le factura a este cliente — se imprime en sus cotizaciones, pólizas, levantamientos y proyectos de imagen.</div></div>'
     + '<div class="campo"><label>Notas (opcional)</label>'
     +   '<textarea id="cNotas" placeholder="Condiciones comerciales, forma de pago, etc.">' + esc(c ? c.notas : '') + '</textarea></div>'
     /* La casilla que decide en qué lista vive. Prendida por omisión al crear
@@ -27153,15 +27198,17 @@ function modalCliente(id){
     /* Al guardar, la decisión queda EXPLÍCITA ('si'/'no'): un cliente de antes
        de la casilla se gradúa del estado heredado en cuanto alguien lo edita. */
     const usa = $('cUsaForpass').checked ? 'si' : 'no';
+    const razonSocialFacturacion = $('cRazonSocial').value;
     const personalizados = leerParametrosForm('clientes', 'c', c ? c.personalizados : {});
     let reg;
     if(c){
       c.nombre = nombre; c.contacto = $('cContacto').value.trim(); c.notas = $('cNotas').value.trim();
-      c.logo = logoTmp; c.usaForpass = usa; c.personalizados = personalizados;
+      c.logo = logoTmp; c.usaForpass = usa; c.razonSocialFacturacion = razonSocialFacturacion; c.personalizados = personalizados;
       reg = c;
     }else{
       reg = normalizarCliente({ id:nuevoId(), nombre, contacto:$('cContacto').value.trim(),
-                                notas:$('cNotas').value.trim(), logo:logoTmp, usaForpass: usa, personalizados });
+                                notas:$('cNotas').value.trim(), logo:logoTmp, usaForpass: usa,
+                                razonSocialFacturacion, personalizados });
       datos.clientes.push(reg);
     }
     guardarCliente(reg, c ? 'editó' : 'creó');
