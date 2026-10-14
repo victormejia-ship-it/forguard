@@ -5382,12 +5382,27 @@ function guardarPermisosModulos(detalle){
    aparte, para que nunca quede desincronizado de su propio desglose. Un tipo
    viejo sin desglose (de antes de esta ampliación) conserva el costo plano
    que ya tenía: `componentes` nace vacío y `costo` se respeta tal cual hasta
-   que alguien le agregue conceptos. */
+   que alguien le agregue conceptos.
+
+   SEGUNDA AMPLIACIÓN (mismo día): "podemos añadir el concepto modelo y
+   numero de serie" + "si es posible añade fotografias a cada concepto y al
+   producto final como forpass". Cada componente ahora también trae
+   `modelo`/`numeroSerie` (mismos campos que ya existen en Activos/Kioscos/
+   Hallazgos) y UNA foto propia (el equipo real de ese renglón, ej. la
+   Desktop concreta); el tipo completo trae además su propia `fotos` (una
+   galería chica, hasta EVIDENCIA_MAX_POR_TIPO_FORPASS, del Forpass YA
+   armado). Ambas reusan exactamente leerEvidencia()/comprimirEvidencia()/
+   normalizarEvidencia() — el mismo pipeline de fotos de Activos/Reportes/
+   Levantamientos, nunca uno nuevo. */
+const EVIDENCIA_MAX_POR_TIPO_FORPASS = 4;
 function normalizarComponenteForpass(c){
   return {
     id: (c && c.id ? String(c.id) : '').trim() || nuevoId(),
     concepto: (c && c.concepto ? String(c.concepto) : '').trim(),
-    costo: Math.max(0, Number(c && c.costo) || 0)
+    modelo: (c && c.modelo ? String(c.modelo) : '').trim(),
+    numeroSerie: (c && c.numeroSerie ? String(c.numeroSerie) : '').trim(),
+    costo: Math.max(0, Number(c && c.costo) || 0),
+    foto: (c && c.foto && c.foto.dataUrl) ? normalizarEvidencia(c.foto) : null
   };
 }
 function normalizarTipoForpass(t){
@@ -5396,7 +5411,8 @@ function normalizarTipoForpass(t){
     id: (t && t.id ? String(t.id) : '').trim() || nuevoId(),
     nombre: (t && t.nombre ? String(t.nombre) : '').trim(),
     componentes,
-    costo: componentes.length ? componentes.reduce((a,c)=> a + c.costo, 0) : Math.max(0, Number(t && t.costo) || 0)
+    costo: componentes.length ? componentes.reduce((a,c)=> a + c.costo, 0) : Math.max(0, Number(t && t.costo) || 0),
+    fotos: (Array.isArray(t && t.fotos) ? t.fotos : []).slice(0, EVIDENCIA_MAX_POR_TIPO_FORPASS).map(normalizarEvidencia)
   };
 }
 function normalizarCatalogoForpass(arr){
@@ -5584,9 +5600,11 @@ function bloqueCatalogoForpass(){
      +   (lista.length
          ? '<div class="rodillo"><table class="tabla"><thead><tr><th>Tipo de Forpass</th><th>Costo</th>'
            + (puede ? '<th class="acciones">Acciones</th>' : '') + '</tr></thead><tbody>'
-           + lista.map(t => '<tr><td>' + esc(t.nombre)
+           + lista.map(t => '<tr><td style="display:flex; align-items:center; gap:8px">'
+               + (t.fotos.length ? '<img src="' + esc(t.fotos[0].dataUrl) + '" alt="" style="width:28px; height:28px; border-radius:7px; object-fit:cover; flex-shrink:0">' : '')
+               + '<span>' + esc(t.nombre)
                + (t.componentes.length ? ' <span class="pista" style="display:inline">(' + t.componentes.length + ' ' + plural(t.componentes.length,'concepto','conceptos') + ')</span>' : '')
-               + '</td><td>' + dinero(t.costo) + '</td>'
+               + '</span></td><td>' + dinero(t.costo) + '</td>'
              + (puede ? '<td class="acciones">'
                  + '<button type="button" class="btn btn-suave btn-mini" data-editar-tipo-forpass="' + esc(t.id) + '" title="Editar">' + ICONO.lapiz + '</button>'
                  + '<button type="button" class="btn btn-peligro btn-mini" data-quitar-tipo-forpass="' + esc(t.id) + '" title="Quitar">' + ICONO.basura + '</button>'
@@ -5596,6 +5614,24 @@ function bloqueCatalogoForpass(){
          : '<p class="pista">Todavía no hay ningún tipo de Forpass capturado.</p>')
      + '</div>';
 }
+
+/* Borrador en memoria de "Agregar tipo de Forpass" (13-oct-2026, Victor:
+   "en dado caso de que se seleccione fuera del modal se guarde como
+   borrador para no perder la información"). A diferencia de Activos/
+   Cotizaciones/Pólizas —que SÍ tienen un estatus "Borrador" real, visible
+   en su propia lista— un tipo de Forpass a medio llenar no debería
+   aparecer nunca en el catálogo ni en el select de modalSitio (se podría
+   elegir por accidente para cobrarle a un cliente). Por eso este borrador
+   vive nada más en esta variable (nunca en datos.catalogoForpass): cerrar
+   "por fuera" (X, fondo, Escape) sin terminar guarda aquí lo ya capturado
+   y cierra sin reclamar nada; laología de la próxima vez que se abra
+   "Agregar tipo de Forpass" lo recupera tal cual. Se limpia en cuanto se
+   guarda el tipo de verdad (cerrarModalActual) o si se cierra sin haber
+   capturado nada. Solo aplica al CREAR — editar uno ya existente no
+   arriesga nada porque el registro real no se toca hasta "Guardar", mismo
+   criterio que modalActivo/modalPoliza/modalCotizacion. */
+let borradorTipoForpass = null;
+
 /* Alta/edición de un tipo de Forpass. El costo se arma de un desglose de
    componentes (13-oct-2026, Victor viendo el formulario con un solo campo
    de costo: "que en el catalogo pueda ser el desglose del equipo, cada
@@ -5605,45 +5641,93 @@ function bloqueCatalogoForpass(){
    Guardar/Cancelar de un solo golpe, sin tocar datos.catalogoForpass hasta
    confirmar. El costo total NUNCA se captura directo — siempre es la suma
    de los componentes (ver normalizarTipoForpass), así que no puede quedar
-   desincronizado de su propio desglose. */
+   desincronizado de su propio desglose.
+
+   AMPLIACIÓN (mismo día): "añade el concepto modelo y numero de serie" +
+   "añade fotografias a cada concepto y al producto final como forpass" —
+   cada renglón de componente ahora vive en su propia tarjeta ".contacto"
+   (mismo molde que modalKioscosSitio: el botón de quitar flota en la
+   esquina vía .c-quitar, en vez de competir por espacio dentro de
+   .fila2 — eso era justo lo que se veía mal y "no se ajustaba" al
+   agregar renglones) con Concepto/Costo, Modelo/Número de serie y una
+   foto propia; arriba, una galería chica de fotos del Forpass YA ARMADO
+   (el producto final). El modal se abre con .ancho (860px, igual que
+   Lista de precios) porque ya no cabe cómodo en los 620px de default. */
 function modalTipoForpass(id){
   if(!exigirAdmin('cambiar el catálogo de Forpass')) return;
   const t = id ? datos.catalogoForpass.find(x => x.id === id) : null;
-  let nombre = t ? t.nombre : '';
-  let componentes = (t ? t.componentes : []).map(c => Object.assign({}, c));
+  const previo = !t ? borradorTipoForpass : null;
+  let nombre = t ? t.nombre : (previo ? previo.nombre : '');
+  let componentes = (t ? t.componentes : (previo ? previo.componentes : [])).map(c => Object.assign({}, c));
+  let fotosProducto = (t ? t.fotos : (previo ? previo.fotos : [])).map(f => Object.assign({}, f));
+  let fotoDestino = null; /* { tipo:'producto' } o { tipo:'componente', i } — a dónde va la próxima foto que se suba */
 
   const total = ()=> componentes.reduce((a,c)=> a + (Number(c.costo) || 0), 0);
+
+  function galeria(fotos, dataQuitarAttr, alt){
+    return '<div class="galeria-evidencia">' + fotos.map(f =>
+        '<div class="evidencia-foto"><img src="' + esc(f.dataUrl) + '" alt="' + esc(alt) + '">'
+      + '<button type="button" class="evidencia-quitar" ' + dataQuitarAttr + '="' + esc(f.id) + '" title="Quitar">' + ICONO.basura + '</button></div>'
+    ).join('') + '</div>';
+  }
 
   function pintar(){
     $('modalCuerpo').innerHTML =
         '<div class="campo"><label>Tipo de Forpass *</label>'
       +   '<input type="text" id="tfNombre" placeholder="Ej. Forpass solo equipo" value="' + esc(nombre) + '"></div>'
+
+      + '<div class="seccion"><h4>Fotos del Forpass (producto final)</h4>'
+      +   (fotosProducto.length ? galeria(fotosProducto, 'data-quitar-foto-producto', 'Foto del Forpass') : '')
+      +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarFotoProducto"' + (fotosProducto.length >= EVIDENCIA_MAX_POR_TIPO_FORPASS ? ' disabled' : '') + '>'
+      +     ICONO.camara + 'Agregar foto</button>'
+      +   '<div class="pista">Hasta ' + EVIDENCIA_MAX_POR_TIPO_FORPASS + ' fotos del equipo ya armado.</div>'
+      + '</div>'
+
       + '<div class="seccion"><h4>Desglose de componentes</h4>'
       +   '<div class="pista" style="margin-top:-6px">Cada concepto con su costo — el costo total se calcula solo, sumando todos.</div>'
       +   (componentes.length ? componentes.map((c,i) =>
-              '<div class="fila2" style="align-items:flex-end; margin-top:10px">'
-            +   '<div class="campo" style="margin-bottom:0"><label>Concepto</label>'
-            +     '<input type="text" data-tfc="concepto" data-i="' + i + '" placeholder="Ej. Desktop" value="' + esc(c.concepto) + '"></div>'
-            +   '<div class="campo" style="margin-bottom:0"><label>Costo</label>'
-            +     '<input type="text" inputmode="decimal" data-tfc="costo" data-i="' + i + '" value="' + (c.costo ? numero(c.costo) : '') + '"></div>'
-            +   '<button type="button" class="btn btn-peligro btn-mini" data-quitar-componente="' + i + '" title="Quitar">' + ICONO.basura + '</button>'
+              '<div class="contacto" style="margin-top:12px">'
+            +   '<button type="button" class="btn btn-peligro btn-mini c-quitar" data-quitar-componente="' + i + '" title="Quitar concepto">' + ICONO.basura + '</button>'
+            +   '<div class="fila2">'
+            +     '<div class="campo"><label>Concepto</label>'
+            +       '<input type="text" data-tfc="concepto" data-i="' + i + '" placeholder="Ej. Desktop" value="' + esc(c.concepto) + '"></div>'
+            +     '<div class="campo"><label>Costo</label>'
+            +       '<input type="text" inputmode="decimal" data-tfc="costo" data-i="' + i + '" value="' + (c.costo ? numero(c.costo) : '') + '"></div>'
+            +   '</div>'
+            +   '<div class="fila2">'
+            +     '<div class="campo"><label>Modelo</label>'
+            +       '<input type="text" data-tfc="modelo" data-i="' + i + '" placeholder="Ej. OptiPlex 3090" value="' + esc(c.modelo) + '"></div>'
+            +     '<div class="campo"><label>Número de serie</label>'
+            +       '<input type="text" data-tfc="numeroSerie" data-i="' + i + '" placeholder="Ej. SN-00231" value="' + esc(c.numeroSerie) + '"></div>'
+            +   '</div>'
+            +   '<div class="campo" style="margin-bottom:0">'
+            +     (c.foto
+                   ? '<div class="galeria-evidencia"><div class="evidencia-foto"><img src="' + esc(c.foto.dataUrl) + '" alt="Foto de ' + esc(c.concepto || 'componente') + '">'
+                     + '<button type="button" class="evidencia-quitar" data-quitar-foto-componente="' + i + '" title="Quitar foto">' + ICONO.basura + '</button></div></div>'
+                   : '<button type="button" class="btn btn-suave btn-mini" data-agregar-foto-componente="' + i + '">' + ICONO.camara + 'Agregar foto</button>')
+            +   '</div>'
             + '</div>').join('')
           : '<p class="pista">Todavía no hay ningún concepto capturado.</p>')
-      +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarComponente" style="margin-top:10px">' + ICONO.mas + 'Agregar concepto</button>'
+      +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarComponente" style="margin-top:12px">' + ICONO.mas + 'Agregar concepto</button>'
       + '</div>'
-      + '<div class="r-fila r-total" id="tfTotalFila" style="margin-top:14px; padding-top:12px; border-top:1px solid var(--borde)"><span>Costo total</span><span>' + dinero(total()) + '</span></div>';
+
+      + '<input type="file" id="tfArchivoFoto" accept="image/*" capture="environment" style="display:none">'
+
+      + '<div class="resumen" style="margin-top:14px"><div class="r-fila r-total" id="tfTotalFila"><span>Costo total</span><span>' + dinero(total()) + '</span></div></div>';
 
     $('btnAgregarComponente').addEventListener('click', ()=>{
-      componentes.push({ id: nuevoId(), concepto:'', costo:0 });
+      componentes.push({ id: nuevoId(), concepto:'', modelo:'', numeroSerie:'', costo:0, foto:null });
       pintar();
       const campos = $('modalCuerpo').querySelectorAll('[data-tfc="concepto"]');
       if(campos.length) campos[campos.length-1].focus();
     });
+    $('btnAgregarFotoProducto').addEventListener('click', ()=>{ fotoDestino = { tipo:'producto' }; $('tfArchivoFoto').click(); });
   }
 
   abrirModal(t ? 'Editar ' + t.nombre : 'Agregar tipo de Forpass', '',
       '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
     + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (t ? 'Guardar cambios' : 'Agregar') + '</button>');
+  $('modal').classList.add('ancho');
 
   /* Igual que modalKioscosSitio: los listeners van UNA sola vez sobre
      #modalCuerpo (que sobrevive a pintar()), nunca dentro de pintar() mismo
@@ -5657,31 +5741,82 @@ function modalTipoForpass(id){
       componentes[+campo.dataset.i].costo = aNumero(campo.value);
       const totalEl = $('tfTotalFila'); if(totalEl) totalEl.lastElementChild.textContent = dinero(total());
     } else {
-      componentes[+campo.dataset.i].concepto = campo.value;
+      componentes[+campo.dataset.i][campo.dataset.tfc] = campo.value;
     }
   });
   $('modalCuerpo').addEventListener('click', ev=>{
     const q = ev.target.closest('[data-quitar-componente]');
-    if(!q) return;
-    componentes.splice(+q.dataset.quitarComponente, 1);
-    pintar();
+    if(q){ componentes.splice(+q.dataset.quitarComponente, 1); pintar(); return; }
+
+    const qfp = ev.target.closest('[data-quitar-foto-producto]');
+    if(qfp){ fotosProducto = fotosProducto.filter(f => f.id !== qfp.dataset.quitarFotoProducto); pintar(); return; }
+
+    const qfc = ev.target.closest('[data-quitar-foto-componente]');
+    if(qfc){ const i = +qfc.dataset.quitarFotoComponente; if(componentes[i]) componentes[i].foto = null; pintar(); return; }
+
+    const afc = ev.target.closest('[data-agregar-foto-componente]');
+    if(afc){ fotoDestino = { tipo:'componente', i: +afc.dataset.agregarFotoComponente }; $('tfArchivoFoto').click(); return; }
+  });
+  $('modalCuerpo').addEventListener('change', async ev=>{
+    if(ev.target.id !== 'tfArchivoFoto') return;
+    const archivo = (ev.target.files || [])[0];
+    ev.target.value = '';
+    if(!archivo || !fotoDestino) return;
+    const destino = fotoDestino; fotoDestino = null;
+    try{
+      if(destino.tipo === 'producto' && fotosProducto.length >= EVIDENCIA_MAX_POR_TIPO_FORPASS){
+        aviso('Ya tienes ' + EVIDENCIA_MAX_POR_TIPO_FORPASS + ' fotos del Forpass. Quita alguna para agregar otra.', true);
+        return;
+      }
+      const img = await leerEvidencia(archivo);
+      const dataUrl = comprimirEvidencia(img);
+      const foto = normalizarEvidencia({ dataUrl, subioNombre: nombreDe(sesion) || '' });
+      if(destino.tipo === 'producto') fotosProducto.push(foto);
+      else if(componentes[destino.i]) componentes[destino.i].foto = foto;
+    }catch(e){ aviso(e.message, true); }
+    finally{ pintar(); }
   });
   pintar();
+
+  function limpiarComponentes(){
+    return componentes
+      .map(c => ({ concepto: String(c.concepto || '').trim(), modelo: String(c.modelo || '').trim(),
+                   numeroSerie: String(c.numeroSerie || '').trim(), costo: Number(c.costo) || 0, foto: c.foto || null }))
+      .filter(c => c.concepto || c.costo || c.modelo || c.numeroSerie || c.foto);
+  }
 
   cerrarModalActual = ()=>{
     const nombreFinal = nombre.trim();
     if(!nombreFinal){ aviso('El tipo de Forpass necesita un nombre.', true); return; }
-    const limpios = componentes
-      .map(c => ({ concepto: String(c.concepto || '').trim(), costo: Number(c.costo) || 0 }))
-      .filter(c => c.concepto || c.costo);
+    const limpios = limpiarComponentes();
     if(!limpios.length){ aviso('Agrega al menos un concepto con su costo para el desglose.', true); return; }
-    const nuevo = normalizarTipoForpass({ id: t ? t.id : nuevoId(), nombre: nombreFinal, componentes: limpios });
+    const nuevo = normalizarTipoForpass({ id: t ? t.id : nuevoId(), nombre: nombreFinal, componentes: limpios, fotos: fotosProducto });
     const i = datos.catalogoForpass.findIndex(x => x.id === nuevo.id);
     if(i === -1) datos.catalogoForpass.push(nuevo); else datos.catalogoForpass[i] = nuevo;
     guardarCatalogoForpass((t ? 'editó ' : 'agregó ') + nombreFinal + ' · ' + dinero(nuevo.costo) + ' (' + limpios.length + ' ' + plural(limpios.length,'concepto','conceptos') + ')');
+    borradorTipoForpass = null;
     cerrarModal(); render();
     aviso(t ? 'Tipo de Forpass actualizado.' : 'Tipo de Forpass agregado.');
   };
+
+  if(!t){
+    guardarBorradorAlSalir = ()=>{
+      const limpios = limpiarComponentes();
+      if(!nombre.trim() && !limpios.length && !fotosProducto.length){ borradorTipoForpass = null; cerrarModal(); return; }
+      borradorTipoForpass = { nombre: nombre.trim(), componentes: limpios, fotos: fotosProducto };
+      cerrarModal();
+      aviso('Se guardó un borrador: la próxima vez que agregues un tipo de Forpass, retomas donde te quedaste.');
+    };
+    /* "Cancelar" SÍ es una salida decisiva (a diferencia de la X/fondo/Escape,
+       que pasan por guardarBorradorAlSalir de arriba) — si alguien retomó un
+       borrador y decide que ya no lo quiere, Cancelar lo descarta de verdad,
+       en vez de que vuelva a aparecer la próxima vez que se abra "Agregar
+       tipo de Forpass". El delegate genérico de #modalPie (más abajo en el
+       archivo) sigue siendo el que de verdad cierra el modal; este listener
+       solo limpia el borrador antes de que eso pase. */
+    const btnCancelar = $('modalPie').querySelector('[data-modal="cancelar"]');
+    if(btnCancelar) btnCancelar.addEventListener('click', ()=>{ borradorTipoForpass = null; });
+  }
 }
 
 /* ===================== COTIZACIONES DE SERVICIO =====================

@@ -32,6 +32,39 @@
    lo usaron NO se mueven solos (mismo principio que ya usa vendedor/
    encargado en otras partes de la app).
 
+   SEGUNDA AMPLIACIÓN, mismo día, Victor viendo el formulario ya con el
+   desglose: "haz que el modal sea un poco mas amplio y se ajuste cuando
+   añadas la información, podemos añadir el concepto modelo y numero de
+   serie" + "en dado caso de que se seleccione fuera del modal se guarde
+   como borrador para no perder la información" + "si es posible añade
+   fotografias a cada concepto y al producto final como forpass". El
+   "no se ajusta" era un bug real de layout: el botón de quitar vivía DENTRO
+   del grid de dos columnas (.fila2) y por eso se veía como un renglón roto
+   aparte; el arreglo fue sacarlo del grid y ponerlo en una tarjeta propia
+   (".contacto", el mismo molde que ya usa modalKioscosSitio, con el botón
+   flotando en la esquina vía ".c-quitar") — eso, más abrir el modal con
+   ".ancho" (860px en vez de los 620px de default), es lo que de verdad
+   resuelve "se ajuste cuando añadas información". Cada componente ahora
+   también trae modelo/número de serie y SU PROPIA foto; el tipo completo
+   trae además una galería chica de fotos del Forpass YA ARMADO (el
+   producto final) — ambas reusan leerEvidencia()/comprimirEvidencia()/
+   normalizarEvidencia(), el mismo pipeline de fotos del resto de la app.
+
+   El borrador al cerrar "por fuera" (X, fondo oscuro, Escape) es DISTINTO
+   del patrón ya existente en Activos/Pólizas/Cotizaciones (que persisten un
+   documento real con estatus "Borrador", visible en su propia lista): un
+   tipo de Forpass a medias no debe poder aparecer nunca en el catálogo real
+   ni en el select de modalSitio (se podría elegir por accidente para
+   cobrarle a un cliente). Por eso vive en una variable en memoria
+   (borradorTipoForpass, nunca en datos.catalogoForpass): "Agregar tipo de
+   Forpass" lo retoma la próxima vez que se abre, y se limpia en cuanto se
+   guarda el tipo de verdad O se cierra con un "Cancelar" explícito (esa sí
+   es la salida decisiva, igual que ya documentaba el comentario de
+   guardarBorradorAlSalir: "el botón Cancelar sigue sin pasar por aquí a
+   propósito, es la única salida que de verdad cancela") — sin este último
+   candado, un borrador cancelado a propósito reaparecería zombie cada vez
+   que se abriera "Agregar tipo" de nuevo.
+
    Devengo en 6 meses: antes, montosPorMesForpassCosto()/detalleForpassCosto()
    reconocían TODO forpassCosto de un jalón en el mes de fechaInicio. Ahora
    devengoCostoForpass(s) reparte ese costo en 6 meses consecutivos desde
@@ -40,11 +73,13 @@
    mes) — y como Resultados siempre se recalcula en vivo, este cambio
    también mueve cómo se ve el costo de sitios que YA EXISTÍAN antes de
    este cambio, sin que su forpassCosto guardado cambie en nada. */
+const path = require('path');
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
 let fallas = 0;
 const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
+const FOTO_PRUEBA = path.join(__dirname, 'fixtures', 'foto_prueba.png');
 
 (async () => {
   const browser = await chromium.launch(OPCIONES_NAVEGADOR);
@@ -149,6 +184,65 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   // La tabla del catálogo muestra el conteo de conceptos de cada tipo
   const filaTabla = await page.locator('tr', { hasText: 'Forpass solo equipo' }).innerText();
   chkF('La tabla del catálogo muestra el conteo de conceptos', filaTabla.includes('6 conceptos'));
+
+  // --------- 2.5) Modal más ancho, layout en tarjetas, modelo/serie y fotos ---------
+  await page.click('[data-editar-tipo-forpass="' + id1 + '"]');
+  await page.waitForTimeout(150);
+  chkF('El modal de un tipo de Forpass se abre más ancho (.ancho)', await page.evaluate(() => $('modal').classList.contains('ancho')));
+  chkF('Cada componente vive en su propia tarjeta (.contacto), no amontonado en el grid', (await page.locator('.contacto').count()) === 6);
+  chkF('El botón de quitar flota en la esquina de la tarjeta (.c-quitar), no rompe el layout', (await page.locator('.contacto .c-quitar').count()) === 6);
+
+  await page.fill('[data-tfc="modelo"][data-i="0"]', 'OptiPlex 3090');
+  await page.fill('[data-tfc="numeroSerie"][data-i="0"]', 'SN-00231');
+  await page.click('[data-agregar-foto-componente="0"]');
+  await page.setInputFiles('#tfArchivoFoto', FOTO_PRUEBA);
+  await page.waitForTimeout(400);
+  chkF('La foto del componente aparece en su propia tarjeta tras subirla', (await page.locator('.contacto').first().locator('.evidencia-foto').count()) === 1);
+
+  await page.click('#btnAgregarFotoProducto');
+  await page.setInputFiles('#tfArchivoFoto', FOTO_PRUEBA);
+  await page.waitForTimeout(400);
+  chkF('La foto del Forpass (producto final) aparece en su propia galería', (await page.locator('.seccion', { hasText: 'Fotos del Forpass' }).locator('.evidencia-foto').count()) === 1);
+
+  await page.click('[data-modal="guardar"]');
+  await page.waitForTimeout(200);
+  const tipo1ConFotos = await page.evaluate((id) => datos.catalogoForpass.find(t => t.id === id), id1);
+  chkF('Se guarda el modelo y número de serie del componente', tipo1ConFotos.componentes[0].modelo === 'OptiPlex 3090' && tipo1ConFotos.componentes[0].numeroSerie === 'SN-00231');
+  chkF('Se guarda la foto propia del componente', !!tipo1ConFotos.componentes[0].foto && tipo1ConFotos.componentes[0].foto.dataUrl.startsWith('data:image'));
+  chkF('Los demás componentes siguen sin foto (nunca se les subió una)', tipo1ConFotos.componentes.slice(1).every(c => c.foto === null));
+  chkF('Se guarda la foto del producto final', tipo1ConFotos.fotos.length === 1 && tipo1ConFotos.fotos[0].dataUrl.startsWith('data:image'));
+  chkF('El costo y la cantidad de componentes no cambiaron solo por agregar modelo/serie/fotos', tipo1ConFotos.costo === 27194 && tipo1ConFotos.componentes.length === 6);
+
+  await page.evaluate(() => render());
+  chkF('La tabla del catálogo muestra una miniatura de la primera foto del producto', (await page.locator('tr', { hasText: 'Forpass solo equipo' }).locator('img').count()) === 1);
+
+  // --------- 2.6) Borrador al cerrar "por fuera" (sin tocarlo nunca el catálogo real) ---------
+  await page.click('[data-accion="nuevo-tipo-forpass"]');
+  await page.waitForTimeout(150);
+  await page.fill('#tfNombre', 'Tipo a medio capturar');
+  await page.click('#btnAgregarComponente');
+  await page.waitForTimeout(100);
+  await page.fill('[data-tfc="concepto"][data-i="0"]', 'Mueble');
+  await page.fill('[data-tfc="costo"][data-i="0"]', '12800');
+  const antesDelBorrador = await page.evaluate(() => datos.catalogoForpass.length);
+  await page.locator('#telon').click({ position: { x: 5, y: 5 } }); // clic fuera, en el fondo
+  await page.waitForTimeout(150);
+  chkF('Clic fuera del modal lo cierra', !(await page.evaluate(() => $('telon').classList.contains('abierto'))));
+  chkF('NO se agrega ningún tipo a medias al catálogo real', (await page.evaluate(() => datos.catalogoForpass.length)) === antesDelBorrador);
+
+  await page.click('[data-accion="nuevo-tipo-forpass"]');
+  await page.waitForTimeout(150);
+  chkF('Al reabrir "Agregar tipo", se retoma el nombre del borrador', (await page.inputValue('#tfNombre')) === 'Tipo a medio capturar');
+  chkF('...y el concepto que ya se había capturado', (await page.inputValue('[data-tfc="concepto"][data-i="0"]')) === 'Mueble');
+
+  // Esta vez, Cancelar explícito: el borrador se descarta de verdad
+  await page.click('[data-modal="cancelar"]');
+  await page.waitForTimeout(150);
+  await page.click('[data-accion="nuevo-tipo-forpass"]');
+  await page.waitForTimeout(150);
+  chkF('Tras un "Cancelar" explícito, el borrador NO vuelve a aparecer (no queda zombie)', (await page.inputValue('#tfNombre')) === '');
+  await page.evaluate(() => cerrarModal());
+  chkF('El catálogo real sigue intacto tras probar el borrador', (await page.evaluate(() => datos.catalogoForpass.length)) === antesDelBorrador);
 
   // --------- 3) modalSitio(): el select autollena el costo — "copiar, no referenciar" ---------
   const id2 = await page.evaluate(() => datos.catalogoForpass.find(t => t.nombre === 'Forpass con mueble').id);
