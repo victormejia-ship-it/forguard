@@ -4187,10 +4187,24 @@ async function autoSincronizarPolizaCliente(p){
   if(!esAdmin() || !HAY_NUBE || !haySesion()) return;
   if(_polizasAutoSincronizadas.has(p.id)) return;
   _polizasAutoSincronizadas.add(p.id);
+  /* 14-oct-2026, reporte real de Victor: "al momento de seleccionar polizas
+     siempre se tarda demasiado en abrir los archivos o abrir el modulo".
+     La causa: este guardarLocal() de aquí volvía a serializar TODO `datos`
+     a JSON y reescribirlo en localStorage, una vez POR CADA póliza sin
+     sincronizar en la sesión (vistaPolizas() las dispara todas de un
+     jalón al abrir la lista) — y no hacía falta: si no había fotos que
+     migrar, esta función no toca `datos` en absoluto (encolarCopiaCliente
+     solo encola un envío a la nube, no cambia nada local que guardar); si
+     SÍ había fotos, migrarFotosPolizaAStorage ya llama a guardarPoliza(),
+     que internamente ya hace su propio guardarLocal() — este de aquí
+     era un segundo guardado, idéntico, de balde. Con 30 pólizas sin fotos
+     de por medio esto medía ~225ms de bloqueo SOLO con datos de prueba
+     chicos (sin ninguna foto embebida real) — con la base real, con fotos
+     en base64 todavía sin migrar, el mismo guardarLocal() de por sí ya es
+     mucho más pesado, y 20-30 veces seguidas es justo el freeze reportado. */
   if(polizaTieneFotosSinMigrar(p)) await migrarFotosPolizaAStorage(p.id, true);
   const actual = polizaPorId(p.id) || p;
   encolarCopiaCliente('polizas_cliente', actual.id, datosClientePoliza(actual));
-  guardarLocal();
 }
 
 /* Herramienta temporal de diagnóstico (10-sep-2026): a pesar de los dos
