@@ -3690,8 +3690,12 @@ function datosClientePoliza(p){
        de siempre (ver el comentario junto a esos campos en
        normalizarPartida): son control interno del equipo, tal cual ya
        pasa en la cotización impresa — nunca fueron pensados para que los
-       viera nadie fuera de Forguard. */
-    partidas: p.partidas.map(x => Object.assign({}, x, { costoUnitario:0, modelo:'', serie:'', codigo:'' }))
+       viera nadie fuera de Forguard. `funcionamiento` (módulo Cocinas,
+       14-oct-2026) es la misma categoría: seguimiento interno de
+       mantenimiento, no algo diseñado todavía para el portal — se resetea
+       a "sin verificar" en vez de dejarlo pasar tal cual. */
+    partidas: p.partidas.map(x => Object.assign({}, x, { costoUnitario:0, modelo:'', serie:'', codigo:'',
+      funcionamiento: x.funcionamiento.map(()=> normalizarEstadoFuncionamiento(null)) }))
   });
 }
 function datosClienteCotizacion(q){
@@ -11265,6 +11269,22 @@ function normalizarPoliza(p){
    aquí — cotizaciones con totales tecleados que dejaron de cuadrar, una con
    cantidades escondidas sin columna y otra con un factor que nadie documentó.
    Tampoco hay campo de descuento: un ajuste se refleja en el precioUnitario. */
+/* Estado de funcionalidad de UNA unidad física de una partida de póliza
+   (14-oct-2026, módulo Cocinas rehecho). `estado` es `true`/`false`/`null`
+   — `null` ("sin verificar") es DISTINTO de "funciona": una unidad que
+   nadie ha revisado nunca no debe contar como sana ni como caída, se
+   excluye del % hasta que alguien de verdad la revise (ver
+   armarRenglonFuncionamiento). `reporteId` liga al Reporte que se levantó
+   al marcarla "No funciona" (si se levantó uno) — evita ofrecer "Levantar
+   reporte" dos veces para la misma avería ya reportada. */
+function normalizarEstadoFuncionamiento(f){
+  return {
+    estado: (f && f.estado === true) ? true : (f && f.estado === false) ? false : null,
+    revisadoEn: /^\d{4}-\d{2}-\d{2}$/.test(f && f.revisadoEn) ? f.revisadoEn : '',
+    revisadoPor: (f && f.revisadoPor ? String(f.revisadoPor) : '').trim(),
+    reporteId: (f && f.reporteId ? String(f.reporteId) : '').trim()
+  };
+}
 function normalizarPartida(x){
   /* CUÁNTOS mantenimientos al año. En QUÉ meses es mesesServicio, aparte.
      A propósito NO se fuerza que frecuencia === mesesServicio.length: si no
@@ -11330,6 +11350,16 @@ function normalizarPartida(x){
        (nadie escribió ese índice todavía), y [].map() salta los huecos en vez
        de mandarlos como '' — Array.from() sí los rellena. */
     series: Array.from({length: cantidad}, (_,j) => limpiaSerie(Array.isArray(x.series) ? x.series[j] : '')),
+    /* Estado de funcionalidad de CADA unidad física (14-oct-2026, pedido de
+       Victor: "rehacer el modulo de cocinas... tomes los equipos de las
+       polizas y podamos definir si estan funcionando o no, mismo que
+       aplicará el valor dependiendo de la criticidad y la funcionalidad").
+       Mismo molde que `series` arriba: denso, del largo exacto de
+       `cantidad` — si una partida tiene 3 unidades, cada una se revisa y se
+       marca por separado (1 de 3 refrigeradores descompuesto no es lo mismo
+       que los 3). Ver normalizarEstadoFuncionamiento() y el módulo Cocinas. */
+    funcionamiento: Array.from({length: cantidad}, (_,j) =>
+      normalizarEstadoFuncionamiento(Array.isArray(x.funcionamiento) ? x.funcionamiento[j] : null)),
     codigo: (x.codigo || '').trim().replace(/[^A-Za-z0-9\-_. ]/g, '').toUpperCase().slice(0, 30),
     /* Qué tipo de etiqueta imprimir para este código: barras (Code128) o QR.
        Code128 es más angosto y lo lee cualquier lector láser barato; el QR
@@ -12823,6 +12853,12 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                     agrupación: por sitio (el default, "cada cocina"), por
                     categoría de equipo, o por equipo puntual. */
                  periodoCocinas:'anio', cocinasDesde:'', cocinasHasta:'', vistaCocinas:'sitio',
+                 /* Nivel de agrupación del tablero de "Estado de
+                    funcionalidad" (14-oct-2026) — aparte de `vistaCocinas`
+                    (el de "Actividad de reportes", por periodo) a propósito:
+                    alguien puede querer ver el estado en vivo por equipo
+                    mientras revisa la actividad de reportes por sitio. */
+                 vistaFuncionamiento:'sitio',
                  busca:'', filtro:'todos', sitioFiltro:'', encargadoFiltro:'', categoriaFiltroActivo:'',
                  /* Filtro por sitio DENTRO del listado de Activos de un
                     cliente (distinto de `sitioFiltro`, que es de Clientes/
@@ -15396,7 +15432,125 @@ function abrirDocumentoResultados(){
   return payload;
 }
 
-/* ==================== Cocinas: funcionalidad de equipos ====================
+/* ==================== Cocinas: estado de funcionalidad ====================
+   Rehecho 14-oct-2026, pedido explícito de Victor: "necesito que podamos
+   realizar un seguimiento de funcionalidad a las cocinas, donde tomes los
+   equipos de las polizas y podamos definir si estan funcionando o no,
+   mismo que aplicará el valor dependiendo de la criticidad y la
+   funcionalidad". Antes de construir se usó AskUserQuestion sobre tres
+   puntos: (1) granularidad — Victor pidió en cambio analizar si el módulo
+   debía quedar INDEPENDIENTE de los Reportes o combinar ambas fuentes;
+   se decidió combinarlas en el mismo módulo (ver vistaCocinas más abajo:
+   dos secciones, "Estado de funcionalidad" aquí y "Actividad de reportes"
+   con el motor que ya existía, sin tocarlo) porque son complementarias, no
+   redundantes — una es el estado en vivo del equipo, la otra es la
+   bitácora de qué se ha hecho al respecto; (2) estado actual vs. histórico
+   por periodo — eligió "estado actual" (un tablero vivo, no una métrica de
+   mes/año); (3) conectar con Reportes al marcar algo "no funciona" — eligió
+   que sí, ofrecer levantar un reporte ahí mismo (ver modalFuncionamientoSitio
+   más abajo).
+
+   Cada UNIDAD física de cada partida de una póliza ACTIVA (ver
+   normalizarEstadoFuncionamiento) es una "aparición". Se pondera exactamente
+   igual que calcularFuncionamientoLevantamiento: el peso es la `ponderacion`
+   (criticidad 1-5) del equipo en el catálogo, vía `catalogoId` — 3 (media)
+   si la partida no está ligada al catálogo. A diferencia de los hallazgos
+   (que tienen un score continuo 0-1 según prioridad), aquí el estado es
+   BINARIO —"funciona" o "no funciona", tal como lo pidió Victor— con un
+   tercer valor `null` ("sin verificar") que se EXCLUYE del cálculo: una
+   cocina que nadie ha revisado no debe aparecer como 100% sana ni como
+   crítica, debe decir claramente que falta revisarla. */
+/* Todas las apariciones de equipo de pólizas activas, opcionalmente
+   acotadas a un sitio (modalFuncionamientoSitio solo necesita las de ESE
+   sitio, el tablero general las necesita todas). */
+function aparicionesFuncionamiento(filtroSitioId){
+  const out = [];
+  datos.polizas
+    .filter(p => p.estatus === 'activa' && (!filtroSitioId || p.sitioId === filtroSitioId))
+    .forEach(p=>{
+      const s = sitioPorId(p.sitioId);
+      const cli = s ? clientePorId(s.clienteId) : null;
+      p.partidas.forEach(x=>{
+        if(esSegurista(x)) return;
+        const eq = x.catalogoId ? equipoDeCatalogo(x.catalogoId) : null;
+        x.funcionamiento.forEach((f, i)=>{
+          out.push({
+            polizaId: p.id, partidaId: x.id, unidadIndice: i,
+            sitioId: p.sitioId, sitioNombre: p.sitioNombre || (s ? s.nombre : 'Sitio eliminado'),
+            clienteId: s ? s.clienteId : '', clienteNombre: cli ? cli.nombre : '',
+            catalogoId: x.catalogoId || '', categoria: (eq && eq.categoria) || '',
+            peso: eq ? eq.ponderacion : 3,
+            serie: (x.series && x.series[i]) || (x.cantidad === 1 ? x.serie : ''),
+            /* Etiqueta de la unidad: el concepto solo, o "Concepto (unidad N de M)"
+               cuando hay más de una — igual que ya hace catalogoEquiposAgregado(). */
+            etiqueta: x.cantidad > 1 ? x.concepto + ' (unidad ' + (i+1) + ' de ' + x.cantidad + ')' : x.concepto,
+            estado: f.estado, revisadoEn: f.revisadoEn, revisadoPor: f.revisadoPor, reporteId: f.reporteId
+          });
+        });
+      });
+    });
+  return out;
+}
+function tonoPctFuncionamiento(pct){
+  if(pct == null) return { texto:'Sin verificar', tono:'neutro' };
+  if(pct >= 70) return { texto:'Buena', tono:'ok' };
+  if(pct >= 40) return { texto:'Atención', tono:'alerta' };
+  return { texto:'Crítica', tono:'error' };
+}
+/* Mismo cálculo que calcularFuncionamientoLevantamiento (Σpeso·score / Σpeso),
+   con score binario (0/1) en vez de continuo, y las unidades sin verificar
+   fuera de las dos sumas — ni ayudan ni perjudican el %, porque no se sabe. */
+function armarRenglonFuncionamiento(apariciones){
+  const total = apariciones.length;
+  const verificadas = apariciones.filter(a => a.estado !== null);
+  const caidas = apariciones.filter(a => a.estado === false).length;
+  const sinVerificar = total - verificadas.length;
+  const sumaPeso = verificadas.reduce((s,a)=> s + a.peso, 0);
+  const sumaPonderada = verificadas.reduce((s,a)=> s + a.peso * (a.estado ? 1 : 0), 0);
+  const pct = sumaPeso ? Math.round(sumaPonderada / sumaPeso * 100) : null;
+  return { total, verificadas: verificadas.length, caidas, sinVerificar, pct };
+}
+function calcularFuncionamientoCocinas(){
+  const apariciones = aparicionesFuncionamiento();
+
+  const porSitioMap = new Map();
+  apariciones.forEach(a=>{
+    if(!porSitioMap.has(a.sitioId)) porSitioMap.set(a.sitioId, []);
+    porSitioMap.get(a.sitioId).push(a);
+  });
+  const porSitio = Array.from(porSitioMap.entries()).map(([id, lista])=>
+    Object.assign({ id, nombre: lista[0].sitioNombre, clienteNombre: lista[0].clienteNombre },
+      armarRenglonFuncionamiento(lista))
+  ).sort((a,b)=> (a.pct == null ? 999 : a.pct) - (b.pct == null ? 999 : b.pct));
+
+  const porCategoriaMap = new Map();
+  apariciones.forEach(a=>{
+    const cat = a.categoria || 'sin_categoria';
+    if(!porCategoriaMap.has(cat)) porCategoriaMap.set(cat, []);
+    porCategoriaMap.get(cat).push(a);
+  });
+  const porCategoria = Array.from(porCategoriaMap.entries()).map(([cat, lista])=>
+    Object.assign({ id:cat, nombre: ETIQUETA_CATEGORIA_EQUIPO[cat] || 'Sin categoría' },
+      armarRenglonFuncionamiento(lista))
+  ).sort((a,b)=> (a.pct == null ? 999 : a.pct) - (b.pct == null ? 999 : b.pct));
+
+  const porEquipoMap = new Map();
+  apariciones.forEach(a=>{
+    const key = a.catalogoId || 'texto:' + llaveTexto(a.etiqueta);
+    if(!porEquipoMap.has(key)) porEquipoMap.set(key, []);
+    porEquipoMap.get(key).push(a);
+  });
+  const porEquipo = Array.from(porEquipoMap.entries()).map(([key, lista])=>{
+    const eq = lista[0].catalogoId ? equipoDeCatalogo(lista[0].catalogoId) : null;
+    return Object.assign({ id:key, nombre: (eq && eq.concepto) || lista[0].etiqueta || 'Equipo' },
+      armarRenglonFuncionamiento(lista));
+  }).sort((a,b)=> (a.pct == null ? 999 : a.pct) - (b.pct == null ? 999 : b.pct));
+
+  const total = armarRenglonFuncionamiento(apariciones);
+  return { total, porSitio, porCategoria, porEquipo };
+}
+
+/* ==================== Cocinas: actividad de reportes ====================
    Salud operativa de "una cocina" (un sitio) medida con la bitácora REAL a lo
    largo del tiempo — a diferencia del "Análisis de funcionamiento" de
    Levantamientos (calcularFuncionamientoLevantamiento), que es la foto de UN
@@ -15827,29 +15981,40 @@ const TEMAS_AYUDA = [
       + guiaRoles('Todos los roles internos lo ven y pueden levantar tickets. Gestionar uno ya emitido (editar/estatus/resolver): Owner/Admin/Analyst y Técnico. Asignar técnicos: solo Owner/Admin/Analyst. Eliminar: Owner/Admin.') },
 
   { id:'cocinas', titulo:'Cocinas',
-    resumen:'Qué tan bien están funcionando los equipos, con la bitácora real de Reportes: cuántos se levantan, cuántos se resuelven, qué tan rápido y cuánto cuesta lo cotizado.',
+    resumen:'Dos tableros: el % de funcionalidad EN VIVO del equipo instalado en pólizas activas, y la bitácora de Reportes de siempre (cuántos se levantan, cuántos se resuelven, qué tan rápido y cuánto cuesta lo cotizado).',
     contenido:
-      guiaSeccion('Lo básico', guiaPasos([
-        'Elige el período arriba: <b>Mes actual</b>, <b>Año actual</b> (el default: da más historial para que el score signifique algo) o un <b>rango personalizado</b>.',
-        'Los 4 KPI de cabecera son del período completo: <b>Reportes levantados</b>, <b>Resueltos</b> (con su %), <b>Tiempo de resolución</b> promedio y <b>Cotizado</b> (lo que esos reportes generaron en cotizaciones).',
-        'Alterna entre <b>Por sitio</b> (cada "cocina" de un cliente), <b>Por categoría</b> de equipo (las mismas 5 de la Lista de precios de Pólizas) o <b>Por equipo</b> puntual, con los tres botones junto al selector de período.',
-        'Cada renglón trae su propia <b>Salud</b>: un score de 0 a 100 con semáforo (Buena/Atención/Crítica) — el resumen de arriba de la tabla dice cuántos cayeron en cada color.',
-        'Desde "Por sitio", el botón <b>Ver reportes</b> de cada renglón salta directo a Reportes ya filtrado por ese sitio.'
+      guiaSeccion('Lo básico — Estado de funcionalidad', guiaPasos([
+        'Es un tablero EN VIVO (no por período): toma el equipo real de cada partida de las pólizas activas y pregunta, unidad por unidad, "¿esto está funcionando ahorita?".',
+        'Alterna entre <b>Por sitio</b>, <b>Por categoría</b> de equipo o <b>Por equipo</b> puntual con los botones de arriba.',
+        'Desde "Por sitio", el botón <b>Revisar equipos</b> abre el checklist de esa cocina: cada unidad tiene tres botones — <b>Funciona</b>, <b>No funciona</b> y <b>Sin verificar</b> — y el clic guarda al instante, sin botón "Guardar" aparte.',
+        'Marcar una unidad <b>No funciona</b> ofrece ahí mismo el botón <b>Levantar reporte</b>, que abre un reporte nuevo ya precargado con cliente/sitio/equipo — se puede completar y guardar sin salir del flujo.',
+        'Los 4 KPI de cabecera son del total de equipo en pólizas activas: <b>% funcionalidad</b>, <b>Equipos caídos</b>, <b>Sin verificar</b> y <b>Equipo total</b>.'
       ]))
-      + guiaSeccion('Uso intermedio', guiaPasos([
-        'No es una vista para capturar nada: todo sale solo de los Reportes ya levantados (y de la cotización que hayan generado, si aplica) — no hay botón de "nuevo" en este módulo.',
-        'Un reporte cancelado nunca cuenta: ni suma a "levantados" ni afecta el score, igual que un hallazgo preventivo en el análisis de funcionamiento de Levantamientos.',
-        '"Por categoría"/"Por equipo" solo puede agrupar los reportes que sí traen un equipo del catálogo identificado (o un equipo de texto libre) — uno de infraestructura del sitio sin equipo ligado solo aparece en "Por sitio".'
+      + guiaSeccion('Por qué "Sin verificar" no es lo mismo que "Funciona"', guiaPasos([
+        'Una unidad que nadie ha revisado nunca se queda en <b>Sin verificar</b> — no cuenta como sana ni como caída, y se excluye del % hasta que alguien de verdad la revise.',
+        'Esto es intencional: si "sin revisar" contara como "funciona", el % de una cocina recién dada de alta (o con pólizas nuevas) se vería perfecto sin que nadie haya puesto un ojo encima.',
+        'Por eso, al activar este tablero sobre pólizas que ya existían, todo el equipo arranca en "Sin verificar" hasta la primera revisión — es esperado, no un error.'
+      ]))
+      + guiaSeccion('Cómo se pondera el % de funcionalidad', guiaPasos([
+        'Cada unidad VERIFICADA (funciona o no funciona — las "sin verificar" no entran) pesa según el "Peso en el % de funcionamiento" del equipo en el catálogo (1 a 5, capturado en Equipos) — un refrigerador crítico pesa más que un extractor de baja prioridad.',
+        '% = (suma de pesos de las unidades que sí funcionan) ÷ (suma de pesos de todas las unidades verificadas) × 100 — el mismo criterio que ya usa el % de funcionamiento de un Levantamiento, aplicado aquí al estado en vivo en vez de a una sola visita.',
+        'Las pólizas de seguro (líneas "segurista") y las pólizas inactivas/vencidas nunca entran a este cálculo — solo equipo real en pólizas activas.'
+      ]))
+      + guiaSeccion('Lo básico — Actividad de reportes', guiaPasos([
+        'Esta sección es la que ya existía: elige el período (<b>Mes actual</b>, <b>Año actual</b> o un rango personalizado) y mide la bitácora de Reportes levantados, no el estado actual del equipo.',
+        'Los 4 KPI son del período completo: <b>Reportes levantados</b>, <b>Resueltos</b> (con su %), <b>Tiempo de resolución</b> promedio y <b>Cotizado</b>.',
+        'Cada renglón trae su propia <b>Salud</b> (score 0-100 con semáforo) — "Ver reportes" salta a Reportes filtrado por ese sitio.'
       ]))
       + guiaSeccion('Funciones avanzadas', ''
-        + guiaTip('Cómo se arma el score de salud (no es un promedio simple)', [
-            'Reparte 100 puntos en tres penalizaciones con su propio tope: hasta 50 por severidad (reportes todavía abiertos, sobre todo los urgentes, pesan más que uno ya resuelto — con la misma tabla de gravedad que usan los hallazgos de Levantamientos), hasta 30 por qué tan seguido falla ESTE sitio/categoría/equipo comparado con los demás del mismo período, y hasta 20 por tardarse en resolver (20+ días de promedio ya es el tope).',
-            'Cada reporte pesa según qué tanto importa su equipo para operar (el mismo "Peso" del catálogo que ya usa el % de funcionamiento de Levantamientos) — un equipo fuera de catálogo o sin identificar pesa "media" por default.',
-            'Un reporte ya resuelto o cerrado NUNCA baja el score por severidad, sin importar cuánto tardó — eso se mide aparte, como su propio KPI de tiempo de resolución.'
+        + guiaTip('Cómo se arma el score de "Actividad de reportes" (distinto del % de funcionalidad)', [
+            'Reparte 100 puntos en tres penalizaciones con su propio tope: hasta 50 por severidad (reportes todavía abiertos, sobre todo los urgentes, pesan más que uno ya resuelto), hasta 30 por qué tan seguido falla ESTE sitio/categoría/equipo comparado con los demás del mismo período, y hasta 20 por tardarse en resolver (20+ días de promedio ya es el tope).',
+            'Un reporte ya resuelto o cerrado NUNCA baja este score por severidad, sin importar cuánto tardó — eso se mide aparte, como su propio KPI de tiempo de resolución.',
+            'Este score mide HISTORIA de reportes en un período; el % de funcionalidad de arriba mide el estado ahorita. Pueden no coincidir: una cocina puede tener buena actividad de reportes (pocos, resueltos rápido) pero equipo sin revisar, o viceversa.'
           ])
         + guiaTip('Detalles que casi nadie nota', [
-            'Todo se recalcula al vuelo cada vez que entras o cambias el período o el nivel de agrupación — nada de esto se guarda.',
-            'El score del período completo (arriba, en los KPI) no tiene con qué compararse, así que no incluye la penalización por frecuencia — solo dice severidad y tiempo de resolución.'
+            'Las dos secciones se recalculan al vuelo cada vez que entras o cambias el filtro — nada de esto se guarda aparte, salvo el estado de cada unidad en "Estado de funcionalidad", que si vive en la póliza (campo funcionamiento de cada partida).',
+            'Un reporte cancelado nunca cuenta en "Actividad de reportes": ni suma a "levantados" ni afecta ese score.',
+            'El estado de funcionamiento de cada unidad no viaja a Mi póliza (portal del cliente) — es seguimiento interno, igual que modelo/serie/código del equipo.'
           ])) },
 
   { id:'levantamientos', titulo:'Levantamientos',
@@ -20837,12 +21002,18 @@ function arrancarFormularioPublicoReportesSiAplica(){
   return true;
 }
 
-function modalReporte(id){
+function modalReporte(id, prefill){
   const rp = id ? reportePorId(id) : null;
   if(!datos.clientes.length){
     aviso('Primero da de alta un cliente: el reporte cuelga de un sitio suyo.', true);
     return;
   }
+  /* `prefill` (14-oct-2026, módulo Cocinas rehecho): solo aplica al crear
+     (rp es null) — viene de marcar una unidad "No funciona" en
+     modalFuncionamientoSitio(), para no hacer escribir de nuevo
+     cliente/sitio/equipo que ya se sabían ahí. Editar un reporte existente
+     nunca lo usa. */
+  prefill = (!rp && prefill) ? prefill : null;
   /* Veredicto de auditoría (21-sep-2026, hallazgo Datos, 15 d-p): foto de
      qué versión de este reporte se conocía AL ABRIRLO, para poder avisar
      en cerrarModalActual() si alguien más ya lo guardó mientras tanto
@@ -20856,11 +21027,12 @@ function modalReporte(id){
   const opc = (lista, sel, texto, valor) => lista.map(o =>
     '<option value="' + esc(valor(o)) + '"' + (valor(o) === sel ? ' selected' : '') + '>' + esc(texto(o)) + '</option>').join('');
 
-  const equipoEsDelCatalogo = rp && rp.equipoCatalogoId;
+  const equipoEsDelCatalogo = (rp && rp.equipoCatalogoId) || (prefill && prefill.equipoCatalogoId);
+  const clienteInicial = rp ? rp.clienteId : (prefill ? prefill.clienteId : '');
   const cuerpo =
       '<div class="campo"><label>Cliente *</label>'
     +   '<div class="cliente-zona">'
-    +     '<select id="rCliente">' + opc(clientesOrd, rp ? rp.clienteId : '', c=>c.nombre, c=>c.id) + '</select>'
+    +     '<select id="rCliente">' + opc(clientesOrd, clienteInicial, c=>c.nombre, c=>c.id) + '</select>'
     +     '<button type="button" class="btn btn-suave btn-mini" id="btnClienteNuevoR" '
     +       'title="Dar de alta un cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
     +   '</div>'
@@ -20890,14 +21062,14 @@ function modalReporte(id){
     + '</div>'
     + '<div class="campo"><label>Equipo</label><select id="rEquipoId">'
     +   '<option value="">— Elegir de la lista —</option>'
-    +   opc(cat, equipoEsDelCatalogo ? rp.equipoCatalogoId : '', e=>e.concepto, e=>e.id)
-    +   '<option value="__otro__"' + (rp && !equipoEsDelCatalogo && rp.equipoNombre ? ' selected' : '') + '>Otro / no está en la lista</option>'
+    +   opc(cat, equipoEsDelCatalogo ? (rp ? rp.equipoCatalogoId : prefill.equipoCatalogoId) : '', e=>e.concepto, e=>e.id)
+    +   '<option value="__otro__"' + ((rp || prefill) && !equipoEsDelCatalogo && (rp ? rp.equipoNombre : prefill.equipoNombre) ? ' selected' : '') + '>Otro / no está en la lista</option>'
     + '</select></div>'
     + '<div class="campo" id="zonaEquipoTextoR" hidden><label>Nombre del equipo</label>'
     +   '<input type="text" id="rEquipoTexto" placeholder="Ej. Refrigerador de postres" '
-    +     'value="' + esc(rp && !equipoEsDelCatalogo ? rp.equipoNombre : '') + '"></div>'
+    +     'value="' + esc(!equipoEsDelCatalogo ? (rp ? rp.equipoNombre : (prefill ? prefill.equipoNombre : '')) : '') + '"></div>'
     + '<div class="campo"><label>Título del reporte *</label>'
-    +   '<input type="text" id="rTitulo" placeholder="Ej. Refrigerador no enfría" value="' + esc(rp ? rp.titulo : '') + '"></div>'
+    +   '<input type="text" id="rTitulo" placeholder="Ej. Refrigerador no enfría" value="' + esc(rp ? rp.titulo : (prefill ? prefill.titulo || '' : '')) + '"></div>'
     + '<div class="campo"><label>Descripción</label>'
     +   '<textarea id="rDescripcion" placeholder="Qué pasa, desde cuándo, cualquier detalle que ayude al técnico…">' + esc(rp ? rp.descripcion : '') + '</textarea></div>'
     + '<div class="campo"><label>Prioridad</label><select id="rPrioridad">'
@@ -20918,7 +21090,7 @@ function modalReporte(id){
   function pintarSitios(){
     const clienteId = $('rCliente').value;
     const sitios = sitiosDe(clienteId).slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
-    $('rSitio').innerHTML = opc(sitios, rp ? rp.sitioId : '', s=>s.nombre, s=>s.id);
+    $('rSitio').innerHTML = opc(sitios, rp ? rp.sitioId : (prefill ? prefill.sitioId : ''), s=>s.nombre, s=>s.id);
     $('pistaSitioR').textContent = sitios.length
       ? ''
       : 'Este cliente no tiene sitios todavía — dale a "Nuevo" para agregar uno sin salir de aquí.';
@@ -21119,6 +21291,12 @@ function modalReporte(id){
       else guardarReporte(reg, 'editó');
     }else{
       guardarReporte(reg, 'creó');
+      /* Si este reporte nació desde "No funciona" en Cocinas
+         (modalFuncionamientoSitio), `prefill.alCrear` liga de vuelta el
+         folio a esa unidad ANTES de navegar — si se navegara primero, un
+         cierre accidental del modal de Cocinas dejaría la unidad sin el
+         reporteId aunque el reporte sí se haya creado. */
+      if(prefill && typeof prefill.alCrear === 'function') prefill.alCrear(reg);
     }
     cerrarModal();
     entrarReporte(reg.id);
@@ -21351,15 +21529,223 @@ function modalResolverReporte(id){
 
 /* ------------------------------- Cocinas ------------------------------- */
 function vistaCocinas(){
+  let h = '<div class="titulo-zona"><div>'
+        +   '<h2>Cocinas</h2>'
+        +   '<p>Estado de funcionalidad del equipo instalado, más la actividad de reportes de fallas</p>'
+        + '</div></div>';
+
+  h += '<div class="bloque">' + bloqueFuncionamientoCocinas() + '</div>';
+  h += '<div class="bloque">' + bloqueActividadReportesCocinas() + '</div>';
+  return h;
+}
+
+/* Sección "Estado de funcionalidad" de Cocinas (14-oct-2026) — el tablero
+   EN VIVO: toma el equipo real instalado (partidas de pólizas activas) y
+   pondera cada unidad verificada por su criticidad de catálogo. "Revisar
+   equipos" (solo en "Por sitio") abre modalFuncionamientoSitio(), donde se
+   marca cada unidad funciona/no funciona. */
+function bloqueFuncionamientoCocinas(){
+  const f = calcularFuncionamientoCocinas();
+  const nivel = estado.vistaFuncionamiento || 'sitio';
+  const filas = nivel === 'categoria' ? f.porCategoria : nivel === 'equipo' ? f.porEquipo : f.porSitio;
+
+  let h = '<div class="bloque-cabeza"><div>'
+        +   '<h3>Estado de funcionalidad</h3>'
+        +   '<p>En vivo, según el equipo instalado en tus pólizas activas y su criticidad</p>'
+        + '</div></div>';
+
+  h += '<div class="barra-busca">'
+     +   '<div class="alterna-vista alterna-texto" role="group" aria-label="Cómo agrupar el estado de funcionalidad">'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaFuncionamiento" data-modo="sitio" aria-pressed="' + (nivel==='sitio') + '">Por sitio</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaFuncionamiento" data-modo="categoria" aria-pressed="' + (nivel==='categoria') + '">Por categoría</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaFuncionamiento" data-modo="equipo" aria-pressed="' + (nivel==='equipo') + '">Por equipo</button>'
+     +   '</div>'
+     + '</div>';
+
+  if(!f.total.total){
+    h += '<div class="vacio-chico">Todavía no hay equipo instalado en ninguna póliza activa — en cuanto haya, aparece aquí para revisarlo.</div>';
+    return h;
+  }
+
+  h += '<div class="kpis">'
+     + tarjetaKpi('% funcionalidad', f.total.pct != null ? f.total.pct + '%' : '—',
+         f.total.pct != null ? tonoPctFuncionamiento(f.total.pct).texto : 'Nada verificado todavía',
+         f.total.pct != null ? 'k-' + tonoPctFuncionamiento(f.total.pct).tono : '')
+     + tarjetaKpi('Equipos caídos', numero(f.total.caidas), 'No funcionando ahorita', f.total.caidas ? 'k-error' : '')
+     + tarjetaKpi('Sin verificar', numero(f.total.sinVerificar), 'Nunca revisados', f.total.sinVerificar ? 'k-alerta' : '')
+     + tarjetaKpi('Equipo total', numero(f.total.total), 'Unidades en pólizas activas')
+     + '</div>';
+
+  const verdes = filas.filter(x => x.pct != null && x.pct >= 70).length;
+  const amarillos = filas.filter(x => x.pct != null && x.pct >= 40 && x.pct < 70).length;
+  const rojos = filas.filter(x => x.pct != null && x.pct < 40).length;
+  const sinVerificarNivel = filas.filter(x => x.pct == null).length;
+  const etiquetaNivel = nivel === 'categoria' ? 'categorías' : nivel === 'equipo' ? 'equipos' : 'sitios';
+  h += '<p class="pista" style="margin-bottom:14px">'
+     +   '<span class="insignia i-ok">' + verdes + ' en buena</span> '
+     +   '<span class="insignia i-alerta">' + amarillos + ' en atención</span> '
+     +   '<span class="insignia i-error">' + rojos + ' en crítica</span> '
+     +   '<span class="insignia i-neutro">' + sinVerificarNivel + ' sin verificar</span>'
+     +   ' — de los ' + filas.length + ' ' + etiquetaNivel + ' con equipo en pólizas activas.'
+     + '</p>';
+
+  h += '<div class="rodillo rodillo-ancho"><table class="tabla"><thead><tr>'
+     +   '<th>' + (nivel === 'sitio' ? 'Sitio' : nivel === 'categoria' ? 'Categoría' : 'Equipo') + '</th>'
+     +   (nivel === 'sitio' ? '<th>Cliente</th>' : '')
+     +   '<th>Verificado</th><th>Caídos</th><th>% funcionalidad</th>'
+     +   (nivel === 'sitio' ? '<th></th>' : '')
+     + '</tr></thead><tbody>'
+     + filas.map(x=>{
+         const t = tonoPctFuncionamiento(x.pct);
+         return '<tr>'
+           + '<td>' + esc(x.nombre) + '</td>'
+           + (nivel === 'sitio' ? '<td>' + esc(x.clienteNombre || '—') + '</td>' : '')
+           + '<td>' + numero(x.verificadas) + ' <span class="pista">de ' + numero(x.total) + '</span></td>'
+           + '<td>' + numero(x.caidas) + '</td>'
+           + '<td><span class="insignia i-' + t.tono + '">' + (x.pct != null ? x.pct + '% · ' + t.texto : t.texto) + '</span></td>'
+           + (nivel === 'sitio'
+              ? '<td><button type="button" class="btn btn-suave btn-mini" data-revisar-funcionamiento="' + esc(x.id) + '">Revisar equipos</button></td>'
+              : '')
+         + '</tr>';
+       }).join('')
+     + '</tbody></table></div>';
+
+  return h;
+}
+
+/* Modal "Revisar equipos" de un sitio (14-oct-2026, módulo Cocinas
+   rehecho): el checklist por unidad física donde se marca funciona/no
+   funciona/sin verificar. Cada clic guarda de inmediato (ver
+   guardarPoliza) — es un tablero de ESTADO ACTUAL (decisión confirmada
+   con Victor vía AskUserQuestion), no un borrador con botón "Guardar"
+   aparte. Marcar "No funciona" ofrece levantar un reporte ahí mismo si la
+   unidad no tiene ya uno abierto ligado (también confirmado) — ver
+   levantarReporteDesdeFuncionamiento(). */
+function modalFuncionamientoSitio(sitioId){
+  const sitio = sitioPorId(sitioId);
+  if(!sitio){ aviso('Ese sitio ya no existe.', true); return; }
+
+  function pintar(){
+    const apariciones = aparicionesFuncionamiento(sitioId);
+    if(!apariciones.length){
+      $('modalCuerpo').innerHTML = '<div class="vacio-chico">Este sitio no tiene equipo en pólizas activas.</div>';
+      return;
+    }
+    $('modalCuerpo').innerHTML =
+        '<p class="pista" style="margin:0 0 14px">Marca cada unidad según su estado actual. Se guarda al instante.</p>'
+      + '<div class="rodillo"><table class="tabla"><thead><tr>'
+      +   '<th>Equipo</th><th>Serie</th><th>Estado</th><th></th>'
+      + '</tr></thead><tbody>'
+      + apariciones.map(a=>{
+          /* "Abierto" aquí no es solo "tiene reporteId": si ese reporte ya
+             se resolvió y el equipo sigue (o volvió a quedar) marcado "no
+             funciona", es una avería distinta y sí debe poder levantar un
+             reporte nuevo — por eso se revisa el estatus del reporte, no
+             solo si el campo está lleno. */
+          const reporteLigado = a.reporteId ? reportePorId(a.reporteId) : null;
+          const tieneReporteAbierto = reporteLigado && reporteLigado.estatus !== 'resuelto';
+          return '<tr>'
+            + '<td>' + esc(a.etiqueta) + '<br><span class="pista">' + esc(ETIQUETA_CATEGORIA_EQUIPO[a.categoria] || 'Sin categoría') + ' · peso ' + a.peso + '</span></td>'
+            + '<td>' + esc(a.serie || '—') + '</td>'
+            + '<td><div class="alterna-vista alterna-texto" role="group" aria-label="Estado de ' + esc(a.etiqueta) + '">'
+            +   '<button type="button" data-func-estado="true" data-func-poliza="' + esc(a.polizaId) + '" data-func-partida="' + esc(a.partidaId) + '" data-func-unidad="' + a.unidadIndice + '" aria-pressed="' + (a.estado === true) + '">Funciona</button>'
+            +   '<button type="button" data-func-estado="false" data-func-poliza="' + esc(a.polizaId) + '" data-func-partida="' + esc(a.partidaId) + '" data-func-unidad="' + a.unidadIndice + '" aria-pressed="' + (a.estado === false) + '">No funciona</button>'
+            +   '<button type="button" data-func-estado="null" data-func-poliza="' + esc(a.polizaId) + '" data-func-partida="' + esc(a.partidaId) + '" data-func-unidad="' + a.unidadIndice + '" aria-pressed="' + (a.estado === null) + '">Sin verificar</button>'
+            + '</div></td>'
+            + '<td>' + (a.estado === false
+                ? (tieneReporteAbierto
+                   ? '<button type="button" class="btn btn-suave btn-mini" data-ver-reporte-func="' + esc(a.reporteId) + '">Ver reporte ' + esc(reporteLigado.folio || '') + '</button>'
+                   : '<button type="button" class="btn btn-primario btn-mini" data-levantar-reporte-func="' + esc(a.polizaId) + '|' + esc(a.partidaId) + '|' + a.unidadIndice + '">Levantar reporte</button>')
+                : '') + '</td>'
+          + '</tr>';
+        }).join('')
+      + '</tbody></table></div>';
+
+    $('modalCuerpo').querySelectorAll('[data-func-estado]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        const valor = b.dataset.funcEstado === 'true' ? true : b.dataset.funcEstado === 'false' ? false : null;
+        marcarFuncionamiento(b.dataset.funcPoliza, b.dataset.funcPartida, +b.dataset.funcUnidad, valor);
+        pintar();
+      });
+    });
+    $('modalCuerpo').querySelectorAll('[data-levantar-reporte-func]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        const [polizaId, partidaId, unidadIndice] = b.dataset.levantarReporteFunc.split('|');
+        levantarReporteDesdeFuncionamiento(polizaId, partidaId, +unidadIndice);
+      });
+    });
+    $('modalCuerpo').querySelectorAll('[data-ver-reporte-func]').forEach(b=>{
+      b.addEventListener('click', ()=>{ cerrarModal(); entrarReporte(b.dataset.verReporteFunc); });
+    });
+  }
+
+  abrirModal('Revisar equipos — ' + (sitio.nombre || 'sitio'), '<div class="vacio-chico">Cargando…</div>',
+    '<button type="button" class="btn btn-primario" data-modal="cancelar">Cerrar</button>');
+  pintar();
+}
+
+/* Guarda el nuevo estado de UNA unidad y re-renderiza el tablero detrás del
+   modal (el % de funcionalidad de la tarjeta/tabla debe reflejarlo aunque
+   el modal siga abierto). No se toca `reporteId` al cambiar de estado: es
+   simple historial de "qué reporte se levantó la última vez que esto se
+   marcó roto" y modalFuncionamientoSitio ya decide por sí mismo, viendo el
+   estatus de ESE reporte, si ofrece levantar uno nuevo. */
+function marcarFuncionamiento(polizaId, partidaId, unidadIndice, valorEstado){
+  const p = polizaPorId(polizaId);
+  const x = p && p.partidas.find(x => x.id === partidaId);
+  const f = x && x.funcionamiento[unidadIndice];
+  if(!p || !x || !f) return;
+  f.estado = valorEstado;
+  f.revisadoEn = hoyISO();
+  f.revisadoPor = nombreDe(sesion) || '';
+  guardarPoliza(p, 'editó', 'Actualizó el estado de funcionamiento de ' + (x.concepto || 'un equipo') + ' en ' + (p.sitioNombre || 'un sitio') + '.');
+  render();
+}
+
+/* Levanta un reporte prellenado desde una unidad marcada "No funciona"
+   (decisión confirmada con Victor vía AskUserQuestion) y, en cuanto se
+   crea, liga su folio de vuelta a esa unidad para no volver a ofrecerlo
+   mientras siga abierto (ver tieneReporteAbierto en modalFuncionamientoSitio). */
+function levantarReporteDesdeFuncionamiento(polizaId, partidaId, unidadIndice){
+  const p = polizaPorId(polizaId);
+  const x = p && p.partidas.find(x => x.id === partidaId);
+  if(!p || !x) return;
+  const s = sitioPorId(p.sitioId);
+  const eq = x.catalogoId ? equipoDeCatalogo(x.catalogoId) : null;
+  const etiqueta = x.cantidad > 1 ? x.concepto + ' (unidad ' + (unidadIndice+1) + ' de ' + x.cantidad + ')' : x.concepto;
+  modalReporte(null, {
+    clienteId: s ? s.clienteId : '',
+    sitioId: p.sitioId,
+    equipoCatalogoId: x.catalogoId || '',
+    equipoNombre: eq ? eq.concepto : x.concepto,
+    titulo: etiqueta + ' no funciona',
+    alCrear(reg){
+      const f = x.funcionamiento[unidadIndice];
+      if(f){
+        f.reporteId = reg.id;
+        guardarPoliza(p, 'editó', 'Ligó el reporte ' + (reg.folio || '') + ' al equipo ' + (x.concepto || '') + '.');
+      }
+    }
+  });
+}
+
+/* Sección "Actividad de reportes" de Cocinas — el módulo tal como existía
+   antes del 14-oct-2026, sin tocar su cálculo (calcularCocinas/
+   armarRenglonCocina): cuántos reportes se levantaron en un periodo, qué
+   tan rápido se resolvieron y cuánto costaron. Se conserva TAL CUAL,
+   como la mitad "bitácora de actividad" del módulo rehecho — ver el
+   comentario grande junto a calcularFuncionamientoCocinas() de por qué no
+   se reemplazó, sino que se combinaron las dos fuentes. */
+function bloqueActividadReportesCocinas(){
   const modo = estado.periodoCocinas || 'anio';
   const { inicio, fin } = rangoPeriodoResultados(modo, estado.cocinasDesde, estado.cocinasHasta);
   const f = calcularCocinas(inicio, fin);
   const nivel = estado.vistaCocinas || 'sitio';
   const filas = nivel === 'categoria' ? f.porCategoria : nivel === 'equipo' ? f.porEquipo : f.porSitio;
 
-  let h = '<div class="titulo-zona"><div>'
-        +   '<h2>Cocinas</h2>'
-        +   '<p>' + fmtFecha(inicio) + ' – ' + fmtFecha(fin) + ' · funcionalidad de equipos según reportes levantados, resueltos y cotizados</p>'
+  let h = '<div class="bloque-cabeza"><div>'
+        +   '<h3>Actividad de reportes</h3>'
+        +   '<p>' + fmtFecha(inicio) + ' – ' + fmtFecha(fin) + ' · frecuencia de fallas reportadas, resolución y costo cotizado</p>'
         + '</div></div>';
 
   h += '<div class="barra-busca">'
@@ -26723,6 +27109,9 @@ $('vista').addEventListener('click', async ev=>{
      cuando el Gantt vive directo en #vista. */
   const pVerServ = ev.target.closest('[data-ver-servicio]');
   if(pVerServ){ modalDetalleServicioPortal(pVerServ.dataset.verServicio, pVerServ.dataset.verPartida, +pVerServ.dataset.verMes); return; }
+
+  const pRevisarFunc = ev.target.closest('[data-revisar-funcionamiento]');
+  if(pRevisarFunc){ modalFuncionamientoSitio(pRevisarFunc.dataset.revisarFuncionamiento); return; }
 
   const bor = ev.target.closest('[data-borrar-usuario]');
   if(bor){
