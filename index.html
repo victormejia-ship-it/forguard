@@ -16186,7 +16186,8 @@ const TEMAS_AYUDA = [
         '4 KPIs: Total, Valor del inventario, Mantenimiento pendiente (clickeable), Garantías por vencer (clickeable).',
         'Usa <b>Nuevo activo</b>: Tipo (Equipo en cliente / Activo interno — Forguard / Activo interno — Plato Express), Cliente+Sitio (obligatorio para "Equipo en cliente", opcional para los dos internos — ver el detalle abajo), Ubicación y Asignar a (para los internos), Categoría, Nombre*, Marca, Modelo, Serie, Estatus, Condición, Proveedor, Fecha y Costo de compra, Garantía hasta, Frecuencia de mantenimiento (días), Próximo mantenimiento, Notas, Código (barras o QR, con botón "Generar"), y hasta 6 fotos.',
         'Busca por folio/nombre/marca/serie/sitio/cliente; filtra por tipo (incluye los dos internos por separado), por cada estatus, por categoría, o por "Mantenimiento pendiente"/"Garantía por vencer".',
-        'En el detalle: sube más evidencia, sube la <b>Factura/Orden de compra</b> (imagen o PDF), y cambia el estatus (Enviar a mantenimiento / Regresar a operación / Dar de baja / Marcar perdido-robado).'
+        'En el detalle: sube más evidencia, sube la <b>Factura/Orden de compra</b> (imagen o PDF), y cambia el estatus (Enviar a mantenimiento / Regresar a operación / Dar de baja / Marcar perdido-robado).',
+        '¿Dos tarjetas que en realidad son el mismo cliente (ej. "NORTEK RHEEM NORTE" y "NORTEK RHEMM SUR", el mismo cliente con dos sitios capturado dos veces)? Usa <b>Fusionar</b> (Admin/Owner) en la tarjeta del que sobra — mismo flujo que "Fusionar con otro cliente" en Clientes, mueve de un golpe sus activos (y todo lo demás) al que se conserve.'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
         'Para activos internos (Forguard o Plato Express), usa <b>Asignar</b>/<b>Reasignar</b>/<b>Devolver</b> — queda un historial completo de quién lo trae y desde cuándo. Esto es de quién es DUEÑO del activo, no de dónde está: un activo interno con cliente/sitio capturado también se puede asignar a una persona.',
@@ -18154,6 +18155,24 @@ function vistaActivosDirectorio(){
 
   const tarjetaGrupo = (idGrupo, nombre, cliente, activosGrupo, i) => {
     const rg = resumirActivos(activosGrupo);
+    /* "Fusionar" (15-oct-2026, pedido de Victor viendo este mismo
+       directorio: "aplica que podamos fusionar clientes con diferentes
+       sitios como se hace con cotizaciones, ya que existen varios sitios
+       para el mismo cliente" — ej. "NORTEK RHEEM NORTE" y "NORTEK RHEMM
+       SUR" como dos tarjetas de cliente separadas cuando en realidad son
+       el mismo cliente con dos sitios). No hay nada nuevo que construir:
+       fusionarClientes() YA mueve los activos del cliente descartado al
+       que se conserva (ver d.act más abajo en esa función, igual que ya
+       hace con sitios/pólizas/cotizaciones/reportes/levantamientos/
+       proyectos de imagen) — solo faltaba un atajo para abrir ese flujo
+       sin tener que salirse de Activos a buscar el cliente en Clientes.
+       Mismo botón `data-fusionar-cliente` que ya usa vistaResumenCliente(),
+       mismo candado de Admin (toca de golpe toda la base del cliente). Se
+       excluye el grupo "Activos internos" (`cliente` null): no es un
+       cliente real con quien fusionar. El click-delegate ya resuelve
+       `data-fusionar-cliente` ANTES que `data-activos-grupo` (ver el
+       comentario de los "puentes" junto a ese delegate), así el botón no
+       dispara también la navegación de la tarjeta. */
     return '<div class="tarjeta tarjeta-clic" data-activos-grupo="' + esc(idGrupo) + '" style="--d:' + (i*45) + 'ms" tabindex="0" role="button">'
          +   '<div class="t-cabeza">'
          +     (cliente ? avatarCliente(cliente) : '<div class="t-avatar">' + esc(iniciales(nombre)) + '</div>')
@@ -18166,7 +18185,13 @@ function vistaActivosDirectorio(){
          +     '<div class="t-dato"><div class="d-label">Valor</div><div class="d-valor chico">' + dinero(rg.valor) + '</div></div>'
          +     '<div class="t-dato"><div class="d-label">En operación</div><div class="d-valor chico">' + numero(rg.operacion) + '</div></div>'
          +   '</div>'
-         +   '<div class="t-pie"><span class="pista">Ver inventario →</span></div>'
+         +   '<div class="t-pie">'
+         +     '<span class="pista">Ver inventario →</span>'
+         +     '<span class="espacio"></span>'
+         +     (cliente && esAdmin()
+                ? '<button type="button" class="btn btn-suave btn-mini" data-fusionar-cliente="' + esc(idGrupo) + '" title="Unir este cliente con un duplicado (ej. el mismo cliente capturado con otro sitio)">' + ICONO.respaldo + 'Fusionar</button>'
+                : '')
+         +   '</div>'
          + '</div>';
   };
 
@@ -27717,7 +27742,7 @@ function modalFusionCliente(id){
 
   const cuerpo =
       '<div class="pista" style="margin-bottom:14px">Elige el registro duplicado de <b>' + esc(actual.nombre) + '</b>. '
-    +   'Todo lo suyo —pólizas, cotizaciones, reportes, levantamientos y proyectos de imagen— '
+    +   'Todo lo suyo —pólizas, cotizaciones, reportes, levantamientos, proyectos de imagen y activos— '
     +   'se pasa al cliente que se conserve, y el otro registro se elimina. Los sitios de Forpass se pueden repartir '
     +   'uno por uno más abajo, por si alguno en realidad es de otro cliente. Esta acción no se puede deshacer.</div>'
     + '<div class="campo"><label>Cliente duplicado</label>'
