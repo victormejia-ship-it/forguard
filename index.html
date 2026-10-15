@@ -433,7 +433,13 @@ button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
 /* Alternador tarjetas/tabla: mismo lenguaje visual que .modulos (fondo gris,
    la opción activa se despega en blanco con sombra), pero de tamaño de icono
    porque aquí no hay texto que leer. */
-.alterna-vista{display:flex; gap:2px; background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:3px;}
+/* flex-wrap (15-oct-2026, visto en el navegador en el checklist de Cocinas
+   en celular): con 4 botones de texto largo ("No funciona", "Sin
+   verificar") dentro de una tarjeta angosta apilada (.tabla-apila-movil),
+   sin wrap el grupo se salía del borde de la tarjeta en vez de acomodarse
+   en dos renglones. No afecta los usos con pocos botones/texto corto
+   (Reportes, Resultados, etc.): ahí ya cabían en una línea y seguirán así. */
+.alterna-vista{display:flex; flex-wrap:wrap; gap:2px; background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:3px;}
 .alterna-vista button{
   appearance:none; border:none; background:none; display:flex; align-items:center; justify-content:center;
   width:34px; height:34px; border-radius:6px; color:var(--gray); cursor:pointer;
@@ -21611,8 +21617,15 @@ function bloqueFuncionamientoCocinas(){
      +   ' — de los ' + filas.length + ' ' + etiquetaNivel + ' con equipo en pólizas activas.'
      + '</p>';
 
+  /* OJO: plain .rodillo, NUNCA .rodillo-ancho — esta tabla vive dentro de un
+     .bloque (overflow:hidden), y .rodillo-ancho "revienta" el ancho hacia el
+     viewport completo asumiendo que no hay un ancestro que lo recorte; aquí
+     sí lo hay, así que el breakout queda cortado por ambos lados en vez de
+     ensancharse (bug real, visto en el navegador 15-oct-2026: la columna
+     "Sitio" y el botón "Revisar equipos" se veían parciales). Ver el
+     comentario junto a .rodillo-ancho. */
   const etiquetaColGrupo = nivel === 'sitio' ? 'Sitio' : nivel === 'categoria' ? 'Categoría' : 'Equipo';
-  h += '<div class="rodillo rodillo-ancho"><table class="tabla tabla-apila-movil"><thead><tr>'
+  h += '<div class="rodillo"><table class="tabla tabla-apila-movil"><thead><tr>'
      +   '<th>' + etiquetaColGrupo + '</th>'
      +   (nivel === 'sitio' ? '<th>Cliente</th>' : '')
      +   '<th>Verificado</th><th>Caídos</th><th>Parciales</th><th>% funcionalidad</th>'
@@ -21862,7 +21875,12 @@ function bloqueActividadReportesCocinas(){
     return h;
   }
 
-  h += '<div class="rodillo rodillo-ancho"><table class="tabla"><thead><tr>'
+  /* Mismo motivo que en bloqueFuncionamientoCocinas: plain .rodillo, no
+     .rodillo-ancho — esta tabla también vive dentro de un .bloque (desde el
+     14-oct-2026, cuando Cocinas se partió en dos secciones con tarjeta
+     propia cada una), y el breakout a 100vw no funciona a través de un
+     ancestro con overflow:hidden. */
+  h += '<div class="rodillo"><table class="tabla tabla-apila-movil"><thead><tr>'
      +   '<th>' + (nivel === 'sitio' ? 'Sitio' : nivel === 'categoria' ? 'Categoría' : 'Equipo') + '</th>'
      +   (nivel === 'sitio' ? '<th>Cliente</th>' : '')
      +   '<th>Levantados</th><th>Resueltos</th><th>Tiempo prom.</th><th>Cotizado</th><th>Salud</th>'
@@ -21870,16 +21888,17 @@ function bloqueActividadReportesCocinas(){
      + '</tr></thead><tbody>'
      + filas.map(x=>{
          const t = tonoScoreCocina(x.score);
+         const etiquetaCol = nivel === 'sitio' ? 'Sitio' : nivel === 'categoria' ? 'Categoría' : 'Equipo';
          return '<tr>'
-           + '<td>' + esc(x.nombre) + '</td>'
-           + (nivel === 'sitio' ? '<td>' + esc(x.clienteNombre || '—') + '</td>' : '')
-           + '<td>' + numero(x.levantados) + '</td>'
-           + '<td>' + numero(x.resueltos) + ' <span class="pista">(' + Math.round(x.tasaResolucion * 100) + '%)</span></td>'
-           + '<td>' + (x.diasPromedio != null ? x.diasPromedio.toFixed(1) + ' d' : '—') + '</td>'
-           + '<td>' + dinero(x.cotizado) + '</td>'
-           + '<td><span class="insignia i-' + t.tono + '">' + x.score + ' · ' + t.texto + '</span></td>'
+           + '<td data-etiqueta="' + etiquetaCol + '">' + esc(x.nombre) + '</td>'
+           + (nivel === 'sitio' ? '<td data-etiqueta="Cliente">' + esc(x.clienteNombre || '—') + '</td>' : '')
+           + '<td data-etiqueta="Levantados">' + numero(x.levantados) + '</td>'
+           + '<td data-etiqueta="Resueltos">' + numero(x.resueltos) + ' <span class="pista">(' + Math.round(x.tasaResolucion * 100) + '%)</span></td>'
+           + '<td data-etiqueta="Tiempo prom.">' + (x.diasPromedio != null ? x.diasPromedio.toFixed(1) + ' d' : '—') + '</td>'
+           + '<td data-etiqueta="Cotizado">' + dinero(x.cotizado) + '</td>'
+           + '<td data-etiqueta="Salud"><span class="insignia i-' + t.tono + '">' + x.score + ' · ' + t.texto + '</span></td>'
            + (nivel === 'sitio'
-              ? '<td><button type="button" class="btn btn-suave btn-mini" data-accion="ver-reportes-de" data-texto="' + esc(x.nombre) + '">Ver reportes</button></td>'
+              ? '<td data-etiqueta="">' + '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-reportes-de" data-texto="' + esc(x.nombre) + '">Ver reportes</button></td>'
               : '')
          + '</tr>';
        }).join('')

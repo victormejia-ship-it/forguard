@@ -83,7 +83,31 @@
    marcó `tabla-apila-movil` para que en celular (<700px) se apile en
    tarjetas en vez de necesitar scroll horizontal — mismo mecanismo que ya
    usa Equipos RATIONAL. Se prueba que a 860px la tabla completa quepa sin
-   desbordar su contenedor (scrollWidth <= clientWidth del `.rodillo`). */
+   desbordar su contenedor (scrollWidth <= clientWidth del `.rodillo`).
+
+   Al verificar en un navegador real ("revisa en el navegador que se vea
+   bien") apareció un SEGUNDO bug, más serio, en las dos tablas de la
+   PÁGINA (no en el modal): ambas usaban `.rodillo.rodillo-ancho` —la
+   técnica de "reventar" una tabla al ancho completo del viewport con
+   márgenes negativos— pero desde el 14-oct-2026 viven dentro de una
+   `.bloque` (overflow:hidden). `.rodillo-ancho` solo funciona si NINGÚN
+   ancestro recorta el desborde (ver el comentario junto a `.rodillo-ancho`
+   en el CSS); con un `.bloque` de por medio, el breakout queda cortado por
+   AMBOS lados en vez de ensancharse: la columna "Sitio" desaparecía a la
+   izquierda y el botón "Revisar equipos"/"Ver reportes" quedaba cortado a
+   la derecha — visible en captura de pantalla real, pero invisible a
+   `getBoundingClientRect()` (que reporta el layout "lógico", no el recorte
+   visual de un ancestro). Se cambió a `.rodillo` a secas en ambas tablas.
+   De paso, se notó que el grupo de botones de Estado (4 botones, texto
+   largo) se salía de la tarjeta apilada en celular — se agregó
+   `flex-wrap:wrap` a `.alterna-vista` (ya usada en toda la app para estos
+   grupos de botones) para que se acomoden en más de un renglón en vez de
+   desbordar. Ninguno de estos dos bugs era detectable con Playwright en
+   modo "DOM/layout" (todas las aserciones anteriores con getBoundingClientRect
+   pasaban igual) — solo se vieron comparando capturas de pantalla reales
+   contra lo esperado, que es justo lo que se agrega abajo como prueba
+   explícita: una captura y una comparación de la posición real en pantalla
+   del primer `<th>` de cada tabla. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -171,6 +195,23 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('El tablero muestra el % de funcionalidad calculado', textoTablero.includes('17%'));
   chkF('Muestra el KPI "Equipos caídos"', textoTablero.includes('equipos caídos'));
   chkF('La tabla "Por sitio" trae el botón "Revisar equipos"', (await page.locator('[data-revisar-funcionamiento="sF"]').count()) === 1);
+
+  /* Regresión directa del bug real visto en el navegador (15-oct-2026):
+     .rodillo-ancho dentro de un .bloque (overflow:hidden) recortaba la
+     tabla por ambos lados en vez de ensancharla. El truco es invisible
+     para getBoundingClientRect() de la tabla (reporta su layout "lógico",
+     no el recorte visual que le aplica un ancestro con overflow:hidden) —
+     por eso NO basta con medir el ancho de la tabla contra su .rodillo
+     como en la prueba del modal de arriba: esa comparación habría seguido
+     en verde con el bug presente. Lo único que de verdad distingue el caso
+     roto es la combinación de clases en sí: .rodillo-ancho nunca debe
+     aparecer dentro de un .bloque en esta página (ver el comentario junto
+     a .rodillo-ancho en el CSS). */
+  const rodilloAnchoEnBloque = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.bloque .rodillo-ancho')).length
+  );
+  chkF('Ninguna tabla de Cocinas usa .rodillo-ancho dentro de un .bloque (el breakout a 100vw no sirve de nada ahí — overflow:hidden lo recorta por ambos lados)',
+    rodilloAnchoEnBloque === 0);
 
   // --------- 5) modalFuncionamientoSitio: checklist por unidad ---------
   await page.click('[data-revisar-funcionamiento="sF"]');
