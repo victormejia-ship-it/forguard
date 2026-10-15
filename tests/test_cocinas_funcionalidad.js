@@ -71,7 +71,19 @@
    "Levantar reporte" (con el motivo precargado como descripción) → el
    reporte nuevo nace precargado → al guardarlo, su folio se liga de vuelta a
    la unidad (para no volver a ofrecer "Levantar reporte" mientras siga
-   abierto). */
+   abierto).
+
+   Actualización 15-oct-2026 (reporte de Victor con capturas: "modifica los
+   modales porque se ven de manera parcial"): el checklist de
+   modalFuncionamientoSitio tiene 5 columnas (Equipo, Serie, 4 botones de
+   Estado, Motivo, Acción) que no cabían en el ancho default del modal
+   (620px) — la columna Motivo y el botón "Levantar reporte" quedaban fuera
+   de vista sin que el corte fuera obvio. Se agregó la clase `.ancho`
+   (860px, el mismo intermedio que ya usa el resto de la app) y la tabla se
+   marcó `tabla-apila-movil` para que en celular (<700px) se apile en
+   tarjetas en vez de necesitar scroll horizontal — mismo mecanismo que ya
+   usa Equipos RATIONAL. Se prueba que a 860px la tabla completa quepa sin
+   desbordar su contenedor (scrollWidth <= clientWidth del `.rodillo`). */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -165,6 +177,15 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.waitForTimeout(200);
   chkF('El modal "Revisar equipos" abre con las 2 unidades (4 botones Funciona/Parcial/No funciona/Sin verificar cada una)',
     (await page.locator('[data-func-estado]').count()) === 8);
+  chkF('El modal usa la clase "ancho" (no el default de 620px, muy angosto para 5 columnas)',
+    (await page.evaluate(() => document.querySelector('.modal').classList.contains('ancho'))));
+  const anchoModal = await page.evaluate(() => {
+    const rodillo = document.querySelector('#modalCuerpo .rodillo');
+    const tabla = document.querySelector('#modalCuerpo table');
+    return { clientWidth: rodillo.clientWidth, scrollWidth: tabla.scrollWidth };
+  });
+  chkF('La tabla completa (Equipo/Serie/Estado/Motivo/Acción) cabe sin desbordar — no necesita scroll horizontal para ver "Levantar reporte"',
+    anchoModal.scrollWidth <= anchoModal.clientWidth);
   chkF('Aparece "Levantar reporte" para la unidad caída que todavía no tiene reporte ligado',
     (await page.locator('[data-levantar-reporte-func]').count()) === 1);
 

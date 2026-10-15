@@ -21611,8 +21611,9 @@ function bloqueFuncionamientoCocinas(){
      +   ' — de los ' + filas.length + ' ' + etiquetaNivel + ' con equipo en pólizas activas.'
      + '</p>';
 
-  h += '<div class="rodillo rodillo-ancho"><table class="tabla"><thead><tr>'
-     +   '<th>' + (nivel === 'sitio' ? 'Sitio' : nivel === 'categoria' ? 'Categoría' : 'Equipo') + '</th>'
+  const etiquetaColGrupo = nivel === 'sitio' ? 'Sitio' : nivel === 'categoria' ? 'Categoría' : 'Equipo';
+  h += '<div class="rodillo rodillo-ancho"><table class="tabla tabla-apila-movil"><thead><tr>'
+     +   '<th>' + etiquetaColGrupo + '</th>'
      +   (nivel === 'sitio' ? '<th>Cliente</th>' : '')
      +   '<th>Verificado</th><th>Caídos</th><th>Parciales</th><th>% funcionalidad</th>'
      +   (nivel === 'sitio' ? '<th></th>' : '')
@@ -21620,14 +21621,14 @@ function bloqueFuncionamientoCocinas(){
      + filas.map(x=>{
          const t = tonoPctFuncionamiento(x.pct);
          return '<tr>'
-           + '<td>' + esc(x.nombre) + '</td>'
-           + (nivel === 'sitio' ? '<td>' + esc(x.clienteNombre || '—') + '</td>' : '')
-           + '<td>' + numero(x.verificadas) + ' <span class="pista">de ' + numero(x.total) + '</span></td>'
-           + '<td>' + numero(x.caidas) + '</td>'
-           + '<td>' + numero(x.parciales) + '</td>'
-           + '<td><span class="insignia i-' + t.tono + '">' + (x.pct != null ? x.pct + '% · ' + t.texto : t.texto) + '</span></td>'
+           + '<td data-etiqueta="' + etiquetaColGrupo + '">' + esc(x.nombre) + '</td>'
+           + (nivel === 'sitio' ? '<td data-etiqueta="Cliente">' + esc(x.clienteNombre || '—') + '</td>' : '')
+           + '<td data-etiqueta="Verificado">' + numero(x.verificadas) + ' <span class="pista">de ' + numero(x.total) + '</span></td>'
+           + '<td data-etiqueta="Caídos">' + numero(x.caidas) + '</td>'
+           + '<td data-etiqueta="Parciales">' + numero(x.parciales) + '</td>'
+           + '<td data-etiqueta="% funcionalidad"><span class="insignia i-' + t.tono + '">' + (x.pct != null ? x.pct + '% · ' + t.texto : t.texto) + '</span></td>'
            + (nivel === 'sitio'
-              ? '<td><button type="button" class="btn btn-suave btn-mini" data-revisar-funcionamiento="' + esc(x.id) + '">Revisar equipos</button></td>'
+              ? '<td data-etiqueta="">' + '<button type="button" class="btn btn-suave btn-mini" data-revisar-funcionamiento="' + esc(x.id) + '">Revisar equipos</button></td>'
               : '')
          + '</tr>';
        }).join('')
@@ -21656,7 +21657,7 @@ function modalFuncionamientoSitio(sitioId){
     }
     $('modalCuerpo').innerHTML =
         '<p class="pista" style="margin:0 0 14px">Marca cada unidad según su estado actual. Se guarda al instante.</p>'
-      + '<div class="rodillo"><table class="tabla"><thead><tr>'
+      + '<div class="rodillo"><table class="tabla tabla-apila-movil" style="min-width:640px"><thead><tr>'
       +   '<th>Equipo</th><th>Serie</th><th>Estado</th><th>Motivo</th><th></th>'
       + '</tr></thead><tbody>'
       + apariciones.map(a=>{
@@ -21671,18 +21672,18 @@ function modalFuncionamientoSitio(sitioId){
           const tieneReporteAbierto = reporteLigado && reporteLigado.estatus !== 'resuelto';
           const necesitaAtencion = a.estado === false || a.estado === 'parcial';
           return '<tr>'
-            + '<td>' + esc(a.etiqueta) + '<br><span class="pista">' + esc(ETIQUETA_CATEGORIA_EQUIPO[a.categoria] || 'Sin categoría') + ' · peso ' + a.peso + '</span></td>'
-            + '<td>' + esc(a.serie || '—') + '</td>'
-            + '<td><div class="alterna-vista alterna-texto" role="group" aria-label="Estado de ' + esc(a.etiqueta) + '">'
+            + '<td data-etiqueta="Equipo">' + esc(a.etiqueta) + '<br><span class="pista">' + esc(ETIQUETA_CATEGORIA_EQUIPO[a.categoria] || 'Sin categoría') + ' · peso ' + a.peso + '</span></td>'
+            + '<td data-etiqueta="Serie">' + esc(a.serie || '—') + '</td>'
+            + '<td data-etiqueta="Estado"><div class="alterna-vista alterna-texto" role="group" aria-label="Estado de ' + esc(a.etiqueta) + '">'
             +   '<button type="button" data-func-estado="true" data-func-poliza="' + esc(a.polizaId) + '" data-func-partida="' + esc(a.partidaId) + '" data-func-unidad="' + a.unidadIndice + '" aria-pressed="' + (a.estado === true) + '">Funciona</button>'
             +   '<button type="button" data-func-estado="parcial" data-func-poliza="' + esc(a.polizaId) + '" data-func-partida="' + esc(a.partidaId) + '" data-func-unidad="' + a.unidadIndice + '" aria-pressed="' + (a.estado === 'parcial') + '">Parcial</button>'
             +   '<button type="button" data-func-estado="false" data-func-poliza="' + esc(a.polizaId) + '" data-func-partida="' + esc(a.partidaId) + '" data-func-unidad="' + a.unidadIndice + '" aria-pressed="' + (a.estado === false) + '">No funciona</button>'
             +   '<button type="button" data-func-estado="null" data-func-poliza="' + esc(a.polizaId) + '" data-func-partida="' + esc(a.partidaId) + '" data-func-unidad="' + a.unidadIndice + '" aria-pressed="' + (a.estado === null) + '">Sin verificar</button>'
             + '</div></td>'
-            + '<td>' + (necesitaAtencion
+            + '<td data-etiqueta="Motivo">' + (necesitaAtencion
                 ? '<input type="text" class="input-motivo-func" data-motivo-func-poliza="' + esc(a.polizaId) + '" data-motivo-func-partida="' + esc(a.partidaId) + '" data-motivo-func-unidad="' + a.unidadIndice + '" value="' + esc(a.motivo) + '" placeholder="¿Qué falla o por qué no funciona?" maxlength="300">'
                 : '<span class="pista">—</span>') + '</td>'
-            + '<td>' + (necesitaAtencion
+            + '<td data-etiqueta="">' + (necesitaAtencion
                 ? (tieneReporteAbierto
                    ? '<button type="button" class="btn btn-suave btn-mini" data-ver-reporte-func="' + esc(a.reporteId) + '">Ver reporte ' + esc(reporteLigado.folio || '') + '</button>'
                    : '<button type="button" class="btn btn-primario btn-mini" data-levantar-reporte-func="' + esc(a.polizaId) + '|' + esc(a.partidaId) + '|' + a.unidadIndice + '">Levantar reporte</button>')
@@ -21717,6 +21718,12 @@ function modalFuncionamientoSitio(sitioId){
 
   abrirModal('Revisar equipos — ' + (sitio.nombre || 'sitio'), '<div class="vacio-chico">Cargando…</div>',
     '<button type="button" class="btn btn-primario" data-modal="cancelar">Cerrar</button>');
+  /* 5 columnas (Equipo, Serie, 4 botones de estado, Motivo, Acción) no
+     respiran en los 620px default — se cortaba la columna de Motivo y el
+     botón "Levantar reporte" quedaba fuera de vista (15-oct-2026, reporte
+     de Victor con captura: "modifica los modales porque se ven de manera
+     parcial"). */
+  $('modal').classList.add('ancho');
   pintar();
 }
 
