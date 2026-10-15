@@ -26,32 +26,52 @@
 
    Modelo de datos: `funcionamiento[]` vive en cada partida de póliza
    (normalizarPartida), parecido a `series[]` — denso, del mismo largo que
-   `cantidad`. Cada unidad es `{estado, revisadoEn, revisadoPor, reporteId}`
-   (normalizarEstadoFuncionamiento) con `estado` en `true`/`false`/`null`.
-   `null` ("sin verificar") es DISTINTO de "funciona": se excluye del % hasta
-   que alguien la revise — si contara como sana, una cocina recién activada
-   (o con pólizas nuevas) se vería 100% sin que nadie la haya tocado.
+   `cantidad`. Cada unidad es `{estado, motivo, revisadoEn, revisadoPor,
+   reporteId}` (normalizarEstadoFuncionamiento) con `estado` en
+   `true`/`'parcial'`/`false`/`null`. `null` ("sin verificar") es DISTINTO de
+   "funciona": se excluye del % hasta que alguien la revise — si contara como
+   sana, una cocina recién activada (o con pólizas nuevas) se vería 100% sin
+   que nadie la haya tocado.
+
+   `'parcial'` (15-oct-2026, pedido de Victor viendo el checklist ya en
+   producción: "añade que pueda ser parcialmente funcionando y en dado caso
+   de que este parcialmente se pueda indicar el motivo por el cual no esta
+   funcionando o parcialmente funcionado") es un cuarto estado entre
+   "Funciona" y "No funciona" — para el % pondera a la MITAD
+   (scoreFuncionamiento), ni sano ni caído del todo. `motivo` es texto libre
+   (sin catálogo cerrado: cada falla es distinta) que solo aplica mientras la
+   unidad esté en `false` o `'parcial'` — volver a "Funciona" o "Sin
+   verificar" lo descarta solo, para no arrastrar una explicación que ya no
+   es cierta. El botón "Levantar reporte" (y su reporte precargado) ahora
+   aplica también a "Parcial", no solo a "No funciona" — funcionar a medias
+   sigue siendo una falla que atender — y el motivo ya escrito se precarga
+   como descripción del reporte nuevo.
 
    El % de funcionalidad pondera por la criticidad del equipo en catálogo
    (`ponderacion`, 1-5, mismo campo que ya usa el % de funcionamiento de un
-   Levantamiento): % = Σ(peso de las unidades que SÍ funcionan) ÷ Σ(peso de
-   TODAS las unidades verificadas) × 100. Las líneas "segurista" (pólizas de
-   seguro) y las pólizas no activas quedan fuera del cálculo.
+   Levantamiento): % = Σ(peso × score de cada unidad verificada) ÷ Σ(peso de
+   TODAS las unidades verificadas) × 100, con score 1/0.5/0 para
+   funciona/parcial/no funciona. Las líneas "segurista" (pólizas de seguro) y
+   las pólizas no activas quedan fuera del cálculo.
 
-   El estado de cada unidad se resetea a "sin verificar" en la copia de
-   portal del cliente (datosClientePoliza) — mismo criterio que
-   modelo/serie/código: es control interno, no pensado (todavía) para el
+   El estado de cada unidad (incluyendo motivo) se resetea a "sin verificar"
+   en la copia de portal del cliente (datosClientePoliza) — mismo criterio
+   que modelo/serie/código: es control interno, no pensado (todavía) para el
    portal.
 
-   Esta prueba cubre: normalización de los dos campos nuevos; el cálculo
-   ponderado end-to-end (con un caso donde el promedio simple daría un
-   número distinto al ponderado, para probar que SÍ pesa por criticidad);
-   que el equipo "segurista" y las pólizas inactivas no cuentan; la
-   redacción en datosClientePoliza; el tablero "Estado de funcionalidad" en
-   la UI real; el modal "Revisar equipos" (modalFuncionamientoSitio); y el
-   flujo completo de "No funciona" → "Levantar reporte" → el reporte nuevo
-   nace precargado → al guardarlo, su folio se liga de vuelta a la unidad
-   (para no volver a ofrecer "Levantar reporte" mientras siga abierto). */
+   Esta prueba cubre: normalización de los cuatro campos nuevos (incluyendo
+   que el motivo se descarte solo al volver a "Funciona"); el cálculo
+   ponderado end-to-end tanto para "no funciona" (con un caso donde el
+   promedio simple daría un número distinto al ponderado, para probar que SÍ
+   pesa por criticidad) como para "parcial" (score 0.5); que el equipo
+   "segurista" y las pólizas inactivas no cuenten; la redacción en
+   datosClientePoliza; el tablero "Estado de funcionalidad" en la UI real; el
+   modal "Revisar equipos" (modalFuncionamientoSitio) con sus CUATRO botones
+   y la casilla de motivo; y el flujo completo de "No funciona"/"Parcial" →
+   "Levantar reporte" (con el motivo precargado como descripción) → el
+   reporte nuevo nace precargado → al guardarlo, su folio se liga de vuelta a
+   la unidad (para no volver a ofrecer "Levantar reporte" mientras siga
+   abierto). */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -143,8 +163,8 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   // --------- 5) modalFuncionamientoSitio: checklist por unidad ---------
   await page.click('[data-revisar-funcionamiento="sF"]');
   await page.waitForTimeout(200);
-  chkF('El modal "Revisar equipos" abre con las 2 unidades (3 botones Funciona/No funciona/Sin verificar cada una)',
-    (await page.locator('[data-func-estado]').count()) === 6);
+  chkF('El modal "Revisar equipos" abre con las 2 unidades (4 botones Funciona/Parcial/No funciona/Sin verificar cada una)',
+    (await page.locator('[data-func-estado]').count()) === 8);
   chkF('Aparece "Levantar reporte" para la unidad caída que todavía no tiene reporte ligado',
     (await page.locator('[data-levantar-reporte-func]').count()) === 1);
 
@@ -182,6 +202,50 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   const totalTrasQuitar = await page.evaluate(() => calcularFuncionamientoCocinas().total);
   chkF('Al quitar la verificación del refrigerador, el % sale solo del extractor que sigue verificado (100%)',
     totalTrasQuitar.pct === 100);
+
+  // --------- 8) Estado "Parcial" + motivo (15-oct-2026) ---------
+  await page.evaluate(() => cerrarModal());
+  const normParcial = await page.evaluate(() => {
+    const parcial = normalizarEstadoFuncionamiento({ estado:'parcial', motivo:'Enfría poco' });
+    const vueltaBien = normalizarEstadoFuncionamiento({ estado:true, motivo:'Ya no debería quedar' });
+    return { parcial, vueltaBien };
+  });
+  chkF('"parcial" se normaliza y conserva su motivo', normParcial.parcial.estado === 'parcial' && normParcial.parcial.motivo === 'Enfría poco');
+  chkF('Volver a "Funciona" descarta el motivo viejo (ya no aplica)', normParcial.vueltaBien.estado === true && normParcial.vueltaBien.motivo === '');
+
+  await page.evaluate(() => {
+    datos.clientes.push(normalizarCliente({ id:'cG', nombre:'Cliente Parcial' }));
+    datos.sitios.push(normalizarSitio({ id:'sG', clienteId:'cG', nombre:'Sitio Parcial', zona:'CDMX' }));
+    datos.catalogo.push(normalizarEquipo({ id:'eqG', concepto:'Marmita', categoria:'caliente', ponderacion:4 }));
+    const p = normalizarPoliza({ id:'pG', clienteId:'cG', sitioId:'sG', sitioNombre:'Sitio Parcial', estatus:'activa', fechaInicio: hoyISO(), partidas: [] });
+    p.partidas = [ normalizarPartida({ concepto:'Marmita', catalogoId:'eqG', cantidad:1, frecuencia:3, mesesServicio: mesesRegulares(0,3) }) ];
+    p.partidas[0].funcionamiento[0] = normalizarEstadoFuncionamiento({ estado:'parcial', motivo:'Enfría poco' });
+    datos.polizas.push(p);
+  });
+  const totalParcial = await page.evaluate(() => calcularFuncionamientoCocinas().porSitio.find(s => s.id === 'sG'));
+  chkF('"Parcial" pondera exactamente a la mitad (un solo equipo parcial = 50%, no 0% ni 100%)', totalParcial.pct === 50);
+  chkF('Cuenta en "parciales", no en "caidas"', totalParcial.parciales === 1 && totalParcial.caidas === 0);
+
+  await page.evaluate(() => { estado.modulo = 'cocinas'; estado.vistaFuncionamiento = 'sitio'; render(); });
+  await page.waitForTimeout(150);
+  await page.click('[data-revisar-funcionamiento="sG"]');
+  await page.waitForTimeout(200);
+  chkF('El botón "Parcial" aparece presionado para esta unidad', (await page.locator('[data-func-estado="parcial"]').getAttribute('aria-pressed')) === 'true');
+  chkF('La casilla de motivo aparece visible y ya precargada', (await page.inputValue('.input-motivo-func')) === 'Enfría poco');
+  chkF('"Levantar reporte" también se ofrece para "Parcial" (no solo "No funciona")', (await page.locator('[data-levantar-reporte-func]').count()) === 1);
+
+  await page.fill('.input-motivo-func', 'Enfría poco, compresor hace ruido');
+  await page.locator('.input-motivo-func').blur();
+  await page.waitForTimeout(200);
+  chkF('Editar el motivo lo guarda en la unidad real',
+    (await page.evaluate(() => polizaPorId('pG').partidas[0].funcionamiento[0].motivo)) === 'Enfría poco, compresor hace ruido');
+
+  await page.click('[data-levantar-reporte-func]');
+  await page.waitForTimeout(200);
+  const prellenadoParcial = await page.evaluate(() => ({ titulo: $('rTitulo').value, descripcion: $('rDescripcion').value }));
+  chkF('El título del reporte dice "funciona parcialmente" (no "no funciona")', /funciona parcialmente/.test(prellenadoParcial.titulo));
+  chkF('La descripción nace precargada con el motivo ya anotado', prellenadoParcial.descripcion === 'Enfría poco, compresor hace ruido');
+  await page.evaluate(() => cerrarModal());
 
   chkF('No hubo errores de página en todo el escenario', errores.length === 0);
   console.log('Errores capturados:', JSON.stringify(errores));

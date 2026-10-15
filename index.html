@@ -1468,7 +1468,8 @@ table.tabla select.sel-rol{font-weight:600;}
    Lista de precios: un documento único, se edita línea por línea sin abrir
    un modal por renglón. */
 table.tabla input[type="text"][data-texto-checklist],
-table.tabla input[type="text"][data-campo-equipo-rational]{
+table.tabla input[type="text"][data-campo-equipo-rational],
+table.tabla input[type="text"].input-motivo-func{
   width:100%; font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px;
   background:var(--campo-bg); color:inherit;
 }
@@ -11278,12 +11279,31 @@ function normalizarPoliza(p){
    al marcarla "No funciona" (si se levantó uno) — evita ofrecer "Levantar
    reporte" dos veces para la misma avería ya reportada. */
 function normalizarEstadoFuncionamiento(f){
+  /* 'parcial' (15-oct-2026, pedido de Victor viendo el checklist real: "añade
+     que pueda ser parcialmente funcionando y en dado caso de que este
+     parcialmente se pueda indicar el motivo por el cual no esta funcionando
+     o parcialmente funcionado") se suma a true/false/null como un cuarto
+     valor posible de `estado` — para el % pondera a la mitad (ver
+     scoreFuncionamiento), ni sano ni caído del todo. */
+  const bruto = f && f.estado;
+  const estado = bruto === true ? true : bruto === false ? false : bruto === 'parcial' ? 'parcial' : null;
   return {
-    estado: (f && f.estado === true) ? true : (f && f.estado === false) ? false : null,
+    estado,
+    /* El motivo solo tiene sentido mientras la unidad NO esté 100% sana —
+       si se vuelve a marcar "Funciona" o "Sin verificar" se descarta solo,
+       para no arrastrar una explicación vieja que ya no aplica. */
+    motivo: (estado === false || estado === 'parcial') ? (f && f.motivo ? String(f.motivo).trim().slice(0,300) : '') : '',
     revisadoEn: /^\d{4}-\d{2}-\d{2}$/.test(f && f.revisadoEn) ? f.revisadoEn : '',
     revisadoPor: (f && f.revisadoPor ? String(f.revisadoPor) : '').trim(),
     reporteId: (f && f.reporteId ? String(f.reporteId) : '').trim()
   };
+}
+/* Qué tanto cuenta una unidad VERIFICADA para el % de funcionalidad — solo
+   se llama con estado !== null (ver armarRenglonFuncionamiento). "Parcial"
+   pesa la mitad: ni se descarta como un equipo sano, ni castiga tan fuerte
+   como uno caído del todo. */
+function scoreFuncionamiento(estadoUnidad){
+  return estadoUnidad === true ? 1 : estadoUnidad === 'parcial' ? 0.5 : 0;
 }
 function normalizarPartida(x){
   /* CUÁNTOS mantenimientos al año. En QUÉ meses es mesesServicio, aparte.
@@ -15484,7 +15504,7 @@ function aparicionesFuncionamiento(filtroSitioId){
             /* Etiqueta de la unidad: el concepto solo, o "Concepto (unidad N de M)"
                cuando hay más de una — igual que ya hace catalogoEquiposAgregado(). */
             etiqueta: x.cantidad > 1 ? x.concepto + ' (unidad ' + (i+1) + ' de ' + x.cantidad + ')' : x.concepto,
-            estado: f.estado, revisadoEn: f.revisadoEn, revisadoPor: f.revisadoPor, reporteId: f.reporteId
+            estado: f.estado, motivo: f.motivo, revisadoEn: f.revisadoEn, revisadoPor: f.revisadoPor, reporteId: f.reporteId
           });
         });
       });
@@ -15504,11 +15524,12 @@ function armarRenglonFuncionamiento(apariciones){
   const total = apariciones.length;
   const verificadas = apariciones.filter(a => a.estado !== null);
   const caidas = apariciones.filter(a => a.estado === false).length;
+  const parciales = apariciones.filter(a => a.estado === 'parcial').length;
   const sinVerificar = total - verificadas.length;
   const sumaPeso = verificadas.reduce((s,a)=> s + a.peso, 0);
-  const sumaPonderada = verificadas.reduce((s,a)=> s + a.peso * (a.estado ? 1 : 0), 0);
+  const sumaPonderada = verificadas.reduce((s,a)=> s + a.peso * scoreFuncionamiento(a.estado), 0);
   const pct = sumaPeso ? Math.round(sumaPonderada / sumaPeso * 100) : null;
-  return { total, verificadas: verificadas.length, caidas, sinVerificar, pct };
+  return { total, verificadas: verificadas.length, caidas, parciales, sinVerificar, pct };
 }
 function calcularFuncionamientoCocinas(){
   const apariciones = aparicionesFuncionamiento();
@@ -15986,18 +16007,18 @@ const TEMAS_AYUDA = [
       guiaSeccion('Lo básico — Estado de funcionalidad', guiaPasos([
         'Es un tablero EN VIVO (no por período): toma el equipo real de cada partida de las pólizas activas y pregunta, unidad por unidad, "¿esto está funcionando ahorita?".',
         'Alterna entre <b>Por sitio</b>, <b>Por categoría</b> de equipo o <b>Por equipo</b> puntual con los botones de arriba.',
-        'Desde "Por sitio", el botón <b>Revisar equipos</b> abre el checklist de esa cocina: cada unidad tiene tres botones — <b>Funciona</b>, <b>No funciona</b> y <b>Sin verificar</b> — y el clic guarda al instante, sin botón "Guardar" aparte.',
-        'Marcar una unidad <b>No funciona</b> ofrece ahí mismo el botón <b>Levantar reporte</b>, que abre un reporte nuevo ya precargado con cliente/sitio/equipo — se puede completar y guardar sin salir del flujo.',
-        'Los 4 KPI de cabecera son del total de equipo en pólizas activas: <b>% funcionalidad</b>, <b>Equipos caídos</b>, <b>Sin verificar</b> y <b>Equipo total</b>.'
+        'Desde "Por sitio", el botón <b>Revisar equipos</b> abre el checklist de esa cocina: cada unidad tiene cuatro botones — <b>Funciona</b>, <b>Parcial</b>, <b>No funciona</b> y <b>Sin verificar</b> — y el clic guarda al instante, sin botón "Guardar" aparte.',
+        'Marcar una unidad <b>Parcial</b> o <b>No funciona</b> abre una casilla de <b>Motivo</b> junto al lado (qué falla o por qué no funciona) y ofrece ahí mismo el botón <b>Levantar reporte</b>, que abre un reporte nuevo ya precargado con cliente/sitio/equipo/título y ese motivo como descripción — se puede completar y guardar sin salir del flujo.',
+        'Los 5 KPI de cabecera son del total de equipo en pólizas activas: <b>% funcionalidad</b>, <b>Equipos caídos</b>, <b>Parcialmente funcionando</b>, <b>Sin verificar</b> y <b>Equipo total</b>.'
       ]))
       + guiaSeccion('Por qué "Sin verificar" no es lo mismo que "Funciona"', guiaPasos([
         'Una unidad que nadie ha revisado nunca se queda en <b>Sin verificar</b> — no cuenta como sana ni como caída, y se excluye del % hasta que alguien de verdad la revise.',
         'Esto es intencional: si "sin revisar" contara como "funciona", el % de una cocina recién dada de alta (o con pólizas nuevas) se vería perfecto sin que nadie haya puesto un ojo encima.',
         'Por eso, al activar este tablero sobre pólizas que ya existían, todo el equipo arranca en "Sin verificar" hasta la primera revisión — es esperado, no un error.'
       ]))
-      + guiaSeccion('Cómo se pondera el % de funcionalidad', guiaPasos([
-        'Cada unidad VERIFICADA (funciona o no funciona — las "sin verificar" no entran) pesa según el "Peso en el % de funcionamiento" del equipo en el catálogo (1 a 5, capturado en Equipos) — un refrigerador crítico pesa más que un extractor de baja prioridad.',
-        '% = (suma de pesos de las unidades que sí funcionan) ÷ (suma de pesos de todas las unidades verificadas) × 100 — el mismo criterio que ya usa el % de funcionamiento de un Levantamiento, aplicado aquí al estado en vivo en vez de a una sola visita.',
+      + guiaSeccion('Cómo se pondera el % de funcionalidad (incluyendo "Parcial")', guiaPasos([
+        'Cada unidad VERIFICADA (funciona, parcial o no funciona — las "sin verificar" no entran) pesa según el "Peso en el % de funcionamiento" del equipo en el catálogo (1 a 5, capturado en Equipos) — un refrigerador crítico pesa más que un extractor de baja prioridad.',
+        '<b>Funciona</b> cuenta completo, <b>Parcial</b> cuenta a la mitad y <b>No funciona</b> no suma nada: % = (suma de pesos × 1 de las que funcionan, + suma de pesos × 0.5 de las parciales) ÷ (suma de pesos de todas las unidades verificadas) × 100 — mismo criterio que ya usa el % de funcionamiento de un Levantamiento, aplicado aquí al estado en vivo en vez de a una sola visita.',
         'Las pólizas de seguro (líneas "segurista") y las pólizas inactivas/vencidas nunca entran a este cálculo — solo equipo real en pólizas activas.'
       ]))
       + guiaSeccion('Lo básico — Actividad de reportes', guiaPasos([
@@ -21071,7 +21092,7 @@ function modalReporte(id, prefill){
     + '<div class="campo"><label>Título del reporte *</label>'
     +   '<input type="text" id="rTitulo" placeholder="Ej. Refrigerador no enfría" value="' + esc(rp ? rp.titulo : (prefill ? prefill.titulo || '' : '')) + '"></div>'
     + '<div class="campo"><label>Descripción</label>'
-    +   '<textarea id="rDescripcion" placeholder="Qué pasa, desde cuándo, cualquier detalle que ayude al técnico…">' + esc(rp ? rp.descripcion : '') + '</textarea></div>'
+    +   '<textarea id="rDescripcion" placeholder="Qué pasa, desde cuándo, cualquier detalle que ayude al técnico…">' + esc(rp ? rp.descripcion : (prefill ? prefill.descripcion || '' : '')) + '</textarea></div>'
     + '<div class="campo"><label>Prioridad</label><select id="rPrioridad">'
     +   PRIORIDAD_REPORTE.map(p => '<option value="' + p + '"' + ((rp ? rp.prioridad : 'media') === p ? ' selected' : '') + '>' + esc(ETIQUETA_PRIORIDAD[p]) + '</option>').join('')
     + '</select></div>'
@@ -21572,6 +21593,7 @@ function bloqueFuncionamientoCocinas(){
          f.total.pct != null ? tonoPctFuncionamiento(f.total.pct).texto : 'Nada verificado todavía',
          f.total.pct != null ? 'k-' + tonoPctFuncionamiento(f.total.pct).tono : '')
      + tarjetaKpi('Equipos caídos', numero(f.total.caidas), 'No funcionando ahorita', f.total.caidas ? 'k-error' : '')
+     + tarjetaKpi('Parcialmente funcionando', numero(f.total.parciales), 'Funcionan, pero con fallas', f.total.parciales ? 'k-alerta' : '')
      + tarjetaKpi('Sin verificar', numero(f.total.sinVerificar), 'Nunca revisados', f.total.sinVerificar ? 'k-alerta' : '')
      + tarjetaKpi('Equipo total', numero(f.total.total), 'Unidades en pólizas activas')
      + '</div>';
@@ -21592,7 +21614,7 @@ function bloqueFuncionamientoCocinas(){
   h += '<div class="rodillo rodillo-ancho"><table class="tabla"><thead><tr>'
      +   '<th>' + (nivel === 'sitio' ? 'Sitio' : nivel === 'categoria' ? 'Categoría' : 'Equipo') + '</th>'
      +   (nivel === 'sitio' ? '<th>Cliente</th>' : '')
-     +   '<th>Verificado</th><th>Caídos</th><th>% funcionalidad</th>'
+     +   '<th>Verificado</th><th>Caídos</th><th>Parciales</th><th>% funcionalidad</th>'
      +   (nivel === 'sitio' ? '<th></th>' : '')
      + '</tr></thead><tbody>'
      + filas.map(x=>{
@@ -21602,6 +21624,7 @@ function bloqueFuncionamientoCocinas(){
            + (nivel === 'sitio' ? '<td>' + esc(x.clienteNombre || '—') + '</td>' : '')
            + '<td>' + numero(x.verificadas) + ' <span class="pista">de ' + numero(x.total) + '</span></td>'
            + '<td>' + numero(x.caidas) + '</td>'
+           + '<td>' + numero(x.parciales) + '</td>'
            + '<td><span class="insignia i-' + t.tono + '">' + (x.pct != null ? x.pct + '% · ' + t.texto : t.texto) + '</span></td>'
            + (nivel === 'sitio'
               ? '<td><button type="button" class="btn btn-suave btn-mini" data-revisar-funcionamiento="' + esc(x.id) + '">Revisar equipos</button></td>'
@@ -21634,25 +21657,32 @@ function modalFuncionamientoSitio(sitioId){
     $('modalCuerpo').innerHTML =
         '<p class="pista" style="margin:0 0 14px">Marca cada unidad según su estado actual. Se guarda al instante.</p>'
       + '<div class="rodillo"><table class="tabla"><thead><tr>'
-      +   '<th>Equipo</th><th>Serie</th><th>Estado</th><th></th>'
+      +   '<th>Equipo</th><th>Serie</th><th>Estado</th><th>Motivo</th><th></th>'
       + '</tr></thead><tbody>'
       + apariciones.map(a=>{
           /* "Abierto" aquí no es solo "tiene reporteId": si ese reporte ya
              se resolvió y el equipo sigue (o volvió a quedar) marcado "no
-             funciona", es una avería distinta y sí debe poder levantar un
-             reporte nuevo — por eso se revisa el estatus del reporte, no
-             solo si el campo está lleno. */
+             funciona"/"parcial", es una avería distinta y sí debe poder
+             levantar un reporte nuevo — por eso se revisa el estatus del
+             reporte, no solo si el campo está lleno. Una unidad "parcial"
+             también puede necesitar reporte: funcionar a medias sigue
+             siendo una falla que atender. */
           const reporteLigado = a.reporteId ? reportePorId(a.reporteId) : null;
           const tieneReporteAbierto = reporteLigado && reporteLigado.estatus !== 'resuelto';
+          const necesitaAtencion = a.estado === false || a.estado === 'parcial';
           return '<tr>'
             + '<td>' + esc(a.etiqueta) + '<br><span class="pista">' + esc(ETIQUETA_CATEGORIA_EQUIPO[a.categoria] || 'Sin categoría') + ' · peso ' + a.peso + '</span></td>'
             + '<td>' + esc(a.serie || '—') + '</td>'
             + '<td><div class="alterna-vista alterna-texto" role="group" aria-label="Estado de ' + esc(a.etiqueta) + '">'
             +   '<button type="button" data-func-estado="true" data-func-poliza="' + esc(a.polizaId) + '" data-func-partida="' + esc(a.partidaId) + '" data-func-unidad="' + a.unidadIndice + '" aria-pressed="' + (a.estado === true) + '">Funciona</button>'
+            +   '<button type="button" data-func-estado="parcial" data-func-poliza="' + esc(a.polizaId) + '" data-func-partida="' + esc(a.partidaId) + '" data-func-unidad="' + a.unidadIndice + '" aria-pressed="' + (a.estado === 'parcial') + '">Parcial</button>'
             +   '<button type="button" data-func-estado="false" data-func-poliza="' + esc(a.polizaId) + '" data-func-partida="' + esc(a.partidaId) + '" data-func-unidad="' + a.unidadIndice + '" aria-pressed="' + (a.estado === false) + '">No funciona</button>'
             +   '<button type="button" data-func-estado="null" data-func-poliza="' + esc(a.polizaId) + '" data-func-partida="' + esc(a.partidaId) + '" data-func-unidad="' + a.unidadIndice + '" aria-pressed="' + (a.estado === null) + '">Sin verificar</button>'
             + '</div></td>'
-            + '<td>' + (a.estado === false
+            + '<td>' + (necesitaAtencion
+                ? '<input type="text" class="input-motivo-func" data-motivo-func-poliza="' + esc(a.polizaId) + '" data-motivo-func-partida="' + esc(a.partidaId) + '" data-motivo-func-unidad="' + a.unidadIndice + '" value="' + esc(a.motivo) + '" placeholder="¿Qué falla o por qué no funciona?" maxlength="300">'
+                : '<span class="pista">—</span>') + '</td>'
+            + '<td>' + (necesitaAtencion
                 ? (tieneReporteAbierto
                    ? '<button type="button" class="btn btn-suave btn-mini" data-ver-reporte-func="' + esc(a.reporteId) + '">Ver reporte ' + esc(reporteLigado.folio || '') + '</button>'
                    : '<button type="button" class="btn btn-primario btn-mini" data-levantar-reporte-func="' + esc(a.polizaId) + '|' + esc(a.partidaId) + '|' + a.unidadIndice + '">Levantar reporte</button>')
@@ -21663,9 +21693,15 @@ function modalFuncionamientoSitio(sitioId){
 
     $('modalCuerpo').querySelectorAll('[data-func-estado]').forEach(b=>{
       b.addEventListener('click', ()=>{
-        const valor = b.dataset.funcEstado === 'true' ? true : b.dataset.funcEstado === 'false' ? false : null;
+        const valor = b.dataset.funcEstado === 'true' ? true : b.dataset.funcEstado === 'false' ? false
+          : b.dataset.funcEstado === 'parcial' ? 'parcial' : null;
         marcarFuncionamiento(b.dataset.funcPoliza, b.dataset.funcPartida, +b.dataset.funcUnidad, valor);
         pintar();
+      });
+    });
+    $('modalCuerpo').querySelectorAll('[data-motivo-func-poliza]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        guardarMotivoFuncionamiento(inp.dataset.motivoFuncPoliza, inp.dataset.motivoFuncPartida, +inp.dataset.motivoFuncUnidad, inp.value);
       });
     });
     $('modalCuerpo').querySelectorAll('[data-levantar-reporte-func]').forEach(b=>{
@@ -21696,10 +21732,28 @@ function marcarFuncionamiento(polizaId, partidaId, unidadIndice, valorEstado){
   const f = x && x.funcionamiento[unidadIndice];
   if(!p || !x || !f) return;
   f.estado = valorEstado;
+  /* El motivo solo aplica mientras la unidad no esté 100% sana — volver a
+     "Funciona" o "Sin verificar" descarta cualquier motivo viejo, para no
+     arrastrar una explicación que ya no es cierta. */
+  if(valorEstado !== false && valorEstado !== 'parcial') f.motivo = '';
   f.revisadoEn = hoyISO();
   f.revisadoPor = nombreDe(sesion) || '';
   guardarPoliza(p, 'editó', 'Actualizó el estado de funcionamiento de ' + (x.concepto || 'un equipo') + ' en ' + (p.sitioNombre || 'un sitio') + '.');
   render();
+}
+
+/* Anota POR QUÉ una unidad no funciona o funciona parcial (14-oct-2026,
+   pedido de Victor: "en dado caso de que este parcialmente se pueda indicar
+   el motivo por el cual no esta funcionando o parcialmente funcionado") —
+   un campo de texto corto, sin catálogo cerrado: cada falla es distinta y
+   forzar una lista predefinida obligaría a elegir "Otro" casi siempre. */
+function guardarMotivoFuncionamiento(polizaId, partidaId, unidadIndice, texto){
+  const p = polizaPorId(polizaId);
+  const x = p && p.partidas.find(x => x.id === partidaId);
+  const f = x && x.funcionamiento[unidadIndice];
+  if(!p || !x || !f) return;
+  f.motivo = String(texto || '').trim().slice(0,300);
+  guardarPoliza(p, 'editó', 'Anotó el motivo de ' + (x.concepto || 'un equipo') + ' en ' + (p.sitioNombre || 'un sitio') + '.');
 }
 
 /* Levanta un reporte prellenado desde una unidad marcada "No funciona"
@@ -21709,7 +21763,8 @@ function marcarFuncionamiento(polizaId, partidaId, unidadIndice, valorEstado){
 function levantarReporteDesdeFuncionamiento(polizaId, partidaId, unidadIndice){
   const p = polizaPorId(polizaId);
   const x = p && p.partidas.find(x => x.id === partidaId);
-  if(!p || !x) return;
+  const f = x && x.funcionamiento[unidadIndice];
+  if(!p || !x || !f) return;
   const s = sitioPorId(p.sitioId);
   const eq = x.catalogoId ? equipoDeCatalogo(x.catalogoId) : null;
   const etiqueta = x.cantidad > 1 ? x.concepto + ' (unidad ' + (unidadIndice+1) + ' de ' + x.cantidad + ')' : x.concepto;
@@ -21718,7 +21773,10 @@ function levantarReporteDesdeFuncionamiento(polizaId, partidaId, unidadIndice){
     sitioId: p.sitioId,
     equipoCatalogoId: x.catalogoId || '',
     equipoNombre: eq ? eq.concepto : x.concepto,
-    titulo: etiqueta + ' no funciona',
+    titulo: etiqueta + (f.estado === 'parcial' ? ' funciona parcialmente' : ' no funciona'),
+    /* El motivo que ya se haya anotado en el checklist se precarga aquí —
+       quien levanta el reporte no tiene que volver a escribirlo. */
+    descripcion: f.motivo || '',
     alCrear(reg){
       const f = x.funcionamiento[unidadIndice];
       if(f){
