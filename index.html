@@ -1124,6 +1124,16 @@ button.mes{cursor:pointer;}
 .fc-sitio-fila{display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:8px; padding:7px 10px; flex-wrap:wrap;}
 .fc-sitio-fila span{font-size:12.5px; color:var(--navy-texto); font-weight:600; flex:1 1 140px; min-width:0;}
 .fc-sitio-fila select{font-size:12px; padding:5px 8px; border:1px solid #d4d9e6; border-radius:7px; font-family:inherit; flex:1 1 170px; min-width:0; max-width:220px;}
+
+/* Checklist editable de una Cotización Forpass (ver modalCotizacionForpass):
+   una tarjeta por categoría (Hardware/Data/Reportería/Asistencia), cada
+   característica en su propio renglón de "casilla + dos campos + quitar",
+   mismo lenguaje visual que .fc-sitio-fila de arriba. */
+.cfp-categoria{border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:10px;}
+.cfp-categoria-nombre{font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--gray); margin-bottom:8px;}
+.cfp-item{display:flex; align-items:center; gap:8px; padding:5px 0; flex-wrap:wrap;}
+.cfp-item input[type="text"]{font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--campo-bg); color:inherit;}
+.cfp-item input.cfp-concepto{flex:1 1 220px; min-width:0;}
 /* Vista previa de la importación. Los avisos van en su PROPIO renglón a todo lo
    ancho, no en una columna: son la razón de ser de esta pantalla, y metidos en
    una columna estrecha se cortaban justo donde empezaba lo importante. */
@@ -3019,7 +3029,7 @@ function descripcionDe(x){
 
 /* =============================== ALMACÉN =============================== */
 const LLAVE = 'forguard_control_forpass_v1';
-let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{}, catalogoForpass:[] };
+let datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{}, catalogoForpass:[], cotizacionesForpass:[] };
 
 function cargar(){
   try{
@@ -4352,7 +4362,7 @@ function limpiarSesionYDatos(){
      undefined hasta que bajarDeLaNube() alcanzara a repoblarlas, y un
      render() de por medio —con cola pendiente o sin internet— tronaba con
      cualquier vista que las tocara.) */
-  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{}, catalogoForpass:[] };
+  datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{}, catalogoForpass:[], cotizacionesForpass:[] };
   portalCliente.cliente = null; portalCliente.sitios = []; portalCliente.polizas = [];
   portalCliente.cotizaciones = []; portalCliente.reportes = []; portalCliente.cargado = false; portalCliente.error = '';
   try{ localStorage.removeItem(LLAVE); }catch(e){}
@@ -5049,7 +5059,7 @@ async function bajarDeLaNube(soloColecciones){
   /* Si no se pidió una colección en este refresco, ni se intenta leerla —
      null de una vez, en vez de disparar la red y tirar la respuesta. */
   const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
-  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr, pq, op, pm, cf] = await Promise.all([
+  const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr, pq, op, pm, cf, qfp] = await Promise.all([
     p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
     p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
     p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
@@ -5072,7 +5082,8 @@ async function bajarDeLaNube(soloColecciones){
     p('propiedadEquiposRational', () => listarNubeSuave('propiedadEquiposRational', 200)),
     p('oportunidades', () => listarNubeSuave('oportunidades', 200)),
     p('permisosModulos', () => leerPermisosModulos()),
-    p('catalogoForpass', () => leerCatalogoForpass())
+    p('catalogoForpass', () => leerCatalogoForpass()),
+    p('cotizacionesForpass', () => listarNubeSuave('cotizacionesForpass', 100))
   ]);
   if(!soloColecciones && !cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
@@ -5092,7 +5103,8 @@ async function bajarDeLaNube(soloColecciones){
   [['clientes',cl],['sitios',si],['polizas',po],['cotizaciones',co],['reportes',rp],
    ['levantamientos',lv],['proyectosImagen',im],['activos',ac],['personal',pe],['nominaPersonal',np],
    ['proveedores',pv],['gastosProveedor',gp],['refacciones',rf],['ordenesCompra',oc],
-   ['visitas',vi],['propiedadEquiposRational',pq],['oportunidades',op]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
+   ['visitas',vi],['propiedadEquiposRational',pq],['oportunidades',op],
+   ['cotizacionesForpass',qfp]].forEach(([coleccion, crudos]) => registrarVersiones(coleccion, crudos));
   datos = { v:1,
             clientes: cl === null ? datos.clientes : cl.map(normalizarCliente),
             sitios: si === null ? datos.sitios : si.map(normalizarSitio),
@@ -5116,7 +5128,8 @@ async function bajarDeLaNube(soloColecciones){
             propiedadEquiposRational: (pq === null ? datos.propiedadEquiposRational : pq.map(normalizarPropiedadEquipoRational)),
             oportunidades: (op === null ? datos.oportunidades : op.map(normalizarOportunidad)),
             permisosModulos: pm === null ? datos.permisosModulos : pm,
-            catalogoForpass: cf === null ? datos.catalogoForpass : cf };
+            catalogoForpass: cf === null ? datos.catalogoForpass : cf,
+            cotizacionesForpass: (qfp === null ? datos.cotizacionesForpass : qfp.map(normalizarCotizacionForpass)) };
   /* Veredicto de auditoría (21-sep-2026): un registro con un rechazo
      definitivo pendiente (ver colaRechazada arriba) nunca llegó a existir
      del lado del servidor, así que el reemplazo de arriba lo deja fuera sin
@@ -9706,6 +9719,242 @@ function guardarCotizacion(q, accion, detalle){
   anotar(accion || 'editó', 'cotización', q.folio || 'sin folio', detalle);
 }
 
+/* ======================== Cotizaciones de Forpass (licenciamiento) ========================
+   15-oct-2026, pedido de Victor con un PDF real (Prolec, kiosko de punto de
+   registro): "con base en este archivo necesitamos hacer un formato de
+   cotización en forpass... necesito que se trabaje en el mismo módulo de
+   forpass". Es una entidad APARTE de `cotizaciones` (la de servicio/equipo,
+   un solo sitio, margen sobre costo) a propósito: una cotización de Forpass
+   es un documento de licenciamiento tipo SaaS —un checklist fijo de
+   características de la membresía, un costo de arranque único, y una renta
+   mensual por SITIO (no por partida de equipo)— que no tiene nada que ver
+   con el cálculo costo→margen→cliente del resto de Cotizaciones. Forzarla
+   dentro de `normalizarCotizacion` habría significado una partida que a
+   veces es "renglón de equipo" y a veces "sitio con módulos", lo cual es
+   exactamente el tipo de campo-que-significa-dos-cosas que el resto de esta
+   app evita (ver, por ejemplo, por qué Gastos generales no vive dentro de
+   Proveedores).
+
+   Decisiones confirmadas con Victor vía AskUserQuestion, viendo el PDF real:
+   (1) los sitios de la cotización son RENGLONES LIBRES (nombre + módulos),
+   no sitios ya dados de alta en Forpass — una cotización casi siempre se
+   arma ANTES de que el cliente tenga nada formalizado en el sistema; (2) el
+   precio de cada sitio (precioBase/adicional) es 100% CAPTURA MANUAL, sin
+   ninguna tarifa compartida que calcule varias filas — el PDF de Prolec ya
+   muestra que el precio por cantidad de módulos no sigue una fórmula lineal
+   (1 módulo $5,950, 2 módulos $10,250, 3+ son $10,250 + $3,000 por extra:
+   tres tarifas distintas, no una progresión); (3) el checklist de 20
+   características ("Modelo de Suscripción") es EDITABLE por cotización —
+   se prende/apaga cada una, pensando en membresías futuras distintas a
+   "Prime" — por eso nace con una plantilla de 20 items ya capturada (ver
+   checklistForpassPorDefecto) en vez de un formulario en blanco. */
+
+const CATEGORIAS_CHECKLIST_FORPASS = ['hardware', 'data', 'reporteria', 'asistencia'];
+const ETIQUETA_CATEGORIA_CHECKLIST_FORPASS = {
+  hardware:'Hardware', data:'Data', reporteria:'Reportería', asistencia:'Asistencia'
+};
+
+function normalizarItemChecklistForpass(x){
+  return {
+    id: (x && x.id ? String(x.id) : '').trim() || nuevoId(),
+    categoria: CATEGORIAS_CHECKLIST_FORPASS.includes(x && x.categoria) ? x.categoria : 'hardware',
+    concepto: (x && x.concepto ? String(x.concepto) : '').trim(),
+    incluido: !!(x && x.incluido),
+    /* Casi siempre es "X" (se imprime así cuando viene vacío) — pero algún
+       renglón trae un valor propio en vez de un simple cheque, ej. "Acceso
+       de usuarios administradores: Hasta 3" en el PDF real. */
+    valor: (x && x.valor ? String(x.valor) : '').trim()
+  };
+}
+
+/* La plantilla de 20 características del PDF real de Prolec (membresía
+   "Prime"), agrupada en las mismas 4 categorías que ya traía ese documento.
+   Nace siempre con las 20 prendidas — apagar las que no apliquen a una
+   membresía distinta es más rápido que capturar 20 desde cero. */
+const CHECKLIST_FORPASS_PLANTILLA = [
+  { categoria:'hardware', concepto:'Módulo físico kiosko' },
+  { categoria:'hardware', concepto:'Pantalla 21 pulgadas touchscreen' },
+  { categoria:'hardware', concepto:'Lector badge, teclado, computer vision' },
+  { categoria:'hardware', concepto:'Batería integrada' },
+  { categoria:'hardware', concepto:'Kit de arranque de tarjetas de prepago para externos, practicantes e invitados' },
+  { categoria:'data', concepto:'Acceso de usuarios administradores', valor:'Hasta 3' },
+  { categoria:'data', concepto:'Módulo de asistencia con Inteligencia Artificial' },
+  { categoria:'reporteria', concepto:'Reporte básico' },
+  { categoria:'reporteria', concepto:'Reporte avanzado diario con dashboard para gráficas' },
+  { categoria:'reporteria', concepto:'Automatización de reportes cada fin de semana' },
+  { categoria:'reporteria', concepto:'Detalle de ventas por periodo' },
+  { categoria:'reporteria', concepto:'Reporte de consumos por tipo de invitado' },
+  { categoria:'reporteria', concepto:'Detalle de ventas por turnos y horas' },
+  { categoria:'reporteria', concepto:'Ventas por tipo de platillo' },
+  { categoria:'reporteria', concepto:'Data sobre tiempo de selección de platillo' },
+  { categoria:'reporteria', concepto:'Proyección de ventas y gráficas de performance de venta' },
+  { categoria:'asistencia', concepto:'Capacitación básica de arranque' },
+  { categoria:'asistencia', concepto:'Capacitación y onboarding' },
+  { categoria:'asistencia', concepto:'Onboarding e implementación' },
+  { categoria:'asistencia', concepto:'Asistencia básica / customer support' }
+];
+function checklistForpassPorDefecto(){
+  return CHECKLIST_FORPASS_PLANTILLA.map(it => normalizarItemChecklistForpass(Object.assign({ incluido:true }, it)));
+}
+
+/* "Costo de Implementación": pago único de arranque (capacitación,
+   viáticos…). precio × cantidad = total de cada renglón; la suma es el
+   "Pago Inicial de Arranque" del PDF (ver calcularCotizacionForpass). */
+function normalizarRenglonImplementacionForpass(x){
+  return {
+    id: (x && x.id ? String(x.id) : '').trim() || nuevoId(),
+    concepto: (x && x.concepto ? String(x.concepto) : '').trim(),
+    precio: Math.max(0, Math.round(Number(x && x.precio) || 0)),
+    cantidad: Math.max(0, Math.round(Number(x && x.cantidad) || 0))
+  };
+}
+function implementacionForpassPorDefecto(){
+  return [
+    normalizarRenglonImplementacionForpass({ concepto:'Costo de capacitación de arranque y onboarding virtual', precio:16000, cantidad:2 }),
+    normalizarRenglonImplementacionForpass({ concepto:'Viáticos (por cotizar de ser necesario)', precio:0, cantidad:0 })
+  ];
+}
+
+/* "Costo Mensual Software & Hardware (Renta Fija)": tabla de REFERENCIA de
+   precios (no se usa para calcular los sitios — eso es 100% manual por
+   decisión explícita de Victor, ver el comentario grande de arriba). Son
+   renglones libres a propósito: el PDF real de Prolec ni siquiera es
+   consistente consigo mismo (esta tabla solo documenta 2 y 3+ módulos,
+   mientras que la tabla de sitios de la página 4 sí cotiza sitios de 1 solo
+   módulo) — es una hoja informativa, no una fórmula. */
+function normalizarRenglonReferenciaMensualForpass(x){
+  return {
+    id: (x && x.id ? String(x.id) : '').trim() || nuevoId(),
+    concepto: (x && x.concepto ? String(x.concepto) : '').trim(),
+    modulosIncluidos: (x && x.modulosIncluidos ? String(x.modulosIncluidos) : '').trim(),
+    total: Math.max(0, Math.round(Number(x && x.total) || 0))
+  };
+}
+function referenciaMensualForpassPorDefecto(){
+  return [
+    normalizarRenglonReferenciaMensualForpass({ concepto:'Precio base (2 hardware + 2 licencias)', modulosIncluidos:'2', total:10250 }),
+    normalizarRenglonReferenciaMensualForpass({ concepto:'Precio módulo extra con licencia de software incluida', modulosIncluidos:'Por unidad', total:3000 })
+  ];
+}
+
+/* Un SITIO dentro de la cotización — renglón libre (nombre a mano, NO un
+   sitioId real de Forpass) con su propio precio capturado a mano, ver el
+   comentario grande de arriba sobre por qué. total = precioBase + adicional
+   es una suma de lo que YA se capturó, no una fórmula que decida el precio
+   por cantidad de módulos. */
+function normalizarSitioCotizacionForpass(x){
+  return {
+    id: (x && x.id ? String(x.id) : '').trim() || nuevoId(),
+    nombre: (x && x.nombre ? String(x.nombre) : '').trim(),
+    cantidadModulos: Math.max(0, Math.round(Number(x && x.cantidadModulos) || 0)),
+    precioBase: Math.max(0, Math.round(Number(x && x.precioBase) || 0)),
+    adicional: Math.max(0, Math.round(Number(x && x.adicional) || 0))
+  };
+}
+
+/* Texto libre, un punto por línea — igual de editable que el checklist (ver
+   AskUserQuestion arriba): son términos de negocio que SÍ cambian entre
+   cotizaciones (periodo mínimo, política de viáticos…), así que nacen con
+   el texto real del PDF de Prolec como punto de partida, no en blanco. */
+const PUNTOS_IMPORTANTES_FORPASS_DEFAULT = [
+  'No se incluye viáticos debido a que se deberá contar con un programa de instalación con fechas para realizar cotizaciones y presentar una factura consolidada por todos los viáticos que correspondan.',
+  'En el caso de haber múltiples sites, será necesario definir el número de capacitaciones.',
+  'El registro de punto de consumos no cuenta con la capacidad de realizar cobros.',
+  'Es necesario poder contar con servicio de Internet y Electricidad.',
+  'En caso de una falla por mal uso el cliente deberá reemplazar el costo del Hardware si no cuenta con una póliza de Hardware.',
+  'El software es propiedad Forguard, se prohíbe la reproducción o uso del sistema sin consentimiento de la marca.',
+  'Los costos de las tarjetas para externos se cotizan aparte.',
+  'Se requiere la facilitación de la información como bases de datos de manera ágil para respetar los tiempos de instalación.',
+  'Requerimos acceso a la base de datos para el correcto funcionamiento del sistema.',
+  'La asistencia de servicio básico se define como 10 horas anuales por licencia.',
+  'Periodo mínimo de contratación de 24 meses.',
+  'Esquema de pago mensual.',
+  'Tiempo de implementación 4-6 semanas.'
+].join('\n');
+
+/* Mismo criterio de texto libre línea por línea que PUNTOS_IMPORTANTES — la
+   plantilla del PDF (ver armarPayloadCotizacionForpass) distingue un
+   SUBTÍTULO de un punto normal por una sola señal: un subtítulo no termina
+   en punto ("Mantenimiento Preventivo") y un punto normal sí ("Revisión y
+   mantenimiento preventivo de equipos cada 6 meses."). No hace falta un
+   editor de secciones aparte — esa única regla ya reproduce el documento
+   real tal cual. */
+const SLA_FORPASS_DEFAULT = [
+  'Mantenimiento Preventivo',
+  'Revisión y mantenimiento preventivo de equipos cada 6 meses.',
+  'Validación del correcto funcionamiento de terminales y dispositivos asociados.',
+  'Soporte Técnico',
+  'Mesa de ayuda disponible de lunes a viernes de 08:00 a 18:00 hrs.',
+  'Atención y seguimiento de incidencias operativas y técnicas.',
+  'Correctivos y Siniestros',
+  'Atención de daños derivados de siniestros o fallas mayores.'
+].join('\n');
+
+const ESTATUS_COTIZACION_FORPASS = ['borrador', 'enviada', 'aceptada', 'rechazada'];
+const ETIQUETA_ESTATUS_COTIZACION_FORPASS = { borrador:'Borrador', enviada:'Enviada', aceptada:'Aceptada', rechazada:'Rechazada' };
+
+function normalizarCotizacionForpass(q){
+  const v = (q && q.vendedor) || {};
+  return {
+    id: (q && q.id ? String(q.id) : '').trim() || nuevoId(),
+    folio: (q && q.folio ? String(q.folio) : '').trim(),
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(q && q.fecha) ? q.fecha : hoyISO(),
+    clienteId: (q && q.clienteId) || '',
+    proyecto: (q && q.proyecto ? String(q.proyecto) : '').trim(),
+    membresiaNombre: ((q && q.membresiaNombre ? String(q.membresiaNombre) : '').trim()) || 'Prime',
+    vendedor: { uid: v.uid || '', nombre: (v.nombre || '').trim(), correo: (v.correo || '').trim(), telefono: (v.telefono || '').trim() },
+    /* Array.isArray (no ".length") a propósito: un arreglo vacío capturado
+       a propósito (Victor borró las 20 características porque esta
+       membresía no lleva ninguna) se queda vacío para siempre — solo una
+       cotización genuinamente NUEVA (sin el campo todavía) recibe la
+       plantilla de 20. Mismo criterio que `series` en normalizarPartida. */
+    checklist: Array.isArray(q && q.checklist) ? q.checklist.map(normalizarItemChecklistForpass) : checklistForpassPorDefecto(),
+    implementacion: Array.isArray(q && q.implementacion) ? q.implementacion.map(normalizarRenglonImplementacionForpass) : implementacionForpassPorDefecto(),
+    referenciaMensual: Array.isArray(q && q.referenciaMensual) ? q.referenciaMensual.map(normalizarRenglonReferenciaMensualForpass) : referenciaMensualForpassPorDefecto(),
+    sitios: (Array.isArray(q && q.sitios) ? q.sitios : []).map(normalizarSitioCotizacionForpass),
+    puntosImportantes: (q && q.puntosImportantes != null) ? String(q.puntosImportantes) : PUNTOS_IMPORTANTES_FORPASS_DEFAULT,
+    sla: (q && q.sla != null) ? String(q.sla) : SLA_FORPASS_DEFAULT,
+    estatus: ESTATUS_COTIZACION_FORPASS.includes(q && q.estatus) ? q.estatus : 'borrador',
+    notas: (q && q.notas ? String(q.notas) : '').trim()
+  };
+}
+
+function generarFolioCotizacionForpass(fechaISO){
+  const f = /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? fechaISO : hoyISO();
+  const ddmmaa = f.slice(8,10) + f.slice(5,7) + f.slice(2,4);
+  const delMismoDia = datos.cotizacionesForpass.filter(q => q.fecha === f).length;
+  return 'COTFP-' + ddmmaa + '-' + String(delMismoDia + 1).padStart(2,'0');
+}
+
+/* Todo lo que la plantilla necesita ya resuelto en pesos — mismo criterio
+   que calcularCotizacion(): esta es la ÚNICA función que hace la cuenta, la
+   plantilla del PDF (armarPayloadCotizacionForpass) solo formatea. */
+function calcularCotizacionForpass(q){
+  const implementacion = q.implementacion.map(r => Object.assign({}, r, { total: r.precio * r.cantidad }));
+  const pagoInicial = implementacion.reduce((s,r)=> s + r.total, 0);
+  const sitios = q.sitios.map(s => Object.assign({}, s, { total: s.precioBase + s.adicional }));
+  const totalMensual = sitios.reduce((s,r)=> s + r.total, 0);
+  const totalModulos = q.sitios.reduce((s,r)=> s + r.cantidadModulos, 0);
+  return { implementacion, pagoInicial, sitios, totalMensual, totalModulos, totalSitios: q.sitios.length };
+}
+
+function cotizacionForpassPorId(id){ return datos.cotizacionesForpass.find(q => q.id === id); }
+function cotizacionesForpassDeCliente(clienteId){ return datos.cotizacionesForpass.filter(q => q.clienteId === clienteId); }
+
+function guardarCotizacionForpass(q, accion, detalle){
+  guardarLocal();
+  encolar({ tipo:'poner', coleccion:'cotizacionesForpass', id:q.id, obj:q });
+  anotar(accion || 'editó', 'cotización Forpass', q.folio || 'sin folio', detalle);
+}
+
+function eliminarCotizacionForpass(id){
+  const q = cotizacionForpassPorId(id);
+  if(!q) return;
+  datos.cotizacionesForpass = datos.cotizacionesForpass.filter(x => x.id !== id);
+  borrarRegistro('cotizacionesForpass', id);
+  anotar('eliminó', 'cotización Forpass', q.folio || 'sin folio');
+}
+
 /* ---------------------------- Importar desde Excel (tablero de Monday.com) ----------------------------
    El export real ("Servicios Pendientes - Cargo al Cliente") trae UNA sola
    hoja con las 13 etapas del pipeline como secciones seguidas: cada una
@@ -12580,6 +12829,88 @@ function abrirDocumentoOrdenCompra(id){
   if(!prepararDocumentoOrdenCompra(id)) return;
   const w = window.open('docs/plantilla_orden_compra.html?v=' + Date.now(), '_blank');
   if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
+}
+
+/* -------------------- Documento imprimible de una Cotización Forpass --------------------
+   Mismo criterio de siempre: esta función entrega TODO ya resuelto en texto
+   de impresión (dinero(), fechaDocumento(), ya filtrado a solo lo incluido)
+   — la plantilla (docs/plantilla_cotizacion_forpass.html) SOLO formatea y
+   concatena, igual que el resto de los documentos de esta app. Dos cosas
+   que resuelve aquí y no en la plantilla: (1) el checklist se filtra a
+   SOLO las características con `incluido:true` —una apagada no pertenece
+   al documento de venta, no tiene caso imprimirla tachada— y se agrupa por
+   categoría ya listo para pintar; (2) cada línea de "SLA" se marca
+   `subtitulo:true/false` con la misma regla que ya documenta
+   SLA_FORPASS_DEFAULT (sin punto final = subtítulo), para que la plantilla
+   no tenga que repetir esa lógica. */
+function armarPayloadCotizacionForpass(q){
+  const calc = calcularCotizacionForpass(q);
+  const cliente = clientePorId(q.clienteId);
+  const puntosImportantes = (q.puntosImportantes || '').split('\n').map(s => s.trim()).filter(Boolean);
+  const sla = (q.sla || '').split('\n').map(s => s.trim()).filter(Boolean)
+    .map(linea => ({ texto: linea, subtitulo: !/[.!?]$/.test(linea) }));
+  const checklistIncluido = q.checklist.filter(it => it.incluido && it.concepto);
+  const checklistPorCategoria = CATEGORIAS_CHECKLIST_FORPASS.map(cat => ({
+    etiqueta: ETIQUETA_CATEGORIA_CHECKLIST_FORPASS[cat],
+    items: checklistIncluido.filter(it => it.categoria === cat).map(it => ({ concepto: it.concepto, valor: it.valor || 'X' }))
+  })).filter(g => g.items.length);
+
+  return {
+    meta: { generado: new Date().toISOString(), origen:'control-forpass', version:1 },
+    contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: q.vendedor.correo || (sesion && sesion.correo) || '' },
+    folio: q.folio,
+    fecha: fechaDocumento(q.fecha),
+    cliente: cliente ? cliente.nombre : '',
+    proyecto: q.proyecto || '',
+    membresiaNombre: q.membresiaNombre,
+    vendedor: { nombre: q.vendedor.nombre, correo: q.vendedor.correo, telefono: q.vendedor.telefono },
+    checklistPorCategoria,
+    implementacion: calc.implementacion.map(r => ({ concepto:r.concepto, precio:dinero(r.precio), cantidad:numero(r.cantidad), total:dinero(r.total) })),
+    pagoInicial: dinero(calc.pagoInicial),
+    referenciaMensual: q.referenciaMensual.map(r => ({ concepto:r.concepto, modulosIncluidos: r.modulosIncluidos || '—', total:dinero(r.total) })),
+    sitios: calc.sitios.map((s,i) => ({
+      num: i + 1, nombre: s.nombre || ('Sitio ' + (i+1)), cantidadModulos: numero(s.cantidadModulos),
+      precioBase: dinero(s.precioBase), adicional: s.adicional ? dinero(s.adicional) : '', total: dinero(s.total)
+    })),
+    totalSitios: numero(calc.totalSitios),
+    totalModulos: numero(calc.totalModulos),
+    totalMensual: dinero(calc.totalMensual),
+    puntosImportantes,
+    sla
+  };
+}
+
+const LLAVE_DOC_COTIZACION_FORPASS = 'forguard.documento.cotizacionForpass';
+
+function prepararDocumentoCotizacionForpass(id){
+  const q = cotizacionForpassPorId(id);
+  if(!q) return null;
+  try{
+    const payload = armarPayloadCotizacionForpass(q);
+    sessionStorage.setItem(LLAVE_DOC_COTIZACION_FORPASS, JSON.stringify(payload));
+    return payload;
+  }catch(e){
+    aviso('No se pudo preparar el documento: ' + (e && e.message ? e.message : 'error'), true);
+    return null;
+  }
+}
+
+function abrirDocumentoCotizacionForpass(id){
+  if(!prepararDocumentoCotizacionForpass(id)) return;
+  const w = window.open('docs/plantilla_cotizacion_forpass.html?v=' + Date.now(), '_blank');
+  if(!w) aviso('El navegador bloqueó la pestaña. Permite las ventanas emergentes de este sitio.', true);
+}
+
+/* Vista previa sin pestaña nueva — mismo criterio que modalPreviaCotizacion():
+   el botón "Guardar como PDF" de la propia plantilla sigue funcionando
+   adentro del iframe (window.print() desde un iframe imprime solo ese
+   iframe). */
+function modalPreviaCotizacionForpass(id){
+  if(!prepararDocumentoCotizacionForpass(id)) return;
+  const cuerpo = '<iframe class="iframe-previa" src="docs/plantilla_cotizacion_forpass.html?v=' + Date.now() + '" title="Vista previa del documento"></iframe>';
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>';
+  abrirModal('Vista previa · Cotización Forpass', cuerpo, pie);
+  $('modal').classList.add('doc-previa');
 }
 
 /* -------------------- Documento imprimible de un levantamiento --------------------
@@ -15954,6 +16285,15 @@ const TEMAS_AYUDA = [
             'Al capturar o editar un sitio, el select <b>Tipo de Forpass</b> solo sirve para autollenar el costo de una vez: al elegir un tipo se copia su número al campo "Costo de los Forpass instalados" y de ahí en adelante es un valor normal, libre de editar — si después cambias el costo de ese tipo en el catálogo, los sitios que ya lo usaron NO se mueven solos. También se puede capturar el costo directo a mano, sin elegir ningún tipo.',
             'El costo ya no se reconoce todo de un jalón en el mes de inicio: se <b>devenga repartido en 6 meses</b>, a partes lo más iguales posible (el residuo de redondear, si lo hay, cae en el sexto mes) — así "Hardware / equipos FORPASS" en Resultados refleja mejor cuándo se recupera ese costo, en vez de un solo bulto golpeando un mes.',
             'Por ser Resultados un reporte que siempre se recalcula en vivo (nunca una foto congelada), este cambio también mueve cómo se ve el costo de los sitios que YA EXISTÍAN antes del 13-oct-2026 — su forpassCosto no cambia, solo cómo se reparte en el tiempo.'
+          ])
+        + guiaTip('Cotización Forpass (16-oct-2026, pedido de Victor con una cotización real de Prolec)', [
+            'Desde la ficha de un cliente, pestaña Forpass, el botón <b>"Cotizar Forpass"</b> abre un formulario dedicado para armar una cotización con el mismo formato que usa Victor para vender Forpass a un prospecto o cliente nuevo: checklist de características ("Modelo de Suscripción"), costo de implementación, referencia de costo mensual, lista de sitios con su precio, puntos importantes y SLA.',
+            'Es un módulo <b>separado</b> de las Cotizaciones normales (trabajo correctivo/preventivo) — una cotización Forpass no tiene costo/margen/precio al cliente como esas, porque aquí el precio de cada sitio se captura directo (ver abajo), no se calcula de un catálogo de refacciones y mano de obra.',
+            'El <b>checklist de 20 características</b> (Hardware, Data, Reportería, Asistencia) nace con una plantilla por default pero es <b>editable por cada cotización</b> — puedes destildar las que no apliquen a este cliente en particular, o cambiar el texto; lo que no esté marcado "Incluido" simplemente no sale en el PDF.',
+            'Los <b>sitios de la cotización son renglones libres</b> (nombre + # de módulos escritos a mano) — no están ligados a un sitio real de Forpass, porque una cotización casi siempre se arma ANTES de que el sitio exista formalmente en el sistema. Al aceptarse la cotización, el sitio real se sigue dando de alta como siempre, desde Clientes.',
+            'El <b>precio de cada sitio es 100% manual</b> (Precio base + Adicional, el total es nada más la suma de los dos) — Victor pidió explícitamente que no hubiera ninguna tarifa ni fórmula automática por cantidad de módulos, porque los 3 tiers reales de Prolec (1 módulo, 2 módulos, 3+ módulos) no siguen una progresión lineal.',
+            'El botón <b>"Vista previa"</b> de la lista de cotizaciones abre el PDF de 4 páginas (portada, Modelo de Suscripción, Cotización Unitaria con implementación/referencia mensual/SLA, y Cotización Licencia Mensual con todos los sitios) dentro de un modal, igual que las demás plantillas imprimibles del sistema — desde ahí también se puede "Guardar como PDF".',
+            'v1 es de uso interno: una Cotización Forpass no se sincroniza al portal del cliente (a diferencia de las Cotizaciones normales).'
           ])) },
 
   { id:'mi-agenda', titulo:'Mi agenda',
@@ -16644,7 +16984,46 @@ function vistaCliente(){
         alta de un cliente [sitio] sea precisamente el módulo de clientes y
         no de Forpass") — Forpass queda como pantalla de cobranza/
         facturación de sitios que YA existen, no de alta. */
-     + '</div></div>';
+     + '</div></div>'
+     /* "Cotizar Forpass" SÍ va aquí, a diferencia de lo de arriba — a
+        propósito (15-oct-2026, pedido de Victor con un PDF real de
+        Prolec): no es dar de alta un sitio, es un documento de VENTA que
+        casi siempre se arma ANTES de que el cliente tenga nada formalizado
+        en el sistema (ver el comentario grande junto a
+        normalizarCotizacionForpass). Por eso vive en Forpass y no en
+        Clientes: es Forpass quien vende licenciamiento. */
+     + (puedeEditar()
+        ? '<div class="acciones"><button type="button" class="btn btn-primario btn-mini" data-cotizar-forpass="' + esc(c.id) + '">' + ICONO.mas + 'Cotizar Forpass</button></div>'
+        : '')
+     + '</div>';
+
+  const cotizacionesForpassCliente = cotizacionesForpassDeCliente(c.id).slice().sort((a,b)=> b.fecha.localeCompare(a.fecha) || b.folio.localeCompare(a.folio));
+  if(cotizacionesForpassCliente.length){
+    h += '<div class="bloque">'
+       +   '<div class="bloque-cabeza"><div><h3>Cotizaciones Forpass</h3>'
+       +     '<p>Licenciamiento cotizado para este cliente — no afecta la mensualidad ya facturada de arriba</p></div></div>'
+       +   '<div class="rodillo"><table class="tabla"><thead><tr>'
+       +     '<th>Folio</th><th>Fecha</th><th>Proyecto</th><th>Sitios</th><th>Mensual + IVA</th><th>Estatus</th><th></th>'
+       +   '</tr></thead><tbody>'
+       +   cotizacionesForpassCliente.map(q=>{
+             const calc = calcularCotizacionForpass(q);
+             return '<tr>'
+               + '<td>' + esc(q.folio) + '</td>'
+               + '<td>' + fmtFecha(q.fecha) + '</td>'
+               + '<td>' + esc(q.proyecto || '—') + '</td>'
+               + '<td>' + numero(calc.totalSitios) + '</td>'
+               + '<td>' + dinero(calc.totalMensual) + '</td>'
+               + '<td><span class="insignia i-neutro">' + esc(ETIQUETA_ESTATUS_COTIZACION_FORPASS[q.estatus]) + '</span></td>'
+               + '<td class="acc">'
+               +   '<button type="button" class="btn btn-suave btn-mini" data-ver-cotizacion-forpass="' + esc(q.id) + '">Vista previa</button>'
+               +   (puedeEditar() ? '<button type="button" class="icono-mini" data-editar-cotizacion-forpass="' + esc(q.id) + '" data-tip="Editar">' + ICONO.lapiz + '</button>' : '')
+               +   (esAdmin() ? '<button type="button" class="icono-mini" data-eliminar-cotizacion-forpass="' + esc(q.id) + '" data-tip="Eliminar">' + ICONO.basura + '</button>' : '')
+               + '</td>'
+             + '</tr>';
+           }).join('')
+       +   '</tbody></table></div>'
+       + '</div>';
+  }
 
   /* Filtros: siempre presentes en cuanto haya al menos un sitio, para que la
      vista se comporte igual en todos los clientes. */
@@ -31305,6 +31684,318 @@ function modalCotizacion(id, origenReporte){
   }
 }
 
+/* ======================== Modal: Cotización de Forpass ========================
+   Ver el comentario grande junto a normalizarCotizacionForpass() para el
+   porqué de cada decisión de diseño. Mismo molde de trabajo que el resto de
+   los modales grandes de esta app (modalPoliza, modalCotizacion): se trabaja
+   sobre una COPIA (`qTmp`, ya pasada por el normalizador — nunca el registro
+   real) y nada se toca en `datos` hasta Guardar; cada tabla editable se
+   repinta sola (pintarChecklist/pintarImplementacion/pintarReferencia/
+   pintarSitios) y sus botones se re-atan después de cada repintado, igual
+   que pintarGaleriaTmp() en Reportes.
+
+   A propósito NO hay "Vista previa" dentro de este modal: igual que
+   Cotizaciones/Pólizas, la vista previa vive en la LISTA de cotizaciones ya
+   guardadas (ver el bloque "Cotizaciones Forpass" en vistaCliente de
+   Forpass) — picarle antes de que exista el registro no tiene nada que
+   mostrar. */
+function modalCotizacionForpass(clienteId, id){
+  const cliente = clientePorId(clienteId);
+  if(!cliente){ aviso('Ese cliente ya no existe.', true); return; }
+  const original = id ? cotizacionForpassPorId(id) : null;
+  if(id && !original){ aviso('Esa cotización ya no existe.', true); return; }
+
+  const qTmp = normalizarCotizacionForpass(original || {
+    clienteId,
+    vendedor: { uid: sesion.uid || '', nombre: nombreDe(sesion) || '', correo: sesion.correo || '' }
+  });
+
+  const cuerpo =
+      '<div class="campo"><label>Cliente</label><input type="text" value="' + esc(cliente.nombre) + '" disabled></div>'
+    + '<div class="campo"><label>Proyecto</label>'
+    +   '<input type="text" id="cfpProyecto" placeholder="Ej. Sistema Módulo Punto de Registro" value="' + esc(qTmp.proyecto) + '"></div>'
+    + '<div class="campo"><label>Fecha</label><input type="date" id="cfpFecha" value="' + esc(qTmp.fecha) + '"></div>'
+    + '<div class="campo"><label>Nombre de la membresía</label>'
+    +   '<input type="text" id="cfpMembresia" placeholder="Ej. Prime" value="' + esc(qTmp.membresiaNombre) + '">'
+    +   '<div class="pista">Se imprime como título de la tabla de características (ej. "Membresía Prime").</div></div>'
+    + '<div class="campo"><label>Realizó la cotización</label>'
+    +   '<div style="display:flex; gap:8px; flex-wrap:wrap">'
+    +     '<input type="text" id="cfpVendNombre" placeholder="Nombre" style="flex:1; min-width:140px" value="' + esc(qTmp.vendedor.nombre) + '">'
+    +     '<input type="text" id="cfpVendTelefono" placeholder="Teléfono" style="flex:1; min-width:120px" value="' + esc(qTmp.vendedor.telefono) + '">'
+    +     '<input type="email" id="cfpVendCorreo" placeholder="Correo" style="flex:1; min-width:160px" value="' + esc(qTmp.vendedor.correo) + '">'
+    +   '</div></div>'
+
+    + '<div class="campo"><label>Modelo de suscripción — características incluidas</label>'
+    +   '<div class="pista" style="margin-bottom:8px">Prende/apaga cada característica y edita su texto; "valor" es opcional (se imprime en vez de una simple "X", ej. "Hasta 3").</div>'
+    +   '<div id="cfpChecklist"></div>'
+    + '</div>'
+
+    + '<div class="campo"><label>Costo de implementación (pago único de arranque)</label>'
+    +   '<div id="cfpImplementacion"></div>'
+    + '</div>'
+
+    + '<div class="campo"><label>Costo mensual de referencia (software y hardware)</label>'
+    +   '<div class="pista" style="margin-bottom:8px">Tabla informativa — el precio real de cada sitio se captura aparte, abajo.</div>'
+    +   '<div id="cfpReferencia"></div>'
+    + '</div>'
+
+    + '<div class="campo"><label>Sitios cotizados *</label>'
+    +   '<div class="pista" style="margin-bottom:8px">Un renglón por sitio — no necesitan existir todavía en Forpass. Precio base y adicional se capturan a mano por sitio.</div>'
+    +   '<div id="cfpSitios"></div>'
+    + '</div>'
+
+    + '<div class="campo"><label>Puntos importantes</label>'
+    +   '<textarea id="cfpPuntos" rows="6" placeholder="Un punto por línea">' + esc(qTmp.puntosImportantes) + '</textarea></div>'
+    + '<div class="campo"><label>SLA y alcance de servicio</label>'
+    +   '<div class="pista" style="margin-bottom:4px">Una línea SIN punto final se imprime como subtítulo (ej. "Soporte Técnico"); con punto final se imprime como viñeta.</div>'
+    +   '<textarea id="cfpSla" rows="8">' + esc(qTmp.sla) + '</textarea></div>'
+    + '<div class="campo"><label>Notas internas (opcional)</label>'
+    +   '<textarea id="cfpNotas" placeholder="Nunca se imprime en el PDF">' + esc(qTmp.notas) + '</textarea></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">' + (original ? 'Guardar cambios' : 'Crear cotización') + '</button>';
+
+  abrirModal(original ? 'Editar cotización Forpass' : 'Nueva cotización Forpass', cuerpo, pie);
+  $('modal').classList.add('ancho');
+
+  function pintarChecklist(){
+    $('cfpChecklist').innerHTML = CATEGORIAS_CHECKLIST_FORPASS.map(cat=>{
+      const items = qTmp.checklist.filter(it => it.categoria === cat);
+      return '<div class="cfp-categoria">'
+        +   '<div class="cfp-categoria-nombre">' + esc(ETIQUETA_CATEGORIA_CHECKLIST_FORPASS[cat]) + '</div>'
+        +   items.map(it =>
+              '<div class="cfp-item">'
+            +   '<label class="casilla"><input type="checkbox" data-cfp-check="' + esc(it.id) + '"' + (it.incluido ? ' checked' : '') + '></label>'
+            +   '<input type="text" class="cfp-concepto" data-cfp-concepto="' + esc(it.id) + '" value="' + esc(it.concepto) + '" placeholder="Característica">'
+            +   '<input type="text" data-cfp-valor="' + esc(it.id) + '" value="' + esc(it.valor) + '" placeholder="X" style="width:90px">'
+            +   '<button type="button" class="icono-mini" data-cfp-quitar-item="' + esc(it.id) + '" title="Quitar">' + ICONO.basura + '</button>'
+            + '</div>'
+            ).join('')
+        +   '<button type="button" class="btn btn-suave btn-mini" data-cfp-agregar-item="' + cat + '">' + ICONO.mas + 'Agregar a ' + esc(ETIQUETA_CATEGORIA_CHECKLIST_FORPASS[cat]) + '</button>'
+        + '</div>';
+    }).join('');
+
+    $('cfpChecklist').querySelectorAll('[data-cfp-check]').forEach(chk=>{
+      chk.addEventListener('change', ()=>{
+        const it = qTmp.checklist.find(x => x.id === chk.dataset.cfpCheck);
+        if(it) it.incluido = chk.checked;
+      });
+    });
+    $('cfpChecklist').querySelectorAll('[data-cfp-concepto]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const it = qTmp.checklist.find(x => x.id === inp.dataset.cfpConcepto);
+        if(it) it.concepto = inp.value;
+      });
+    });
+    $('cfpChecklist').querySelectorAll('[data-cfp-valor]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const it = qTmp.checklist.find(x => x.id === inp.dataset.cfpValor);
+        if(it) it.valor = inp.value;
+      });
+    });
+    $('cfpChecklist').querySelectorAll('[data-cfp-quitar-item]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        qTmp.checklist = qTmp.checklist.filter(x => x.id !== b.dataset.cfpQuitarItem);
+        pintarChecklist();
+      });
+    });
+    $('cfpChecklist').querySelectorAll('[data-cfp-agregar-item]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        qTmp.checklist.push(normalizarItemChecklistForpass({ categoria: b.dataset.cfpAgregarItem, incluido:true }));
+        pintarChecklist();
+      });
+    });
+  }
+
+  function pintarImplementacion(){
+    const calc = calcularCotizacionForpass(qTmp);
+    $('cfpImplementacion').innerHTML =
+        '<div class="rodillo"><table class="tabla"><thead><tr>'
+      +   '<th>Concepto</th><th>Precio</th><th>Cantidad</th><th>Total</th><th></th>'
+      + '</tr></thead><tbody>'
+      + calc.implementacion.map(r=>
+          '<tr>'
+        +   '<td><input type="text" data-cfp-imp-concepto="' + esc(r.id) + '" value="' + esc(r.concepto) + '"></td>'
+        +   '<td><input type="number" min="0" data-cfp-imp-precio="' + esc(r.id) + '" value="' + r.precio + '" style="width:110px"></td>'
+        +   '<td><input type="number" min="0" data-cfp-imp-cantidad="' + esc(r.id) + '" value="' + r.cantidad + '" style="width:80px"></td>'
+        +   '<td>' + dinero(r.total) + '</td>'
+        +   '<td><button type="button" class="icono-mini" data-cfp-imp-quitar="' + esc(r.id) + '" title="Quitar">' + ICONO.basura + '</button></td>'
+        + '</tr>'
+        ).join('')
+      + '</tbody><tfoot><tr><td colspan="3" style="text-align:right; font-weight:700">Pago inicial de arranque</td><td style="font-weight:700">' + dinero(calc.pagoInicial) + '</td><td></td></tr></tfoot></table></div>'
+      + '<button type="button" class="btn btn-suave btn-mini" id="btnCfpAgregarImplementacion" style="margin-top:8px">' + ICONO.mas + 'Agregar renglón</button>';
+
+    $('cfpImplementacion').querySelectorAll('[data-cfp-imp-concepto]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const r = qTmp.implementacion.find(x => x.id === inp.dataset.cfpImpConcepto);
+        if(r) r.concepto = inp.value;
+      });
+    });
+    $('cfpImplementacion').querySelectorAll('[data-cfp-imp-precio]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const r = qTmp.implementacion.find(x => x.id === inp.dataset.cfpImpPrecio);
+        if(r){ r.precio = Math.max(0, Math.round(Number(inp.value) || 0)); pintarImplementacion(); }
+      });
+    });
+    $('cfpImplementacion').querySelectorAll('[data-cfp-imp-cantidad]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const r = qTmp.implementacion.find(x => x.id === inp.dataset.cfpImpCantidad);
+        if(r){ r.cantidad = Math.max(0, Math.round(Number(inp.value) || 0)); pintarImplementacion(); }
+      });
+    });
+    $('cfpImplementacion').querySelectorAll('[data-cfp-imp-quitar]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        qTmp.implementacion = qTmp.implementacion.filter(x => x.id !== b.dataset.cfpImpQuitar);
+        pintarImplementacion();
+      });
+    });
+    $('btnCfpAgregarImplementacion').addEventListener('click', ()=>{
+      qTmp.implementacion.push(normalizarRenglonImplementacionForpass({ concepto:'', precio:0, cantidad:1 }));
+      pintarImplementacion();
+    });
+  }
+
+  function pintarReferencia(){
+    $('cfpReferencia').innerHTML =
+        '<div class="rodillo"><table class="tabla"><thead><tr>'
+      +   '<th>Concepto</th><th>Módulos incluidos</th><th>Total mensual</th><th></th>'
+      + '</tr></thead><tbody>'
+      + qTmp.referenciaMensual.map(r=>
+          '<tr>'
+        +   '<td><input type="text" data-cfp-ref-concepto="' + esc(r.id) + '" value="' + esc(r.concepto) + '"></td>'
+        +   '<td><input type="text" data-cfp-ref-modulos="' + esc(r.id) + '" value="' + esc(r.modulosIncluidos) + '" style="width:110px" placeholder="Ej. 2 o Por unidad"></td>'
+        +   '<td><input type="number" min="0" data-cfp-ref-total="' + esc(r.id) + '" value="' + r.total + '" style="width:110px"></td>'
+        +   '<td><button type="button" class="icono-mini" data-cfp-ref-quitar="' + esc(r.id) + '" title="Quitar">' + ICONO.basura + '</button></td>'
+        + '</tr>'
+        ).join('')
+      + '</tbody></table></div>'
+      + '<button type="button" class="btn btn-suave btn-mini" id="btnCfpAgregarReferencia" style="margin-top:8px">' + ICONO.mas + 'Agregar renglón</button>';
+
+    $('cfpReferencia').querySelectorAll('[data-cfp-ref-concepto]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const r = qTmp.referenciaMensual.find(x => x.id === inp.dataset.cfpRefConcepto);
+        if(r) r.concepto = inp.value;
+      });
+    });
+    $('cfpReferencia').querySelectorAll('[data-cfp-ref-modulos]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const r = qTmp.referenciaMensual.find(x => x.id === inp.dataset.cfpRefModulos);
+        if(r) r.modulosIncluidos = inp.value;
+      });
+    });
+    $('cfpReferencia').querySelectorAll('[data-cfp-ref-total]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const r = qTmp.referenciaMensual.find(x => x.id === inp.dataset.cfpRefTotal);
+        if(r) r.total = Math.max(0, Math.round(Number(inp.value) || 0));
+      });
+    });
+    $('cfpReferencia').querySelectorAll('[data-cfp-ref-quitar]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        qTmp.referenciaMensual = qTmp.referenciaMensual.filter(x => x.id !== b.dataset.cfpRefQuitar);
+        pintarReferencia();
+      });
+    });
+    $('btnCfpAgregarReferencia').addEventListener('click', ()=>{
+      qTmp.referenciaMensual.push(normalizarRenglonReferenciaMensualForpass({ concepto:'', modulosIncluidos:'', total:0 }));
+      pintarReferencia();
+    });
+  }
+
+  function pintarSitios(){
+    const calc = calcularCotizacionForpass(qTmp);
+    $('cfpSitios').innerHTML =
+        '<div class="rodillo"><table class="tabla"><thead><tr>'
+      +   '<th>Sitio</th><th>Módulos</th><th>Precio base</th><th>Adicional</th><th>Total</th><th></th>'
+      + '</tr></thead><tbody>'
+      + calc.sitios.map(s=>
+          '<tr>'
+        +   '<td><input type="text" data-cfp-sitio-nombre="' + esc(s.id) + '" value="' + esc(s.nombre) + '" placeholder="Ej. Distribución"></td>'
+        +   '<td><input type="number" min="0" data-cfp-sitio-modulos="' + esc(s.id) + '" value="' + s.cantidadModulos + '" style="width:80px"></td>'
+        +   '<td><input type="number" min="0" data-cfp-sitio-base="' + esc(s.id) + '" value="' + s.precioBase + '" style="width:110px"></td>'
+        +   '<td><input type="number" min="0" data-cfp-sitio-adicional="' + esc(s.id) + '" value="' + s.adicional + '" style="width:110px"></td>'
+        +   '<td>' + dinero(s.total) + '</td>'
+        +   '<td><button type="button" class="icono-mini" data-cfp-sitio-quitar="' + esc(s.id) + '" title="Quitar">' + ICONO.basura + '</button></td>'
+        + '</tr>'
+        ).join('')
+      + '</tbody><tfoot><tr>'
+      +   '<td style="font-weight:700">' + numero(calc.totalSitios) + ' ' + plural(calc.totalSitios,'sitio','sitios') + '</td>'
+      +   '<td style="font-weight:700">' + numero(calc.totalModulos) + '</td>'
+      +   '<td colspan="2" style="text-align:right; font-weight:700">Precio mensual más IVA</td>'
+      +   '<td style="font-weight:700">' + dinero(calc.totalMensual) + '</td><td></td>'
+      + '</tr></tfoot></table></div>'
+      + '<button type="button" class="btn btn-suave btn-mini" id="btnCfpAgregarSitio" style="margin-top:8px">' + ICONO.mas + 'Agregar sitio</button>';
+
+    $('cfpSitios').querySelectorAll('[data-cfp-sitio-nombre]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const s = qTmp.sitios.find(x => x.id === inp.dataset.cfpSitioNombre);
+        if(s) s.nombre = inp.value;
+      });
+    });
+    $('cfpSitios').querySelectorAll('[data-cfp-sitio-modulos]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const s = qTmp.sitios.find(x => x.id === inp.dataset.cfpSitioModulos);
+        if(s) s.cantidadModulos = Math.max(0, Math.round(Number(inp.value) || 0));
+      });
+    });
+    $('cfpSitios').querySelectorAll('[data-cfp-sitio-base]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const s = qTmp.sitios.find(x => x.id === inp.dataset.cfpSitioBase);
+        if(s){ s.precioBase = Math.max(0, Math.round(Number(inp.value) || 0)); pintarSitios(); }
+      });
+    });
+    $('cfpSitios').querySelectorAll('[data-cfp-sitio-adicional]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const s = qTmp.sitios.find(x => x.id === inp.dataset.cfpSitioAdicional);
+        if(s){ s.adicional = Math.max(0, Math.round(Number(inp.value) || 0)); pintarSitios(); }
+      });
+    });
+    $('cfpSitios').querySelectorAll('[data-cfp-sitio-quitar]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        qTmp.sitios = qTmp.sitios.filter(x => x.id !== b.dataset.cfpSitioQuitar);
+        pintarSitios();
+      });
+    });
+    $('btnCfpAgregarSitio').addEventListener('click', ()=>{
+      qTmp.sitios.push(normalizarSitioCotizacionForpass({ nombre:'', cantidadModulos:1, precioBase:0, adicional:0 }));
+      pintarSitios();
+    });
+  }
+
+  pintarChecklist();
+  pintarImplementacion();
+  pintarReferencia();
+  pintarSitios();
+
+  cerrarModalActual = ()=>{
+    const proyecto = $('cfpProyecto').value.trim();
+    const fecha = $('cfpFecha').value || hoyISO();
+    if(!qTmp.sitios.length){ aviso('Agrega al menos un sitio a la cotización.', true); return; }
+
+    const reg = normalizarCotizacionForpass(Object.assign({}, qTmp, {
+      proyecto,
+      fecha,
+      membresiaNombre: $('cfpMembresia').value,
+      vendedor: { uid: qTmp.vendedor.uid, nombre: $('cfpVendNombre').value.trim(),
+                  correo: $('cfpVendCorreo').value.trim(), telefono: $('cfpVendTelefono').value.trim() },
+      puntosImportantes: $('cfpPuntos').value,
+      sla: $('cfpSla').value,
+      notas: $('cfpNotas').value.trim(),
+      folio: qTmp.folio || generarFolioCotizacionForpass(fecha)
+    }));
+
+    if(original){
+      Object.assign(original, reg);
+      guardarCotizacionForpass(original, 'editó');
+    }else{
+      datos.cotizacionesForpass.push(reg);
+      guardarCotizacionForpass(reg, 'creó', reg.folio);
+    }
+    cerrarModal();
+    render();
+    aviso(original ? 'Cotización Forpass actualizada.' : 'Cotización Forpass creada: ' + reg.folio + '.');
+  };
+}
+
 /* ==================== IMPORTAR PÓLIZAS DESDE UN JSON ====================
    Las cotizaciones viejas viven en PDF de Canva. El lector de
    scripts/lector-pdf/ las convierte a JSON con la forma de una póliza; esto
@@ -33385,6 +34076,34 @@ $('vista').addEventListener('click', ev=>{
     return;
   }
 
+  const cotF = t.closest('[data-cotizar-forpass]');
+  if(cotF){ if(exigirPermiso()) modalCotizacionForpass(cotF.dataset.cotizarForpass, null); return; }
+
+  const verCotF = t.closest('[data-ver-cotizacion-forpass]');
+  if(verCotF){ modalPreviaCotizacionForpass(verCotF.dataset.verCotizacionForpass); return; }
+
+  const editCotF = t.closest('[data-editar-cotizacion-forpass]');
+  if(editCotF){
+    if(!exigirPermiso()) return;
+    const q = cotizacionForpassPorId(editCotF.dataset.editarCotizacionForpass);
+    if(q) modalCotizacionForpass(q.clienteId, q.id);
+    return;
+  }
+
+  const delCotF = t.closest('[data-eliminar-cotizacion-forpass]');
+  if(delCotF){
+    if(!exigirAdmin('eliminar una cotización Forpass')) return;
+    const q = cotizacionForpassPorId(delCotF.dataset.eliminarCotizacionForpass);
+    if(!q) return;
+    confirmar('Eliminar cotización Forpass',
+      'Se va a borrar «' + esc(q.folio) + '» por completo. Esta acción no se puede deshacer.',
+      'Sí, eliminar', ()=>{
+        eliminarCotizacionForpass(q.id);
+        render(); aviso('Cotización ' + q.folio + ' eliminada.');
+      });
+    return;
+  }
+
   const pago = t.closest('[data-pago]');
   if(pago){
     if(!exigirPermiso()) return;
@@ -35051,7 +35770,7 @@ function salirSilencioso(tambienLosDatos){
     /* Mismo faltante que limpiarSesionYDatos() (veredicto de auditoría,
        21-sep-2026): faltaban proveedores/gastosProveedor/refacciones/
        ordenesCompra. */
-    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{}, catalogoForpass:[] };
+    datos = { v:1, clientes:[], sitios:[], polizas:[], catalogo:[], segmentos:[], parametros:{clientes:[],sitios:[]}, cotizaciones:[], reportes:[], levantamientos:[], proyectosImagen:[], activos:[], personal:[], nominaPersonal:[], proveedores:[], gastosProveedor:[], refacciones:[], ordenesCompra:[], visitas:[], checklistRational:[], propiedadEquiposRational:[], oportunidades:[], permisosModulos:{}, catalogoForpass:[], cotizacionesForpass:[] };
     try{ localStorage.removeItem(LLAVE); }catch(e){}
     estado.vista = inicioDelModulo(); estado.clienteId = null; estado.polizaId = null; estado.cotizacionId = null; estado.reporteId = null; estado.levantamientoId = null; estado.proyectoImagenId = null; estado.activoId = null; estado.proveedorId = null; estado.gastoProveedorId = null; estado.refaccionId = null; estado.ordenCompraId = null;
     sincronizado = false;
