@@ -5752,7 +5752,7 @@ function modalTipoForpass(id){
       +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarComponente" style="margin-top:12px">' + ICONO.mas + 'Agregar concepto</button>'
       + '</div>'
 
-      + '<input type="file" id="tfArchivoFoto" accept="image/*" capture="environment" style="display:none">'
+      + '<input type="file" id="tfArchivoFoto" accept="image/*" style="display:none">'
 
       + '<div class="resumen" style="margin-top:14px"><div class="r-fila r-total" id="tfTotalFila"><span>Costo total</span><span>' + dinero(total()) + '</span></div></div>';
 
@@ -17855,7 +17855,7 @@ function vistaReporte(){
               + '</div>'
             ).join('') + '</div>'
           : '<p class="pista" style="margin:0">Todavía no hay fotos.</p>')
-     +   '<input type="file" id="archivoEvidencia" accept="image/*" capture="environment" multiple style="display:none">'
+     +   '<input type="file" id="archivoEvidencia" accept="image/*" multiple style="display:none">'
      + '</div>';
 
   /* Solo aparece una vez que existe: antes de resolverlo no hay nada que
@@ -18632,7 +18632,7 @@ function vistaActivo(){
               + '</div>'
             ).join('') + '</div>'
           : '<p class="pista" style="margin:0">Todavía no hay fotos.</p>')
-     +   '<input type="file" id="archivoEvidenciaActivo" accept="image/*" capture="environment" multiple style="display:none">'
+     +   '<input type="file" id="archivoEvidenciaActivo" accept="image/*" multiple style="display:none">'
      + '</div>';
 
   /* Factura u orden de compra: el comprobante de la compra, distinto de las
@@ -18838,7 +18838,7 @@ function modalActivo(id){
     + '<div class="campo"><label>Fotos</label>'
     +   '<div class="galeria-evidencia" id="galeriaEvidenciaTmpAct"></div>'
     +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarFotoAct">' + ICONO.camara + 'Tomar o elegir foto</button>'
-    +   '<input type="file" id="archivoEvidenciaAct" accept="image/*" capture="environment" multiple style="display:none">'
+    +   '<input type="file" id="archivoEvidenciaAct" accept="image/*" multiple style="display:none">'
     +   '<div class="pista" id="pistaEvidenciaAct">Hasta ' + EVIDENCIA_MAX_POR_ACTIVO + ' fotos. Se reducen solas para no pesar.</div>'
     + '</div>';
 
@@ -20872,7 +20872,7 @@ function pintarFormPublico(enlace, clientes, sitios){
     +     '<div class="campo"><label>Fotos (opcional)</label>'
     +       '<div class="galeria-evidencia" id="fpGaleria"></div>'
     +       '<button type="button" class="btn btn-suave btn-mini" id="fpBtnFoto">' + ICONO.camara + 'Tomar o elegir foto</button>'
-    +       '<input type="file" id="fpArchivo" accept="image/*" capture="environment" multiple style="display:none">'
+    +       '<input type="file" id="fpArchivo" accept="image/*" multiple style="display:none">'
     +       '<div class="pista" id="fpPistaFoto">Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos.</div>'
     +     '</div>'
     +     '<div class="fp-mensaje" id="fpMensaje" hidden></div>'
@@ -21130,7 +21130,7 @@ function modalReporte(id, prefill){
     + '<div class="campo"><label>Fotos de evidencia</label>'
     +   '<div class="galeria-evidencia" id="galeriaEvidenciaTmp"></div>'
     +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarFotoR">' + ICONO.camara + 'Tomar o elegir foto</button>'
-    +   '<input type="file" id="archivoEvidenciaR" accept="image/*" capture="environment" multiple style="display:none">'
+    +   '<input type="file" id="archivoEvidenciaR" accept="image/*" multiple style="display:none">'
     +   '<div class="pista" id="pistaEvidenciaR">Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos. Se reducen solas para no pesar.</div>'
     + '</div>';
 
@@ -21467,12 +21467,12 @@ function modalResolverReporte(id){
     +   '<p class="pista" style="margin:0 0 8px">La hoja física que firma y sella el comedor/cliente al terminar — sube una foto legible.</p>'
     +   '<div class="galeria-evidencia" id="galeriaHojaServicioRA"></div>'
     +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarHojaServicioRA">' + ICONO.camara + 'Tomar o elegir foto</button>'
-    +   '<input type="file" id="archivoHojaServicioRA" accept="image/*" capture="environment" multiple style="display:none">'
+    +   '<input type="file" id="archivoHojaServicioRA" accept="image/*" multiple style="display:none">'
     + '</div>'
     + '<div class="campo"><label>Otras fotos de evidencia (opcional)</label>'
     +   '<div class="galeria-evidencia" id="galeriaEvidenciaRA"></div>'
     +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarFotoRA">' + ICONO.camara + 'Tomar o elegir foto</button>'
-    +   '<input type="file" id="archivoEvidenciaRA" accept="image/*" capture="environment" multiple style="display:none">'
+    +   '<input type="file" id="archivoEvidenciaRA" accept="image/*" multiple style="display:none">'
     +   '<div class="pista" id="pistaEvidenciaRA">Hasta ' + EVIDENCIA_MAX_POR_REPORTE + ' fotos en total, entre las dos secciones.</div>'
     + '</div>';
 
@@ -22487,7 +22487,7 @@ function modalHallazgo(levantamientoId, hallazgoId){
     + '<div class="campo"><label>Fotos de evidencia (opcional)</label>'
     +   '<div class="galeria-evidencia" id="hzGaleriaEvidencia"></div>'
     +   '<button type="button" class="btn btn-suave btn-mini" id="hzBtnAgregarFoto">' + ICONO.camara + 'Tomar o elegir foto</button>'
-    +   '<input type="file" id="hzArchivoEvidencia" accept="image/*" capture="environment" multiple style="display:none">'
+    +   '<input type="file" id="hzArchivoEvidencia" accept="image/*" multiple style="display:none">'
     +   '<div class="pista" id="hzPistaEvidencia">Hasta ' + EVIDENCIA_MAX_POR_HALLAZGO + ' fotos. Se reducen solas para no pesar.</div>'
     + '</div>'
 
@@ -28737,9 +28737,16 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
           + '</div>'
         : '')
 
+    /* Ya sin el atributo `capture` que forzaba la cámara (15-oct-2026,
+       reporte de Victor: el botón ya decía "Tomar o elegir foto", pero ese
+       atributo hacía que varios navegadores móviles —sobre todo
+       Android/Chrome— abrieran la cámara directo, sin dar la opción de
+       elegir de la galería). El mismo ajuste se aplicó a los otros 9
+       inputs de evidencia de la app — todos prometían lo mismo en su
+       botón y tenían el mismo problema. */
     + '<div class="campo"><label>Fotos de evidencia (opcional)</label>'
     +   '<div id="svFotosWrap"></div>'
-    +   '<input type="file" id="svArchivoEvidencia" accept="image/*" capture="environment" multiple style="display:none">'
+    +   '<input type="file" id="svArchivoEvidencia" accept="image/*" multiple style="display:none">'
     +   '<div class="pista" id="svPistaEvidencia">Hasta ' + EVIDENCIA_MAX_POR_SERVICIO + ' fotos en total. Se reducen solas para no pesar.</div>'
     + '</div>'
 
