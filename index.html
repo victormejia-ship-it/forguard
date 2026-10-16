@@ -16527,7 +16527,7 @@ const TEMAS_AYUDA = [
         'Usa <b>Nuevo activo</b>: Tipo (Equipo en cliente / Activo interno — Forguard / Activo interno — Plato Express), Cliente+Sitio (obligatorio para "Equipo en cliente", opcional para los dos internos — ver el detalle abajo), Ubicación y Asignar a (para los internos), Categoría, Nombre*, Marca, Modelo, Serie, Estatus, Condición, Proveedor, Fecha y Costo de compra, Garantía hasta, Frecuencia de mantenimiento (días), Próximo mantenimiento, Notas, Código (barras o QR, con botón "Generar"), y hasta 6 fotos.',
         'Busca por folio/nombre/marca/serie/sitio/cliente; filtra por tipo (incluye los dos internos por separado), por cada estatus, por categoría, o por "Mantenimiento pendiente"/"Garantía por vencer".',
         'En el detalle: sube más evidencia, sube la <b>Factura/Orden de compra</b> (imagen o PDF), y cambia el estatus (Enviar a mantenimiento / Regresar a operación / Dar de baja / Marcar perdido-robado).',
-        '¿Dos tarjetas que en realidad son el mismo cliente (ej. "NORTEK RHEEM NORTE" y "NORTEK RHEMM SUR", el mismo cliente con dos sitios capturado dos veces)? Usa <b>Fusionar</b> (Admin/Owner) en la tarjeta del que sobra — mismo flujo que "Fusionar con otro cliente" en Clientes, mueve de un golpe sus activos (y todo lo demás) al que se conserve.'
+        '¿Dos tarjetas que en realidad son el mismo cliente (ej. "NORTEK RHEEM NORTE" y "NORTEK RHEMM SUR", el mismo cliente con dos sitios capturado dos veces)? Usa <b>Fusionar</b> (Admin/Owner) en la tarjeta del que sobra — mismo flujo que "Fusionar con otro cliente" en Clientes, mueve de un golpe sus activos (y todo lo demás) al que se conserve. Si en vez de "Fusionar" ves <b>"Vincular a cliente"</b>, esa tarjeta es un grupo huérfano — ver el tip de abajo.'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
         'Para activos internos (Forguard o Plato Express), usa <b>Asignar</b>/<b>Reasignar</b>/<b>Devolver</b> — queda un historial completo de quién lo trae y desde cuándo. Esto es de quién es DUEÑO del activo, no de dónde está: un activo interno con cliente/sitio capturado también se puede asignar a una persona.',
@@ -16551,6 +16551,12 @@ const TEMAS_AYUDA = [
         + guiaTip('Permisos, un caso especial', [
             'Es el único de estos módulos donde el rol Técnico puede dar de alta, editar, subir evidencia y anotar mantenimiento sin ser Analyst — el resto (Owner/Admin/Analyst) también puede, por supuesto.',
             'Eliminar un activo sigue siendo exclusivo de Admin/Owner, sin excepción para Técnico.'
+          ])
+        + guiaTip('"Vincular a cliente" — tarjetas que se quedaron sin cliente real (16-oct-2026, reporte de Victor: "no puedo aplicar la fusion de los sitios como te habia mencionado")', [
+            'Si una tarjeta muestra solo iniciales (en vez del logo real) y en su pie dice <b>"Vincular a cliente"</b> en lugar de "Fusionar", sus activos están huérfanos: tienen un cliente capturado que ya NO existe en el sistema — normalmente porque ese cliente se eliminó en algún momento desde Clientes. "Eliminar cliente" avisa si quedan pólizas, cotizaciones, reportes o levantamientos huérfanos, pero nunca avisó de los activos — por eso pudo pasar sin que nadie se diera cuenta.',
+            'Usa <b>"Vincular a cliente"</b> (Admin/Owner) para elegir de un jalón a cuál cliente pertenecen de verdad TODOS los activos de esa tarjeta — uno que ya exista, o uno nuevo que se crea ahí mismo (mismo botón "Nuevo" que ya usa el formulario de un activo). En cuanto quedan vinculados a un cliente real, la tarjeta ya muestra su logo y ya se le puede dar "Fusionar" normal.',
+            'Para el caso real de dos tarjetas duplicadas y huérfanas a la vez (ej. "NORTEK RHEEM NORTE" y "NORTEK RHEMM SUR"): vincula la primera a un cliente NUEVO (ej. "Nortek"), y luego vincula la segunda a ESE MISMO cliente que ya acabas de crear — las dos terminan bajo un solo cliente real, sin necesidad de "Fusionar" aparte.',
+            'No aplica a "Activos internos" (no son de ningún cliente) ni al grupo "Sin cliente" (activos de varios clientes distintos sin capturar a cuál pertenece cada uno — vincularlos todos de un jalón al mismo destino inventaría un dato en vez de corregir uno real; esos se corrigen uno por uno, editando el activo).'
           ])) },
 
   { id:'proveedores', titulo:'Proveedores',
@@ -18569,7 +18575,23 @@ function vistaActivosDirectorio(){
          +     '<span class="espacio"></span>'
          +     (cliente && esAdmin()
                 ? '<button type="button" class="btn btn-suave btn-mini" data-fusionar-cliente="' + esc(idGrupo) + '" title="Unir este cliente con un duplicado (ej. el mismo cliente capturado con otro sitio)">' + ICONO.respaldo + 'Fusionar</button>'
-                : '')
+                /* "Vincular a cliente" (16-oct-2026, reporte real de Victor:
+                   "no puedo aplicar la fusion de los sitios como te habia
+                   mencionado" sobre NORTEK RHEEM NORTE/NORTEK RHEMM SUR/
+                   STELLANTIS INGENIERIAS). Causa: "Fusionar" de arriba solo
+                   aparece con un `cliente` real resuelto — estos grupos
+                   traen un clienteId que YA NO existe en datos.clientes (el
+                   cliente se eliminó alguna vez; "Eliminar cliente" nunca
+                   mencionó ni movió sus activos, a diferencia de pólizas/
+                   cotizaciones/reportes/levantamientos, que sí se avisan
+                   huérfanos). Se excluyen '__interno__' (no es un cliente) y
+                   '__sin_cliente__' (activos de VARIOS clientes distintos sin
+                   captura de a cuál pertenecen — vincularlos todos de un
+                   jalón al mismo destino sería inventar un dato, no corregir
+                   uno real). */
+                : (!cliente && idGrupo !== '__interno__' && idGrupo !== '__sin_cliente__' && esAdmin()
+                  ? '<button type="button" class="btn btn-suave btn-mini" data-vincular-activos-huerfanos="' + esc(idGrupo) + '" title="Estos activos no tienen un cliente real asociado — seguramente ese cliente ya no existe">' + ICONO.persona + 'Vincular a cliente</button>'
+                  : ''))
          +   '</div>'
          + '</div>';
   };
@@ -28250,6 +28272,89 @@ function modalFusionCliente(id){
   };
 }
 
+/* "Vincular a cliente" para un grupo de Activos HUÉRFANO en el directorio
+   (16-oct-2026, reporte real de Victor con captura: "no puedo aplicar la
+   fusion de los sitios como te habia mencionado" sobre NORTEK RHEEM NORTE,
+   NORTEK RHEMM SUR y STELLANTIS INGENIERIAS). Diagnóstico confirmado con
+   Victor: esos 3 nombres YA NO existen como clientes en datos.clientes —
+   "Fusionar" (ver el botón junto a este, en tarjetaGrupo) nunca se pinta
+   porque necesita un `cliente` real resuelto por clientePorId(a.clienteId),
+   y el clienteId que traen esos activos ya no le pertenece a nadie (el
+   cliente se eliminó en algún momento vía "Eliminar cliente", que solo
+   avisa de pólizas/cotizaciones/reportes/levantamientos huérfanos — nunca
+   mencionó ni movió activos, así que estos se quedaron huérfanos en
+   silencio).
+
+   modalActivo() YA deja elegir/crear el cliente de un activo individual
+   (select "Cliente" + botón "Nuevo", mismo patrón que se reutiliza aquí)
+   pero reeditar uno por uno 24-684 activos no es práctico. Este modal
+   resuelve el grupo COMPLETO de un jalón: se elige a qué cliente pertenecen
+   de verdad —uno que ya exista, o uno nuevo creado aquí mismo— y se
+   reasigna el clienteId de TODOS los activos de ese grupo. Una vez
+   vinculado a un cliente real, el grupo se comporta como cualquier otro
+   (ya muestra su logo, y ya se le puede dar "Fusionar" si en verdad era
+   un duplicado de otro cliente: por ejemplo, vincular primero "NORTEK
+   RHEEM NORTE" a un cliente nuevo "Nortek" y luego "NORTEK RHEMM SUR" a
+   ESE mismo cliente ya real, para terminar fusionándolos si hiciera falta). */
+function modalVincularActivosHuerfanos(idGrupo){
+  if(!exigirAdmin('vincular estos activos a un cliente')) return;
+  const activosGrupo = datos.activos.filter(a => a.clienteId === idGrupo);
+  if(!activosGrupo.length){ aviso('Ese grupo ya no existe.', true); return; }
+  const nombreGrupo = activosGrupo[0].sitioNombre || 'Sin cliente';
+  const clientesOrd = datos.clientes.slice().sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+  const cuerpo =
+      '<div class="pista" style="margin-bottom:14px">Estos <b>' + numero(activosGrupo.length) + ' ' + plural(activosGrupo.length,'activo','activos') + '</b> '
+    +   'de «' + esc(nombreGrupo) + '» no tienen un cliente real asociado — seguramente ese cliente se eliminó en algún momento. '
+    +   'Elige a cuál cliente pertenecen de verdad (uno que ya exista, o créalo aquí mismo) y se reasignan todos de un jalón.</div>'
+    + '<div class="campo"><label>Cliente *</label>'
+    +   '<div class="cliente-zona">'
+    +     '<select id="vahCliente"><option value="">— Elige uno —</option>' + clientesOrd.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + '</option>').join('') + '</select>'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnClienteNuevoVah" title="Dar de alta un cliente sin salir de aquí">' + ICONO.mas + 'Nuevo</button>'
+    +   '</div></div>'
+    + '<div id="zonaClienteNuevoVah" class="cliente-nuevo" hidden>'
+    +   '<div class="campo"><label>Nombre del cliente nuevo *</label>'
+    +     '<input type="text" id="vahNombreNuevo" placeholder="Ej. Nortek" autocomplete="off"></div>'
+    +   '<div class="cliente-nuevo-botones">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="vahCancelar">Cancelar</button>'
+    +     '<button type="button" class="btn btn-primario btn-mini" id="vahCrear">Crear y seleccionar</button>'
+    +   '</div>'
+    + '</div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Vincular</button>';
+
+  abrirModal('Vincular activos a un cliente', cuerpo, pie);
+
+  $('btnClienteNuevoVah').addEventListener('click', ()=>{
+    $('zonaClienteNuevoVah').hidden = false;
+    $('vahNombreNuevo').focus();
+  });
+  $('vahCancelar').addEventListener('click', ()=>{ $('zonaClienteNuevoVah').hidden = true; $('vahNombreNuevo').value = ''; });
+  $('vahCrear').addEventListener('click', ()=>{
+    const nombre = $('vahNombreNuevo').value.trim();
+    if(!nombre){ aviso('Ponle un nombre al cliente nuevo.', true); return; }
+    const nuevo = normalizarCliente({ id:nuevoId(), nombre });
+    datos.clientes.push(nuevo);
+    guardarCliente(nuevo, 'creó');
+    $('vahCliente').insertAdjacentHTML('beforeend', '<option value="' + esc(nuevo.id) + '" selected>' + esc(nuevo.nombre) + '</option>');
+    $('vahCliente').value = nuevo.id;
+    $('zonaClienteNuevoVah').hidden = true;
+    aviso('Cliente agregado.');
+  });
+
+  cerrarModalActual = ()=>{
+    const destinoId = $('vahCliente').value;
+    if(!destinoId){ aviso('Elige a cuál cliente pertenecen estos activos.', true); return; }
+    const destino = clientePorId(destinoId);
+    if(!destino) return;
+    activosGrupo.forEach(a => { a.clienteId = destino.id; guardarActivo(a, 'movió', 'de un cliente eliminado a «' + destino.nombre + '»'); });
+    cerrarModal();
+    render();
+    aviso(numero(activosGrupo.length) + ' ' + plural(activosGrupo.length,'activo vinculado','activos vinculados') + ' a «' + destino.nombre + '».');
+  };
+}
+
 /* Todo lo que cuelga de un SITIO (no de un cliente): igual que
    datosClienteParaFusion, pero llaveado por sitioId — para cuando dos sitios
    son el mismo lugar capturado dos veces (p.ej. "Componentes" y
@@ -33967,6 +34072,9 @@ $('vista').addEventListener('click', ev=>{
 
   const fuC = t.closest('[data-fusionar-cliente]');
   if(fuC){ if(exigirAdmin('fusionar clientes')) modalFusionCliente(fuC.dataset.fusionarCliente); return; }
+
+  const vaH = t.closest('[data-vincular-activos-huerfanos]');
+  if(vaH){ modalVincularActivosHuerfanos(vaH.dataset.vincularActivosHuerfanos); return; }
 
   const boC = t.closest('[data-borrar-cliente]');
   if(boC){
