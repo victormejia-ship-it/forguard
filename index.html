@@ -30572,9 +30572,14 @@ function modalAjusteInflacionPoliza(id){
    + ' → ' + dinero(despues), ver la homologación de precio de grupo al
    guardar una póliza), solo que aquí con etiqueta a la izquierda. */
 function filaAntesDespues(etiqueta, antes, despues){
+  /* `antes` vacío es un valor único (ej. "Pólizas afectadas: 3"), no un
+     cambio — sin este caso la flecha se queda colgando ("→ 3") en vez de
+     mostrar nada más que el número, en las 4 herramientas masivas que
+     reusan esta fila tanto para "cuántos se afectan" como para "cuánto
+     cambia" cada cosa. */
   return '<div style="display:flex; justify-content:space-between; gap:12px; padding:4px 0">'
     + '<span class="pista">' + esc(etiqueta) + '</span>'
-    + '<span>' + antes + ' → <b>' + despues + '</b></span>'
+    + '<span>' + (antes ? antes + ' → ' : '') + '<b>' + despues + '</b></span>'
     + '</div>';
 }
 
