@@ -1712,11 +1712,28 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
    Trello/Asana en el teléfono—, así que aquí no se apila: en celular cada
    columna ocupa casi todo el ancho, para que se sienta como pasar de una
    etapa a otra, no como una tabla con columnas escondidas. */
+/* El tablero de Oportunidades (16-oct-2026, pedido de Victor con captura
+   real: "revisa que el modal no muestre barras para deslizar, que todo sea
+   funcional dentro de la misma pantalla"). Antes cada columna tenía un ancho
+   FIJO (264px × 6 etapas + separaciones = ~1650px), más ancho que el propio
+   contenedor (.wrap, 1180px) — así que la barra de desplazamiento horizontal
+   salía SIEMPRE, hasta con una sola oportunidad capturada y la mayoría de
+   columnas vacías. Ahora las columnas son flexibles (flex:1, min-width:0):
+   se reparten el ancho disponible y encogen juntas, así las 6 caben sin
+   necesidad de deslizar en una pantalla de escritorio normal. `min-width`
+   evita que el contenido (nombre largo, chips) empuje la columna más ancha
+   de lo que le toca — t-nombre ya envuelve (word-break) y t-pie ya hace
+   wrap, así que nada se corta, se acomoda en más líneas. `.tablero-scroll`
+   se queda con overflow-x:auto como red de seguridad (una pantalla
+   angostísima entre 480-700px, p.ej. una tablet en vertical, todavía puede
+   necesitarlo un poco) — en celular (<700px) se mantiene el criterio viejo
+   de columnas anchas con scroll horizontal a propósito, porque 6 columnas
+   angostas en un teléfono dejarían de ser usables. */
 .tablero-scroll{overflow-x:auto; padding-bottom:10px; margin:0 -24px; padding-left:24px; padding-right:24px;}
 @media (max-width:700px){ .tablero-scroll{margin:0 -16px; padding-left:16px; padding-right:16px;} }
 .tablero-crm{display:flex; gap:14px; align-items:flex-start; min-height:60px;}
-.columna-crm{flex:0 0 264px; width:264px; display:flex; flex-direction:column; gap:10px;}
-@media (max-width:700px){ .columna-crm{flex:0 0 82vw; width:82vw;} }
+.columna-crm{flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:10px;}
+@media (max-width:700px){ .columna-crm{flex:0 0 82vw; width:82vw; min-width:82vw;} }
 .columna-crm-cab{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:0 2px;}
 .columna-crm-nombre{display:flex; align-items:center; gap:8px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--navy-texto);}
 .columna-crm-punto{width:9px; height:9px; border-radius:50%; flex-shrink:0;}

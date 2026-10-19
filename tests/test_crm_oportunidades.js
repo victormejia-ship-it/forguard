@@ -41,7 +41,22 @@
    estado; modalReporteCRM() agrega pronóstico de ventas ponderado por mes
    de cierre (solo lo abierto) y motivos de pérdida agrupados por texto
    exacto (best effort: es texto libre, no un catálogo). Ambos son de solo
-   lectura — Viewer también los ve. */
+   lectura — Viewer también los ve.
+
+   TERCERA AMPLIACIÓN (16-oct-2026, reporte real de Victor con captura:
+   "revisa que el modal no muestre barras para deslizar, que todo sea
+   funcional dentro de la misma pantalla"): las 6 columnas tenían un ancho
+   FIJO (264px cada una, ~1650px en total) más ancho que el propio
+   contenedor (.wrap, 1180px) — así que la barra de desplazamiento
+   horizontal de `.tablero-scroll` salía SIEMPRE en escritorio, hasta con
+   una sola oportunidad capturada y la mayoría de columnas vacías (GANADA
+   y PERDIDA ni se alcanzaban a ver sin deslizar). Ahora `.columna-crm` usa
+   `flex:1 1 0; min-width:0` — las 6 columnas se reparten el ancho
+   disponible y encogen juntas, cabiendo sin deslizar en una pantalla de
+   escritorio normal; `t-nombre` (ya con `word-break`) envuelve un título
+   largo en vez de forzar overflow. En celular (<700px) se mantiene a
+   propósito el criterio viejo de columnas anchas con scroll horizontal —
+   6 columnas angostas en un teléfono dejarían de ser usables. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -80,6 +95,14 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Título del módulo', (await page.locator('h2').first().textContent()).trim() === 'CRM · Oportunidades');
   chkF('Las 6 etapas del pipeline, siempre en el mismo orden', await page.locator('.columna-crm').count() === 6);
   chkF('Las 3 oportunidades de prueba están todas en el tablero', await page.locator('.tarjeta-crm').count() === 3);
+
+  // --------- 1b) El tablero cabe en pantalla SIN barra de desplazamiento horizontal ---------
+  const medidasTablero = await page.evaluate(() => {
+    const scrollEl = document.querySelector('.tablero-scroll');
+    return { scrollWidth: scrollEl.scrollWidth, clientWidth: scrollEl.clientWidth };
+  });
+  chkF('Las 6 columnas caben en el ancho disponible, sin desbordar (reporte real de Victor)', medidasTablero.scrollWidth <= medidasTablero.clientWidth + 1);
+  chkF('Las 6 columnas se reparten el ancho por igual (flexibles, no un ancho fijo)', (await page.locator('.columna-crm').first().boundingBox()).width > 0);
 
   // --------- 2) El nombre mostrado es el VIGENTE del cliente, no el capturado ---------
   const tarjetaOp1 = page.locator('[data-oportunidad="op1"]');
@@ -312,6 +335,21 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Viewer también ve el botón "Reporte de ventas"', await page.locator('[data-accion="reporte-crm"]').count() === 1);
   await page.evaluate(() => { sesion.rol='owner'; render(); });
   await page.waitForTimeout(150);
+
+  // --------- Un título largo envuelve en vez de desbordar la columna (reporte real de Victor) ---------
+  await page.evaluate(() => {
+    datos.oportunidades.push(normalizarOportunidad({
+      id:'opLarga', clienteId:'c1', titulo:'Pólizas de mantenimiento preventivo y correctivo para todas las sucursales del año completo',
+      etapa:'propuesta', valorEstimado:91316
+    }));
+    render();
+  });
+  await page.waitForTimeout(150);
+  const medidasConTituloLargo = await page.evaluate(() => {
+    const scrollEl = document.querySelector('.tablero-scroll');
+    return { scrollWidth: scrollEl.scrollWidth, clientWidth: scrollEl.clientWidth };
+  });
+  chkF('Con un título largo, el tablero sigue sin desbordar (el texto envuelve, no empuja la columna)', medidasConTituloLargo.scrollWidth <= medidasConTituloLargo.clientWidth + 1);
 
   chkF('No hubo errores de página en todo el escenario', errores.length === 0);
   console.log('Errores capturados:', JSON.stringify(errores));
