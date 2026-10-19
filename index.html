@@ -11321,8 +11321,70 @@ function normalizarSitio(s){
     forpassRentaAdicional: s.forpassTipoCargo === 'venta' ? Math.max(0, Math.round(Number(s.forpassRentaAdicional) || 0)) : 0,
     fechaInicio: /^\d{4}-\d{2}-\d{2}$/.test(s.fechaInicio||'') ? s.fechaInicio : hoyISO(),
     meses, pagos,
+    /* Bitácora de aumentos/descuentos de precio por inflación sobre
+       mensualidad/forpassCosto (ver normalizarAjustePrecio y el comentario
+       grande junto a normalizarPoliza) — mismo molde que historialAjustes
+       de una póliza, más reciente primero. */
+    historialAjustes: Array.isArray(s.historialAjustes) ? s.historialAjustes.map(normalizarAjustePrecio) : [],
     notas: s.notas || '',
     personalizados: (s.personalizados && typeof s.personalizados === 'object' && !Array.isArray(s.personalizados)) ? s.personalizados : {}
+  };
+}
+
+/* ==================== AUMENTO DE PRECIO POR INFLACIÓN ====================
+   (16/17-oct-2026, pedido de Victor): "necesito que podamos valorar el como
+   impactar un aumento de precio conforme a la inflación a todos nuestros
+   servicios, analiza como se puede implementar en todas las secciones con
+   punto clave en polizas de mtto". Antes de construir se usó AskUserQuestion
+   para resolver 3 decisiones de diseño con Victor:
+   1) Alcance de esta primera entrega: las 4 secciones que cobran algo
+      (Pólizas, Forpass, Cotizaciones, Cotización Forpass) — no una sola.
+   2) Mecánica: AMBAS — un botón individual por registro (póliza/sitio/
+      cotización) Y una herramienta masiva con vista previa del impacto antes
+      de confirmar.
+   3) Qué se ajusta: precio y costo por SEPARADO (dos porcentajes
+      independientes), no un solo % que mueva los dos igual.
+
+   Cada sección tiene su propio molde de precio (precioUnitario/costoUnitario
+   por partida en Pólizas; mensualidad/forpassCosto por sitio en Forpass;
+   precioCosto+margen a nivel cotización en Cotizaciones; precioBase/adicional
+   sin costo en Cotización Forpass) — por eso NO hay una sola función genérica
+   que "toque el precio": cada sección trae su propia aplicarAjusteX(), pero
+   todas comparten el mismo primitivo aritmético (aplicarPctCampo) y el mismo
+   molde de bitácora (normalizarAjustePrecio/historialAjustes), para que
+   "aumentó 5% el 17-oct-2026" se vea y se pruebe igual en cualquier sección.
+
+   Dato que ya anticipaba esto: el catálogo de equipos (ver normalizarEquipo,
+   `historial`) trae desde el 21-sep-2026 un histórico de precio con el
+   comentario explícito de Victor "si llegará a existir un aumento en la
+   inflación podamos aumentar los costos y este a su vez vaya generando un
+   histórico de precios" — pero ESE historial solo vive en el catálogo: el
+   precio de una partida ya capturada en una póliza es una copia independiente
+   (ver precioEquipoParaPoliza) que cambiar el catálogo nunca mueve. Esta
+   familia de funciones es la pieza que faltaba para tocar lo YA capturado.
+
+   Permiso: SIEMPRE exigirAdmin(), nunca puedeEditar() — ver config/
+   firestore.rules, /polizas: un Analyst puede seguir capturando cobranza y
+   servicios sobre una póliza YA ACTIVA, pero la regla del servidor congela
+   sus `partidas` (precio) en cuanto deja de ser 'cotizacion'/'enviada' — solo
+   Owner/Admin pueden "corregir precios" en ese estatus. Como el caso real
+   que describe Victor es justo subir precio a contratos YA activos, gatear
+   esto a Admin desde la UI evita un 403 silencioso del servidor en vez de
+   dejar que alguien sin permiso real crea que sí funcionó. */
+function aplicarPctCampo(valor, pct, tipo){
+  if(!pct) return valor;
+  const factor = tipo === 'descuento' ? (1 - pct/100) : (1 + pct/100);
+  return Math.max(0, Math.round(valor * factor));
+}
+function normalizarAjustePrecio(a){
+  return {
+    id: (a && a.id ? String(a.id) : '').trim() || nuevoId(),
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(a && a.fecha) ? a.fecha : hoyISO(),
+    tipo: (a && a.tipo === 'descuento') ? 'descuento' : 'aumento',
+    pctPrecio: Math.max(0, Math.min(500, Number(a && a.pctPrecio) || 0)),
+    pctCosto: Math.max(0, Math.min(500, Number(a && a.pctCosto) || 0)),
+    renglonesAfectados: Math.max(0, Math.round(Number(a && a.renglonesAfectados) || 0)),
+    quien: (a && a.quien ? String(a.quien) : '').trim()
   };
 }
 
@@ -11531,6 +11593,11 @@ function normalizarPoliza(p){
        equipos que se agreguen de aquí en adelante (ver agregarDelEquipo en
        modalPoliza); los renglones ya guardados no se retocan solos. */
     usaPreciosGrupo: p.usaPreciosGrupo === true,
+    /* Bitácora de aumentos/descuentos de precio por inflación (ver el
+       comentario grande de arriba) — un renglón por cada vez que se aplicó
+       uno, más reciente primero. Nunca se borra solo; es la prueba de
+       cuándo y cuánto se subió el precio de este contrato. */
+    historialAjustes: Array.isArray(p.historialAjustes) ? p.historialAjustes.map(normalizarAjustePrecio) : [],
     notas: p.notas || ''
   };
 }
@@ -11817,6 +11884,23 @@ function calcular(s){
            vigente, suscripcion, diasVigencia, estatus, tono, activo, forpassActivos,
            cortesiaCant, modulosCobrados,
            extras, rentaAdicionalMensual, montos, primerPago, valorContrato, cobrado, adeudo };
+}
+
+/* Aplica el aumento/descuento por inflación a un sitio de Forpass (ver el
+   comentario grande junto a normalizarPoliza): `mensualidad` es el precio
+   (lo que se le cobra al cliente, sea renta/licencia recurrente o venta) y
+   `forpassCosto` es el costo (lo que cuesta a Forguard el hardware
+   instalado). `forpassRentaAdicional` se deja fuera a propósito: es un
+   campo secundario poco común (solo aplica con Tipo de cargo "Venta") y
+   ajustarlo junto con mensualidad hubiera complicado el modal sin que
+   Victor lo pidiera — se sigue editando a mano, como siempre, si hiciera
+   falta. */
+function aplicarAjusteInflacionSitio(s, tipo, pctPrecio, pctCosto, quien){
+  if(pctPrecio) s.mensualidad = aplicarPctCampo(s.mensualidad, pctPrecio, tipo);
+  if(pctCosto) s.forpassCosto = aplicarPctCampo(s.forpassCosto, pctCosto, tipo);
+  s.historialAjustes.unshift(normalizarAjustePrecio({ tipo, pctPrecio, pctCosto, renglonesAfectados:1, quien }));
+  const detalle = (pctPrecio ? pctPrecio + '% precio' : '') + (pctPrecio && pctCosto ? ' y ' : '') + (pctCosto ? pctCosto + '% costo' : '');
+  guardarSitio(s, tipo === 'aumento' ? 'aumentó precio' : 'descontó precio', detalle);
 }
 
 const ETIQUETA_TIPO = { hw:'Software + Hardware', sw:'Solo Software' };
@@ -12290,6 +12374,24 @@ function calcularPoliza(p){
            pendientes, atrasados, tocanEsteMes, huerfanos,
            mesesCumplidos, mesActual, vigente, diasVigencia, diasEsperando,
            noCuadran, cerrable, estado, tono, activa };
+}
+
+/* Aplica el aumento/descuento por inflación a TODAS las partidas de una
+   póliza de un jalón (ver el comentario grande de arriba de
+   normalizarPoliza) — cada renglón se puede seguir afinando después uno por
+   uno, editando la póliza normal. `pctPrecio`/`pctCosto` en 0 significa "ese
+   campo no se toca" (permite subir solo precio, solo costo, o los dos a la
+   vez con porcentajes distintos). Dos mutaciones + un guardado: el mismo
+   patrón ya usado en modalAjusteConceptosProyectoImagen. */
+function aplicarAjusteInflacionPoliza(p, tipo, pctPrecio, pctCosto, quien){
+  p.partidas.forEach(r=>{
+    if(pctPrecio) r.precioUnitario = aplicarPctCampo(r.precioUnitario, pctPrecio, tipo);
+    if(pctCosto) r.costoUnitario = aplicarPctCampo(r.costoUnitario, pctCosto, tipo);
+  });
+  p.historialAjustes.unshift(normalizarAjustePrecio({ tipo, pctPrecio, pctCosto, renglonesAfectados:p.partidas.length, quien }));
+  const detalle = (pctPrecio ? pctPrecio + '% precio' : '') + (pctPrecio && pctCosto ? ' y ' : '') + (pctCosto ? pctCosto + '% costo' : '')
+    + ' en ' + p.partidas.length + ' ' + plural(p.partidas.length,'equipo','equipos');
+  guardarPoliza(p, tipo === 'aumento' ? 'aumentó precio' : 'descontó precio', detalle);
 }
 
 /* ==================== La agenda de servicios (Fase 4) ====================
@@ -16311,6 +16413,13 @@ const TEMAS_AYUDA = [
             'El <b>precio de cada sitio es 100% manual</b> (Precio base + Adicional, el total es nada más la suma de los dos) — Victor pidió explícitamente que no hubiera ninguna tarifa ni fórmula automática por cantidad de módulos, porque los 3 tiers reales de Prolec (1 módulo, 2 módulos, 3+ módulos) no siguen una progresión lineal.',
             'El botón <b>"Vista previa"</b> de la lista de cotizaciones abre el PDF de 4 páginas (portada, Modelo de Suscripción, Cotización Unitaria con implementación/referencia mensual/SLA, y Cotización Licencia Mensual con todos los sitios) dentro de un modal, igual que las demás plantillas imprimibles del sistema — desde ahí también se puede "Guardar como PDF".',
             'v1 es de uso interno: una Cotización Forpass no se sincroniza al portal del cliente (a diferencia de las Cotizaciones normales).'
+          ])
+        + guiaTip('Aumento de precio por inflación (16/17-oct-2026, pedido de Victor)', [
+            'El botón <b>"Aumento por inflación"</b> (solo Owner/Admin) vive en dos lugares: en la tarjeta de cada sitio dentro de la ficha del cliente, para ajustarlo solo, y en el encabezado del dashboard general de Forpass, para ajustar varios de un jalón.',
+            'Capturas DOS porcentajes independientes — uno para la <b>mensualidad</b> (lo que se cobra) y otro para el <b>costo</b> (lo que cuesta el hardware instalado) — y el "Tipo de ajuste" decide si suben o bajan. Dejar uno en 0 significa que ese campo no se toca.',
+            'La herramienta masiva solo opera sobre sitios con Forpass <b>activo</b> (módulos instalados y estado Activo) — puedes elegir "Todos" o filtrar a un solo cliente. Un sitio pausado o de baja se ajusta aparte, uno por uno, desde su propia tarjeta.',
+            'Antes de aplicar se muestra una <b>vista previa</b> (mensualidad antes → después; en la herramienta masiva, además, cuántos sitios se afectan y cuánto sube la mensualidad total de todos juntos) — y cada ajuste queda en el <b>historial del sitio</b>, igual que en Pólizas, nunca se borra solo.',
+            'No toca <b>"Renta mensual adicional"</b> (el campo que solo aparece con Tipo de cargo "Venta") — es un campo poco común que se sigue editando a mano si hiciera falta.'
           ])) },
 
   { id:'mi-agenda', titulo:'Mi agenda',
@@ -16504,6 +16613,14 @@ const TEMAS_AYUDA = [
             'Marcar "¿Necesita alguna refacción?" al registrar un servicio genera SOLA una cotización borrador ligada a ese contrato, mes y equipo — la casilla queda bloqueada después para no duplicar la solicitud.',
             'Un renglón identificado como "Segurista" (por su nombre) no genera trabajo pendiente ni se marca como servicio — pero su dinero sí se sigue sumando al contrato.',
             'Si quitas un equipo del calendario pero ya tenía un servicio registrado, ese registro no se borra: se queda marcado "fuera de calendario".'
+          ])
+        + guiaTip('Aumento de precio por inflación (16/17-oct-2026, pedido de Victor)', [
+            'El botón <b>"Aumento por inflación"</b> (solo Owner/Admin) vive en dos lugares: dentro de una póliza, para ajustarla sola, y en la lista de Pólizas, para ajustar varias de un jalón.',
+            'Capturas DOS porcentajes independientes — uno para el <b>precio al cliente</b> y otro para el <b>costo</b> — y el "Tipo de ajuste" (Aumento o Descuento) decide si suben o bajan. Dejar uno en 0 significa que ese campo no se toca: puedes subir solo precio (mejora tu margen), solo costo, o los dos con porcentajes distintos.',
+            'Antes de aplicar, se muestra una <b>vista previa</b> con el precio anual/mensual y el margen antes → después — en la herramienta masiva, además, cuántas pólizas se van a afectar y cuánto sube el ingreso mensual total de todas juntas.',
+            'La herramienta masiva (en la lista de Pólizas) solo opera sobre pólizas <b>activas</b> — puedes elegir "Todas" o filtrar a un solo cliente. Una póliza en cotización/enviada o cancelada se ajusta aparte, abriéndola y usando el botón individual.',
+            'Cada vez que se aplica un ajuste queda una entrada en el <b>historial de la póliza</b> (fecha, tipo, % de precio, % de costo, cuántos equipos se tocaron) — nunca se borra sola, es la prueba de cuándo y cuánto se subió el precio de ese contrato. Aplicarlo varias veces se va SUMANDO sobre el precio ya ajustado, no reemplazándolo.',
+            'Por qué es exclusivo de Admin/Owner aunque un Analyst pueda editar pólizas: la regla del servidor congela los precios de una póliza en cuanto deja de ser cotización/enviada — solo Owner/Admin pueden corregirlos ahí, así que el botón ni se le muestra a un Analyst.'
           ])) },
 
   { id:'cotizaciones', titulo:'Cotizaciones',
@@ -16849,6 +16966,11 @@ function vistaClientes(){
         Victor viendo esta pantalla vacía): activar Forpass en un sitio que
         YA tiene cliente, o crear ese sitio ligado a un cliente existente,
         es justo el trabajo de ESTA pantalla — ver modalElegirSitioParaForpass(). */
+     +   (esAdmin() && datos.sitios.some(s => s.modulos > 0 && s.estado === 'activo')
+          ? '<button type="button" class="btn btn-suave" data-accion="ajuste-inflacion-masivo-forpass" '
+            + 'title="Sube o baja el precio/costo de varios sitios activos a la vez, con vista previa del impacto">'
+            + ICONO.grafica + 'Aumento por inflación</button>'
+          : '')
      +   (puedeEditar() ? '<button type="button" class="btn btn-primario" data-accion="agregar-forpass">' + ICONO.mas + 'Agregar Forpass</button>' : '')
      + '</div></div>';
 
@@ -17144,6 +17266,159 @@ function tablaSitios(lista){
        + '</tbody></table></div>';
 }
 
+/* ---------- Aumento por inflación: un sitio de Forpass individual ---------- */
+function modalAjusteInflacionSitio(id){
+  if(!exigirAdmin('aplicar un aumento de precio')) return;
+  const s = sitioPorId(id);
+  if(!s) return;
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">Se aplica solo a «' + esc(s.nombre) + '».</p>'
+    + '<div class="campo"><label>Tipo de ajuste</label><select id="afiTipo">'
+    +   '<option value="aumento">Aumento — sube</option>'
+    +   '<option value="descuento">Descuento — baja</option>'
+    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>% en el precio (mensualidad)</label><input type="number" id="afiPctPrecio" min="0" max="500" step="0.01" placeholder="0"></div>'
+    +   '<div class="campo"><label>% en el costo</label><input type="number" id="afiPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
+    + '</div>'
+    + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar. Un descuento nunca deja ningún campo en menos de $0.</div>'
+    + '<div id="afiPreview" style="margin-top:12px"></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Aplicar</button>';
+
+  abrirModal('Aumento / descuento de precio — Forpass', cuerpo, pie);
+
+  function leer(){
+    return {
+      tipo: $('afiTipo').value,
+      pctPrecio: Math.max(0, parseFloat($('afiPctPrecio').value) || 0),
+      pctCosto: Math.max(0, parseFloat($('afiPctCosto').value) || 0)
+    };
+  }
+  function pintarPreview(){
+    const { tipo, pctPrecio, pctCosto } = leer();
+    if(!pctPrecio && !pctCosto){ $('afiPreview').innerHTML = ''; return; }
+    const nuevaMensualidad = pctPrecio ? aplicarPctCampo(s.mensualidad, pctPrecio, tipo) : s.mensualidad;
+    const nuevoCosto = pctCosto ? aplicarPctCampo(s.forpassCosto, pctCosto, tipo) : s.forpassCosto;
+    $('afiPreview').innerHTML =
+        '<div style="background:var(--bg); border-radius:10px; padding:12px 14px">'
+      +   filaAntesDespues('Mensualidad', dinero(s.mensualidad), dinero(nuevaMensualidad))
+      +   filaAntesDespues('Costo', dinero(s.forpassCosto), dinero(nuevoCosto))
+      + '</div>';
+  }
+  ['afiTipo','afiPctPrecio','afiPctCosto'].forEach(id2 => $(id2).addEventListener(id2 === 'afiTipo' ? 'change' : 'input', pintarPreview));
+
+  cerrarModalActual = ()=>{
+    const { tipo, pctPrecio, pctCosto } = leer();
+    if(!pctPrecio && !pctCosto){ aviso('Captura al menos un porcentaje mayor a 0.', true); return; }
+    aplicarAjusteInflacionSitio(s, tipo, pctPrecio, pctCosto, nombreDe(sesion));
+    cerrarModal();
+    render();
+    aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a «' + s.nombre + '».');
+  };
+}
+
+/* ---------- Aumento por inflación: varios sitios de Forpass a la vez, con
+   vista previa del impacto total antes de aplicarlo — mismo patrón que
+   modalAjusteInflacionMasivoPolizas(). Solo opera sobre sitios con Forpass
+   ACTIVO (modulos > 0 && estado === 'activo', el mismo candado que ya usa
+   Resultados para contar MRR) — uno pausado o de baja no cobra nada hoy. ---------- */
+function modalAjusteInflacionMasivoForpass(){
+  if(!exigirAdmin('aplicar un aumento de precio masivo')) return;
+  const activos = datos.sitios.filter(s => s.modulos > 0 && s.estado === 'activo');
+  if(!activos.length){ aviso('No hay ningún Forpass activo.', true); return; }
+
+  const clientesConForpass = Array.from(new Set(activos.map(s => s.clienteId)))
+    .map(clientePorId).filter(Boolean).sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">Se aplica de un jalón a los sitios con Forpass <b>activo</b> que elijas — '
+    +   numero(activos.length) + ' ' + plural(activos.length,'ahora mismo','en total ahora mismo')
+    +   '. Un sitio pausado o de baja no se toca aquí.</p>'
+    + '<div class="campo"><label>¿A cuáles sitios?</label><select id="afmAlcance">'
+    +   '<option value="todos">Todos los activos (' + activos.length + ')</option>'
+    +   (clientesConForpass.length > 1 ? '<option value="cliente">Un solo cliente</option>' : '')
+    + '</select></div>'
+    + '<div class="campo" id="afmClienteZona" hidden><label>Cliente</label><select id="afmCliente">'
+    +   clientesConForpass.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="campo"><label>Tipo de ajuste</label><select id="afmTipo">'
+    +   '<option value="aumento">Aumento — sube</option>'
+    +   '<option value="descuento">Descuento — baja</option>'
+    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>% en el precio (mensualidad)</label><input type="number" id="afmPctPrecio" min="0" max="500" step="0.01" placeholder="0"></div>'
+    +   '<div class="campo"><label>% en el costo</label><input type="number" id="afmPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
+    + '</div>'
+    + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar.</div>'
+    + '<div id="afmPreview" style="margin-top:12px"></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Ver resumen y aplicar</button>';
+
+  abrirModal('Aumento / descuento de precio por inflación — Forpass', cuerpo, pie);
+  $('modal').classList.add('ancho');
+
+  function leer(){
+    return {
+      tipo: $('afmTipo').value,
+      pctPrecio: Math.max(0, parseFloat($('afmPctPrecio').value) || 0),
+      pctCosto: Math.max(0, parseFloat($('afmPctCosto').value) || 0)
+    };
+  }
+  function sitiosElegidos(){
+    if($('afmAlcance').value === 'cliente'){
+      const cid = $('afmCliente').value;
+      return activos.filter(s => s.clienteId === cid);
+    }
+    return activos;
+  }
+  function pintarPreview(){
+    const { tipo, pctPrecio, pctCosto } = leer();
+    const elegidos = sitiosElegidos();
+    if((!pctPrecio && !pctCosto) || !elegidos.length){ $('afmPreview').innerHTML = ''; return; }
+    const mensualAntes = elegidos.reduce((t,s)=> t + s.mensualidad, 0);
+    const mensualDespues = elegidos.reduce((t,s)=> t + (pctPrecio ? aplicarPctCampo(s.mensualidad, pctPrecio, tipo) : s.mensualidad), 0);
+    const diferencia = mensualDespues - mensualAntes;
+    $('afmPreview').innerHTML =
+        '<div style="background:var(--bg); border-radius:10px; padding:12px 14px">'
+      +   filaAntesDespues('Sitios afectados', '', '<b>' + numero(elegidos.length) + '</b>')
+      +   filaAntesDespues('Mensualidad total', dinero(mensualAntes), dinero(mensualDespues))
+      +   '<div style="display:flex; justify-content:space-between; gap:12px; padding:4px 0">'
+      +     '<span class="pista">Diferencia mensual</span>'
+      +     '<span style="font-weight:700; color:' + (diferencia >= 0 ? 'var(--ok)' : 'var(--error)') + '">' + (diferencia >= 0 ? '+' : '') + dinero(diferencia) + '</span>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  $('afmAlcance').addEventListener('change', ()=>{
+    $('afmClienteZona').hidden = $('afmAlcance').value !== 'cliente';
+    pintarPreview();
+  });
+  if($('afmCliente')) $('afmCliente').addEventListener('change', pintarPreview);
+  ['afmTipo','afmPctPrecio','afmPctCosto'].forEach(id2 => $(id2).addEventListener(id2 === 'afmTipo' ? 'change' : 'input', pintarPreview));
+
+  cerrarModalActual = ()=>{
+    const { tipo, pctPrecio, pctCosto } = leer();
+    const elegidos = sitiosElegidos();
+    if(!pctPrecio && !pctCosto){ aviso('Captura al menos un porcentaje mayor a 0.', true); return; }
+    if(!elegidos.length){ aviso('No hay ningún sitio que coincida.', true); return; }
+    const quien = nombreDe(sesion);
+    confirmar('Aplicar ' + (tipo === 'aumento' ? 'aumento' : 'descuento') + ' de precio',
+      'Se va a aplicar a <b>' + elegidos.length + ' ' + plural(elegidos.length,'sitio','sitios') + '</b>'
+        + (pctPrecio ? ', ' + pctPrecio + '% en precio' : '') + (pctCosto ? (pctPrecio ? ' y ' : ', ') + pctCosto + '% en costo' : '')
+        + '. Esta acción no se puede deshacer de un jalón — habría que corregir sitio por sitio.',
+      'Sí, aplicar', ()=>{
+        elegidos.forEach(s => aplicarAjusteInflacionSitio(s, tipo, pctPrecio, pctCosto, quien));
+        cerrarModal();
+        render();
+        aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + elegidos.length + ' ' + plural(elegidos.length,'sitio','sitios') + '.');
+      });
+  };
+}
+
 function tarjetaSitio(s, i){
   const c = calcular(s);
   const clasePunto = c.tono === 'error' ? 'p-error late' : c.tono === 'alerta' ? 'p-alerta' : (c.activo ? 'p-ok' : 'p-neutro');
@@ -17304,6 +17579,9 @@ function tarjetaSitio(s, i){
           Clientes. Mismo criterio para Fusionar (toca de golpe todo lo que
           cuelgue del sitio y es una decisión sobre el REGISTRO del sitio,
           no sobre su Forpass). */
+       +     (esAdmin()
+              ? '<button type="button" class="btn btn-suave btn-mini" data-ajuste-inflacion-sitio="' + esc(s.id) + '" title="Sube o baja el precio/costo de este sitio">' + ICONO.grafica + 'Aumento por inflación</button>'
+              : '')
        +     (esAdmin()
               ? '<button type="button" class="btn btn-suave btn-mini" data-fusionar-sitio="' + esc(s.id) + '" title="Unir con un sitio duplicado">' + ICONO.respaldo + 'Fusionar</button>'
               : '')
@@ -17484,6 +17762,11 @@ function vistaPolizas(){
             + 'title="Qué mantenimientos tocan, en todas las pólizas">' + ICONO.calendario + 'Agenda</button>'
           : '')
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="ver-precios">' + ICONO.credencial + 'Lista de precios</button>'
+     +   (esAdmin() && datos.polizas.some(p => p.estatus === 'activa')
+          ? '<button type="button" class="btn btn-suave btn-mini" data-accion="ajuste-inflacion-masivo-polizas" '
+            + 'title="Sube o baja el precio/costo de varias pólizas activas a la vez, con vista previa del impacto">'
+            + ICONO.grafica + 'Aumento por inflación</button>'
+          : '')
      /* Checklist/Refacciones RATIONAL vivían aquí hasta el 08-oct-2026 —
         Victor pidió un módulo propio para todo el proceso de certificación
         ("crea un modulo especifico para rational... seria ideal tenerlo en
@@ -24614,6 +24897,9 @@ function vistaPoliza(){
         sin las hojas de tabla de equipos/descripción/consideraciones. */
      +   '<button type="button" class="btn btn-suave btn-mini" data-accion="imprimir-calendario-poliza" '
      +     'title="Abre solo la portada y el calendario, sin la tabla de equipos ni las demás hojas">' + ICONO.calendario + 'Imprimir calendario</button>'
+     +   (esAdmin() ? '<button type="button" class="btn btn-suave btn-mini" data-accion="ajuste-inflacion-poliza" '
+         + 'title="Sube o baja el precio/costo de TODOS los equipos de esta póliza de un jalón">'
+         + ICONO.grafica + 'Aumento por inflación</button>' : '')
      +   (puedeEditar() ? '<button type="button" class="btn btn-suave btn-mini" data-accion="duplicar-poliza" '
          + 'title="Arranca una cotización nueva con todo esto ya prellenado — útil para renovaciones">'
          + ICONO.duplicar + 'Duplicar</button>' : '')
@@ -30141,6 +30427,184 @@ function etiquetaMesServicio(fechaInicio, i){
    importado para prellenar una póliza nueva (ver modalPoliza) — con
    `duplicado:true` para distinguirlo de esos dos orígenes en el título
    del modal. */
+/* ---------- Aumento por inflación: una póliza individual ---------- */
+function modalAjusteInflacionPoliza(id){
+  if(!exigirAdmin('aplicar un aumento de precio')) return;
+  const p = polizaPorId(id);
+  if(!p) return;
+  if(!p.partidas.length){ aviso('Esta póliza no tiene equipos capturados.', true); return; }
+  const antes = calcularPoliza(p);
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">Se aplica a los ' + p.partidas.length + ' ' + plural(p.partidas.length,'equipo','equipos')
+    + ' de esta póliza de un jalón. Cada renglón se puede seguir ajustando después uno por uno, editando la póliza.</p>'
+    + '<div class="campo"><label>Tipo de ajuste</label><select id="apiTipo">'
+    +   '<option value="aumento">Aumento — sube</option>'
+    +   '<option value="descuento">Descuento — baja</option>'
+    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>% en el precio al cliente</label><input type="number" id="apiPctPrecio" min="0" max="500" step="0.01" placeholder="0"></div>'
+    +   '<div class="campo"><label>% en el costo</label><input type="number" id="apiPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
+    + '</div>'
+    + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar. Un descuento nunca deja ningún campo en menos de $0.</div>'
+    + '<div id="apiPreview" style="margin-top:12px"></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Aplicar</button>';
+
+  abrirModal('Aumento / descuento de precio — inflación', cuerpo, pie);
+
+  function leer(){
+    return {
+      tipo: $('apiTipo').value,
+      pctPrecio: Math.max(0, parseFloat($('apiPctPrecio').value) || 0),
+      pctCosto: Math.max(0, parseFloat($('apiPctCosto').value) || 0)
+    };
+  }
+  function pintarPreview(){
+    const { tipo, pctPrecio, pctCosto } = leer();
+    if(!pctPrecio && !pctCosto){ $('apiPreview').innerHTML = ''; return; }
+    const simulada = Object.assign({}, p, { partidas: p.partidas.map(r => Object.assign({}, r, {
+      precioUnitario: pctPrecio ? aplicarPctCampo(r.precioUnitario, pctPrecio, tipo) : r.precioUnitario,
+      costoUnitario: pctCosto ? aplicarPctCampo(r.costoUnitario, pctCosto, tipo) : r.costoUnitario
+    })) });
+    const despues = calcularPoliza(simulada);
+    $('apiPreview').innerHTML =
+        '<div style="background:var(--bg); border-radius:10px; padding:12px 14px">'
+      +   filaAntesDespues('Precio anual', dinero(antes.precioAnual), dinero(despues.precioAnual))
+      +   filaAntesDespues('Precio mensual', dinero(antes.precioMensual), dinero(despues.precioMensual))
+      +   filaAntesDespues('Margen', numero(Math.round(antes.margenPct)) + '%', numero(Math.round(despues.margenPct)) + '%')
+      + '</div>';
+  }
+  ['apiTipo','apiPctPrecio','apiPctCosto'].forEach(id2 => $(id2).addEventListener(id2==='apiTipo' ? 'change' : 'input', pintarPreview));
+
+  cerrarModalActual = ()=>{
+    const { tipo, pctPrecio, pctCosto } = leer();
+    if(!pctPrecio && !pctCosto){ aviso('Captura al menos un porcentaje mayor a 0.', true); return; }
+    aplicarAjusteInflacionPoliza(p, tipo, pctPrecio, pctCosto, nombreDe(sesion));
+    cerrarModal();
+    render();
+    aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + p.partidas.length + ' ' + plural(p.partidas.length,'equipo','equipos') + '.');
+  };
+}
+/* Fila "Antes → Después" reusada por el modal individual y el masivo de abajo
+   — mismo texto plano que ya usa el resto de la app para esto (dinero(antes)
+   + ' → ' + dinero(despues), ver la homologación de precio de grupo al
+   guardar una póliza), solo que aquí con etiqueta a la izquierda. */
+function filaAntesDespues(etiqueta, antes, despues){
+  return '<div style="display:flex; justify-content:space-between; gap:12px; padding:4px 0">'
+    + '<span class="pista">' + esc(etiqueta) + '</span>'
+    + '<span>' + antes + ' → <b>' + despues + '</b></span>'
+    + '</div>';
+}
+
+/* ---------- Aumento por inflación: varias pólizas a la vez, con vista previa
+   del impacto total ANTES de aplicarlo (pedido explícito de Victor vía
+   AskUserQuestion: "herramienta de simulación + aplicación en bloque"). Solo
+   opera sobre pólizas ACTIVAS — una en 'cotizacion'/'enviada' todavía se está
+   negociando, y una 'cancelada' ya no cobra nada; ambas se ajustan, si hace
+   falta, una por una desde modalAjusteInflacionPoliza(). ---------- */
+function modalAjusteInflacionMasivoPolizas(){
+  if(!exigirAdmin('aplicar un aumento de precio masivo')) return;
+  const activas = datos.polizas.filter(p => p.estatus === 'activa' && p.partidas.length);
+  if(!activas.length){ aviso('No hay ninguna póliza activa con equipos capturados.', true); return; }
+
+  const clientesConPoliza = Array.from(new Set(activas.map(p => p.clienteId)))
+    .map(clientePorId).filter(Boolean).sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">Se aplica de un jalón a las pólizas <b>activas</b> que elijas — '
+    +   numero(activas.length) + ' ' + plural(activas.length,'ahora mismo','en total ahora mismo')
+    +   '. Las que están en cotización, enviadas o canceladas no se tocan aquí.</p>'
+    + '<div class="campo"><label>¿A cuáles pólizas?</label><select id="amAlcance">'
+    +   '<option value="todas">Todas las activas (' + activas.length + ')</option>'
+    +   (clientesConPoliza.length > 1 ? '<option value="cliente">Un solo cliente</option>' : '')
+    + '</select></div>'
+    + '<div class="campo" id="amClienteZona" hidden><label>Cliente</label><select id="amCliente">'
+    +   clientesConPoliza.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="campo"><label>Tipo de ajuste</label><select id="amTipo">'
+    +   '<option value="aumento">Aumento — sube</option>'
+    +   '<option value="descuento">Descuento — baja</option>'
+    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>% en el precio al cliente</label><input type="number" id="amPctPrecio" min="0" max="500" step="0.01" placeholder="0"></div>'
+    +   '<div class="campo"><label>% en el costo</label><input type="number" id="amPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
+    + '</div>'
+    + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar.</div>'
+    + '<div id="amPreview" style="margin-top:12px"></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Ver resumen y aplicar</button>';
+
+  abrirModal('Aumento / descuento de precio por inflación', cuerpo, pie);
+  $('modal').classList.add('ancho');
+
+  function leer(){
+    return {
+      tipo: $('amTipo').value,
+      pctPrecio: Math.max(0, parseFloat($('amPctPrecio').value) || 0),
+      pctCosto: Math.max(0, parseFloat($('amPctCosto').value) || 0)
+    };
+  }
+  function polizasElegidas(){
+    if($('amAlcance').value === 'cliente'){
+      const cid = $('amCliente').value;
+      return activas.filter(p => p.clienteId === cid);
+    }
+    return activas;
+  }
+  function pintarPreview(){
+    const { tipo, pctPrecio, pctCosto } = leer();
+    const elegidas = polizasElegidas();
+    if((!pctPrecio && !pctCosto) || !elegidas.length){ $('amPreview').innerHTML = ''; return; }
+    let mensualAntes = 0, mensualDespues = 0;
+    elegidas.forEach(p=>{
+      mensualAntes += calcularPoliza(p).precioMensual;
+      const simulada = Object.assign({}, p, { partidas: p.partidas.map(r => Object.assign({}, r, {
+        precioUnitario: pctPrecio ? aplicarPctCampo(r.precioUnitario, pctPrecio, tipo) : r.precioUnitario,
+        costoUnitario: pctCosto ? aplicarPctCampo(r.costoUnitario, pctCosto, tipo) : r.costoUnitario
+      })) });
+      mensualDespues += calcularPoliza(simulada).precioMensual;
+    });
+    const diferencia = mensualDespues - mensualAntes;
+    $('amPreview').innerHTML =
+        '<div style="background:var(--bg); border-radius:10px; padding:12px 14px">'
+      +   filaAntesDespues('Pólizas afectadas', '', '<b>' + numero(elegidas.length) + '</b>')
+      +   filaAntesDespues('Ingreso mensual total', dinero(mensualAntes), dinero(mensualDespues))
+      +   '<div style="display:flex; justify-content:space-between; gap:12px; padding:4px 0">'
+      +     '<span class="pista">Diferencia mensual</span>'
+      +     '<span style="font-weight:700; color:' + (diferencia >= 0 ? 'var(--ok)' : 'var(--error)') + '">' + (diferencia >= 0 ? '+' : '') + dinero(diferencia) + '</span>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  $('amAlcance').addEventListener('change', ()=>{
+    $('amClienteZona').hidden = $('amAlcance').value !== 'cliente';
+    pintarPreview();
+  });
+  if($('amCliente')) $('amCliente').addEventListener('change', pintarPreview);
+  ['amTipo','amPctPrecio','amPctCosto'].forEach(id2 => $(id2).addEventListener(id2==='amTipo' ? 'change' : 'input', pintarPreview));
+
+  cerrarModalActual = ()=>{
+    const { tipo, pctPrecio, pctCosto } = leer();
+    const elegidas = polizasElegidas();
+    if(!pctPrecio && !pctCosto){ aviso('Captura al menos un porcentaje mayor a 0.', true); return; }
+    if(!elegidas.length){ aviso('No hay ninguna póliza que coincida.', true); return; }
+    const quien = nombreDe(sesion);
+    confirmar('Aplicar ' + (tipo === 'aumento' ? 'aumento' : 'descuento') + ' de precio',
+      'Se va a aplicar a <b>' + elegidas.length + ' ' + plural(elegidas.length,'póliza','pólizas') + '</b>'
+        + (pctPrecio ? ', ' + pctPrecio + '% en precio' : '') + (pctCosto ? (pctPrecio ? ' y ' : ', ') + pctCosto + '% en costo' : '')
+        + '. Esta acción no se puede deshacer de un jalón — habría que corregir póliza por póliza.',
+      'Sí, aplicar', ()=>{
+        elegidas.forEach(p => aplicarAjusteInflacionPoliza(p, tipo, pctPrecio, pctCosto, quien));
+        cerrarModal();
+        render();
+        aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + elegidas.length + ' ' + plural(elegidas.length,'póliza','pólizas') + '.');
+      });
+  };
+}
+
 function duplicarPoliza(id){
   const p = polizaPorId(id);
   if(!p) return;
@@ -33986,6 +34450,9 @@ $('vista').addEventListener('click', ev=>{
     }
     else if(a === 'editar-poliza'){ if(exigirPermiso()) modalPoliza(estado.polizaId); }
     else if(a === 'duplicar-poliza'){ if(exigirPermiso()) duplicarPoliza(estado.polizaId); }
+    else if(a === 'ajuste-inflacion-poliza') modalAjusteInflacionPoliza(estado.polizaId);
+    else if(a === 'ajuste-inflacion-masivo-polizas') modalAjusteInflacionMasivoPolizas();
+    else if(a === 'ajuste-inflacion-masivo-forpass') modalAjusteInflacionMasivoForpass();
     else if(a === 'calendario-poliza') modalCalendario(estado.polizaId);
     else if(a === 'migrar-fotos-poliza') migrarFotosPolizaAStorage(estado.polizaId);
     else if(a === 'diagnostico-fotos-poliza') diagnosticarFotosPoliza(estado.polizaId);
@@ -34137,6 +34604,9 @@ $('vista').addEventListener('click', ev=>{
 
   const fuS = t.closest('[data-fusionar-sitio]');
   if(fuS){ if(exigirAdmin('fusionar sitios')) modalFusionSitio(fuS.dataset.fusionarSitio); return; }
+
+  const aiS = t.closest('[data-ajuste-inflacion-sitio]');
+  if(aiS){ modalAjusteInflacionSitio(aiS.dataset.ajusteInflacionSitio); return; }
 
   const boS = t.closest('[data-borrar-sitio]');
   if(boS){
