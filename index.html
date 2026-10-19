@@ -6092,6 +6092,11 @@ function normalizarCotizacion(q){
     fechaProgramadaInicio: /^\d{4}-\d{2}-\d{2}$/.test(q && q.fechaProgramadaInicio) ? q.fechaProgramadaInicio : '',
     fechaProgramadaFin: /^\d{4}-\d{2}-\d{2}$/.test(q && q.fechaProgramadaFin) ? q.fechaProgramadaFin : '',
     fechaRealizado: /^\d{4}-\d{2}-\d{2}$/.test(q && q.fechaRealizado) ? q.fechaRealizado : '',
+    /* Bitácora de aumentos/descuentos de precio por inflación (ver
+       normalizarAjustePrecio y el comentario grande junto a
+       normalizarPoliza) — mismo molde que historialAjustes de una póliza o
+       un sitio de Forpass, más reciente primero. */
+    historialAjustes: Array.isArray(q && q.historialAjustes) ? q.historialAjustes.map(normalizarAjustePrecio) : [],
     partidas
   };
 }
@@ -9734,6 +9739,31 @@ function guardarCotizacion(q, accion, detalle){
   encolar({ tipo:'poner', coleccion:'cotizaciones', id:q.id, obj:q });
   encolarCopiaCliente('cotizaciones_cliente', q.id, datosClienteCotizacion(q));
   anotar(accion || 'editó', 'cotización', q.folio || 'sin folio', detalle);
+}
+
+/* Aplica el aumento/descuento por inflación a una cotización (ver el
+   comentario grande junto a normalizarPoliza). A diferencia de Pólizas/
+   Forpass, aquí "precio y costo por separado" no son dos campos planos por
+   renglón: el costo sí vive en cada partida (precioCosto), pero el precio al
+   cliente normalmente se DERIVA de costo × margen (ver calcularCotizacion) —
+   un solo margen, a nivel de TODA la cotización, no por renglón. Por eso
+   `puntosMargen` se SUMA/RESTA directo al margen (ej. 15% + 5 puntos = 20%)
+   en vez de aplicarse como % del precio final: es la forma honesta de
+   reflejar lo que de verdad cambia, sin esconder una fórmula inversa detrás
+   de un campo que dice "%". Un renglón con `precioClienteManual` capturado
+   (la única excepción que SÍ es un precio plano, no margen — ver
+   normalizarPartidaCotizacion) recibe `puntosMargen` como % normal sobre ese
+   precio, igual que Pólizas/Forpass, porque ahí no hay ningún margen que
+   mover. */
+function aplicarAjusteInflacionCotizacion(q, tipo, puntosMargen, pctCosto, quien){
+  q.partidas.forEach(r=>{
+    if(pctCosto) r.precioCosto = aplicarPctCampo(r.precioCosto, pctCosto, tipo);
+    if(puntosMargen && r.precioClienteManual != null) r.precioClienteManual = aplicarPctCampo(r.precioClienteManual, puntosMargen, tipo);
+  });
+  if(puntosMargen) q.margen = Math.max(0, q.margen + (tipo === 'descuento' ? -puntosMargen : puntosMargen));
+  q.historialAjustes.unshift(normalizarAjustePrecio({ tipo, pctPrecio:puntosMargen, pctCosto, renglonesAfectados:q.partidas.length, quien }));
+  const detalle = (puntosMargen ? puntosMargen + ' puntos de margen' : '') + (puntosMargen && pctCosto ? ' y ' : '') + (pctCosto ? pctCosto + '% costo' : '');
+  guardarCotizacion(q, tipo === 'aumento' ? 'aumentó precio' : 'descontó precio', detalle);
 }
 
 /* ======================== Cotizaciones de Forpass (licenciamiento) ========================
@@ -16651,6 +16681,13 @@ const TEMAS_AYUDA = [
             'La fórmula de instalación/mano de obra es fija: 20% del subtotal de conceptos + $750, nunca se prorratea entre renglones.',
             'Reportero no ve este módulo en absoluto; Técnico lo ve de solo lectura (puede consultarlo pero no crear ni editar).',
             '"Importar desde Excel" reconoce que un renglón ya existe por su Nombre + Comedor + Fecha de registro (nunca por el folio, que el tablero real repite a propósito entre varias líneas, ni por el subtotal o la etapa, que son justo lo que se corrige). Si el mismo día, en el mismo sitio, hay dos servicios distintos con el nombre idéntico, se tratarían como el mismo renglón — poco común, pero vale la pena revisar el resumen antes de confirmar.'
+          ])
+        + guiaTip('Aumento de precio por inflación (16/17-oct-2026, pedido de Victor)', [
+            'El botón <b>"Aumento por inflación"</b> (solo Owner/Admin) vive en dos lugares: dentro de una cotización, para ajustarla sola, y en el encabezado de la lista de Cotizaciones, para ajustar varias de un jalón.',
+            'Aquí no hay un precio plano por renglón como en Pólizas o Forpass: el precio al cliente normalmente sale de costo × margen. Por eso capturas <b>"Puntos de margen"</b> (se suman/restan directo al margen actual, ej. 15% + 5 puntos = 20% — NO es un % del precio final) y, aparte, un <b>% en el costo</b> de cada concepto.',
+            'Un concepto con <b>precio manual</b> capturado (la excepción que sí es un número fijo, no margen) recibe los "puntos de margen" como un % normal sobre ESE precio — ahí no hay margen que mover.',
+            'La herramienta masiva solo opera sobre cotizaciones todavía en <b>borrador</b> — una ya enviada, aprobada o en cualquier etapa del tablero de 13 pasos es un trato ya comunicado al cliente, así que no se toca ahí; se corrige individual, a sabiendas, si hiciera falta.',
+            'Antes de aplicar se muestra una vista previa (margen y totales antes → después; en la masiva, además, cuántas cotizaciones se afectan y cuánto sube el total cotizado) — y cada ajuste queda en el historial de la cotización, igual que en Pólizas y Forpass.'
           ])) },
 
   { id:'activos', titulo:'Activos',
@@ -18047,6 +18084,11 @@ function vistaCotizaciones(){
      +   '<p>' + numero(r.total) + ' ' + plural(r.total,'cotización','cotizaciones')
      +   ' · ' + dinero(r.montoCliente) + ' cotizado al cliente</p>'
      + '</div><div class="acciones">'
+     +   (esAdmin() && datos.cotizaciones.some(q => q.estatus === 'borrador')
+          ? '<button type="button" class="btn btn-suave" data-accion="ajuste-inflacion-masivo-cotizaciones" '
+            + 'title="Sube o baja el precio/costo de varios borradores a la vez, con vista previa del impacto">'
+            + ICONO.grafica + 'Aumento por inflación</button>'
+          : '')
      +   (puedeEditar()
           ? '<button type="button" class="btn btn-suave" data-accion="importar-cotizaciones-excel" '
             + 'title="Sube el Excel exportado del tablero (Monday.com) con las 13 etapas">' + ICONO.excel + 'Importar desde Excel</button>'
@@ -18219,6 +18261,11 @@ function vistaCotizacion(){
      +     'title="Abre el documento imprimible en una pestaña nueva">' + ICONO.imprimir + 'Imprimir</button>'
      +   (puedeEditar()
           ? '<button type="button" class="btn btn-suave btn-mini" data-accion="editar-cotizacion">' + ICONO.lapiz + 'Editar</button>'
+          : '')
+     +   (esAdmin()
+          ? '<button type="button" class="btn btn-suave btn-mini" data-accion="ajuste-inflacion-cotizacion" '
+            + 'title="Sube o baja el precio/costo de TODOS los conceptos de esta cotización de un jalón">'
+            + ICONO.grafica + 'Aumento por inflación</button>'
           : '')
      +   (esAdmin()
           ? '<button type="button" class="btn btn-peligro btn-mini" data-accion="borrar-cotizacion" title="Eliminar cotización">' + ICONO.basura + '</button>'
@@ -31752,6 +31799,179 @@ function modalPoliza(id, origenLevantamiento){
    "Generar cotización desde este reporte"), llega el reporte completo para
    prellenar sitio, tipo de mantenimiento y un primer concepto con el equipo
    que se reportó — y para dejar la liga en los dos sentidos al guardar. */
+/* ---------- Aumento por inflación: una cotización individual ---------- */
+function modalAjusteInflacionCotizacion(id){
+  if(!exigirAdmin('aplicar un aumento de precio')) return;
+  const q = cotizacionPorId(id);
+  if(!q) return;
+  if(!q.partidas.length){ aviso('Esta cotización no tiene conceptos capturados.', true); return; }
+  const antes = calcularCotizacion(q);
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">Se aplica a los ' + q.partidas.length + ' ' + plural(q.partidas.length,'concepto','conceptos')
+    + ' de esta cotización. El margen (' + numero(q.margen) + '%) decide el precio de los renglones SIN precio manual capturado — los que sí '
+    + 'tienen un precio manual reciben el % de precio directo sobre ese número.</p>'
+    + '<div class="campo"><label>Tipo de ajuste</label><select id="aciTipo">'
+    +   '<option value="aumento">Aumento — sube</option>'
+    +   '<option value="descuento">Descuento — baja</option>'
+    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Puntos de margen</label><input type="number" id="aciPuntosMargen" min="0" max="500" step="0.01" placeholder="0">'
+    +     '<div class="pista">Se suman/restan directo al margen actual (' + numero(q.margen) + '%), no es un % del precio final.</div></div>'
+    +   '<div class="campo"><label>% en el costo</label><input type="number" id="aciPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
+    + '</div>'
+    + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar. Un descuento nunca deja ningún campo en menos de $0.</div>'
+    + '<div id="aciPreview" style="margin-top:12px"></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Aplicar</button>';
+
+  abrirModal('Aumento / descuento de precio — inflación', cuerpo, pie);
+
+  function leer(){
+    return {
+      tipo: $('aciTipo').value,
+      puntosMargen: Math.max(0, parseFloat($('aciPuntosMargen').value) || 0),
+      pctCosto: Math.max(0, parseFloat($('aciPctCosto').value) || 0)
+    };
+  }
+  function pintarPreview(){
+    const { tipo, puntosMargen, pctCosto } = leer();
+    if(!puntosMargen && !pctCosto){ $('aciPreview').innerHTML = ''; return; }
+    const nuevoMargen = puntosMargen ? Math.max(0, q.margen + (tipo === 'descuento' ? -puntosMargen : puntosMargen)) : q.margen;
+    const simulada = Object.assign({}, q, { margen: nuevoMargen, partidas: q.partidas.map(r => Object.assign({}, r, {
+      precioCosto: pctCosto ? aplicarPctCampo(r.precioCosto, pctCosto, tipo) : r.precioCosto,
+      precioClienteManual: (puntosMargen && r.precioClienteManual != null) ? aplicarPctCampo(r.precioClienteManual, puntosMargen, tipo) : r.precioClienteManual
+    })) });
+    const despues = calcularCotizacion(simulada);
+    $('aciPreview').innerHTML =
+        '<div style="background:var(--bg); border-radius:10px; padding:12px 14px">'
+      +   filaAntesDespues('Margen', numero(q.margen) + '%', numero(nuevoMargen) + '%')
+      +   filaAntesDespues('Total al cliente', dinero(antes.totalCliente), dinero(despues.totalCliente))
+      +   filaAntesDespues('Total costo', dinero(antes.totalCosto), dinero(despues.totalCosto))
+      + '</div>';
+  }
+  ['aciTipo','aciPuntosMargen','aciPctCosto'].forEach(id2 => $(id2).addEventListener(id2 === 'aciTipo' ? 'change' : 'input', pintarPreview));
+
+  cerrarModalActual = ()=>{
+    const { tipo, puntosMargen, pctCosto } = leer();
+    if(!puntosMargen && !pctCosto){ aviso('Captura al menos un porcentaje/puntos mayor a 0.', true); return; }
+    aplicarAjusteInflacionCotizacion(q, tipo, puntosMargen, pctCosto, nombreDe(sesion));
+    cerrarModal();
+    render();
+    aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a la cotización.');
+  };
+}
+
+/* ---------- Aumento por inflación: varias cotizaciones a la vez — solo las
+   que siguen en 'borrador' (todavía sin mandarse al cliente). Una ya
+   enviada/aceptada/en el pipeline de 13 etapas es un trato ya comunicado —
+   cambiarle el precio por detrás sería justo lo que "congelar precios" trata
+   de evitar en Pólizas; si hiciera falta corregir una de esas, se hace
+   individual desde su propia cotización, a sabiendas. ---------- */
+function modalAjusteInflacionMasivoCotizaciones(){
+  if(!exigirAdmin('aplicar un aumento de precio masivo')) return;
+  const borradores = datos.cotizaciones.filter(q => q.estatus === 'borrador' && q.partidas.length);
+  if(!borradores.length){ aviso('No hay ninguna cotización en borrador con conceptos capturados.', true); return; }
+
+  const clientesConBorrador = Array.from(new Set(borradores.map(q => q.clienteId)))
+    .map(clientePorId).filter(Boolean).sort((a,b)=> a.nombre.localeCompare(b.nombre,'es'));
+
+  const cuerpo =
+      '<p class="pista" style="margin-top:0">Se aplica de un jalón a las cotizaciones todavía en <b>borrador</b> que elijas — '
+    +   numero(borradores.length) + ' ' + plural(borradores.length,'ahora mismo','en total ahora mismo')
+    +   '. Una ya enviada o aceptada no se toca aquí — es un trato ya comunicado, se corrige individual si hace falta.</p>'
+    + '<div class="campo"><label>¿A cuáles cotizaciones?</label><select id="acmAlcance">'
+    +   '<option value="todas">Todas los borradores (' + borradores.length + ')</option>'
+    +   (clientesConBorrador.length > 1 ? '<option value="cliente">Un solo cliente</option>' : '')
+    + '</select></div>'
+    + '<div class="campo" id="acmClienteZona" hidden><label>Cliente</label><select id="acmCliente">'
+    +   clientesConBorrador.map(c => '<option value="' + esc(c.id) + '">' + esc(c.nombre) + '</option>').join('')
+    + '</select></div>'
+    + '<div class="campo"><label>Tipo de ajuste</label><select id="acmTipo">'
+    +   '<option value="aumento">Aumento — sube</option>'
+    +   '<option value="descuento">Descuento — baja</option>'
+    + '</select></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Puntos de margen</label><input type="number" id="acmPuntosMargen" min="0" max="500" step="0.01" placeholder="0">'
+    +     '<div class="pista">Se suman/restan directo al margen de cada cotización, no es un % del precio final.</div></div>'
+    +   '<div class="campo"><label>% en el costo</label><input type="number" id="acmPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
+    + '</div>'
+    + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar.</div>'
+    + '<div id="acmPreview" style="margin-top:12px"></div>';
+
+  const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+            + '<button type="button" class="btn btn-primario" data-modal="guardar">Ver resumen y aplicar</button>';
+
+  abrirModal('Aumento / descuento de precio por inflación — Cotizaciones', cuerpo, pie);
+  $('modal').classList.add('ancho');
+
+  function leer(){
+    return {
+      tipo: $('acmTipo').value,
+      puntosMargen: Math.max(0, parseFloat($('acmPuntosMargen').value) || 0),
+      pctCosto: Math.max(0, parseFloat($('acmPctCosto').value) || 0)
+    };
+  }
+  function elegidas(){
+    if($('acmAlcance').value === 'cliente'){
+      const cid = $('acmCliente').value;
+      return borradores.filter(q => q.clienteId === cid);
+    }
+    return borradores;
+  }
+  function pintarPreview(){
+    const { tipo, puntosMargen, pctCosto } = leer();
+    const qs = elegidas();
+    if((!puntosMargen && !pctCosto) || !qs.length){ $('acmPreview').innerHTML = ''; return; }
+    let clienteAntes = 0, clienteDespues = 0;
+    qs.forEach(q=>{
+      clienteAntes += calcularCotizacion(q).totalCliente;
+      const nuevoMargen = puntosMargen ? Math.max(0, q.margen + (tipo === 'descuento' ? -puntosMargen : puntosMargen)) : q.margen;
+      const simulada = Object.assign({}, q, { margen: nuevoMargen, partidas: q.partidas.map(r => Object.assign({}, r, {
+        precioCosto: pctCosto ? aplicarPctCampo(r.precioCosto, pctCosto, tipo) : r.precioCosto,
+        precioClienteManual: (puntosMargen && r.precioClienteManual != null) ? aplicarPctCampo(r.precioClienteManual, puntosMargen, tipo) : r.precioClienteManual
+      })) });
+      clienteDespues += calcularCotizacion(simulada).totalCliente;
+    });
+    const diferencia = clienteDespues - clienteAntes;
+    $('acmPreview').innerHTML =
+        '<div style="background:var(--bg); border-radius:10px; padding:12px 14px">'
+      +   filaAntesDespues('Cotizaciones afectadas', '', '<b>' + numero(qs.length) + '</b>')
+      +   filaAntesDespues('Total cotizado al cliente', dinero(clienteAntes), dinero(clienteDespues))
+      +   '<div style="display:flex; justify-content:space-between; gap:12px; padding:4px 0">'
+      +     '<span class="pista">Diferencia</span>'
+      +     '<span style="font-weight:700; color:' + (diferencia >= 0 ? 'var(--ok)' : 'var(--error)') + '">' + (diferencia >= 0 ? '+' : '') + dinero(diferencia) + '</span>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  $('acmAlcance').addEventListener('change', ()=>{
+    $('acmClienteZona').hidden = $('acmAlcance').value !== 'cliente';
+    pintarPreview();
+  });
+  if($('acmCliente')) $('acmCliente').addEventListener('change', pintarPreview);
+  ['acmTipo','acmPuntosMargen','acmPctCosto'].forEach(id2 => $(id2).addEventListener(id2 === 'acmTipo' ? 'change' : 'input', pintarPreview));
+
+  cerrarModalActual = ()=>{
+    const { tipo, puntosMargen, pctCosto } = leer();
+    const qs = elegidas();
+    if(!puntosMargen && !pctCosto){ aviso('Captura al menos un porcentaje/puntos mayor a 0.', true); return; }
+    if(!qs.length){ aviso('No hay ninguna cotización que coincida.', true); return; }
+    const quien = nombreDe(sesion);
+    confirmar('Aplicar ' + (tipo === 'aumento' ? 'aumento' : 'descuento') + ' de precio',
+      'Se va a aplicar a <b>' + qs.length + ' ' + plural(qs.length,'cotización','cotizaciones') + '</b>'
+        + (puntosMargen ? ', ' + puntosMargen + ' puntos de margen' : '') + (pctCosto ? (puntosMargen ? ' y ' : ', ') + pctCosto + '% en costo' : '')
+        + '. Esta acción no se puede deshacer de un jalón — habría que corregir cotización por cotización.',
+      'Sí, aplicar', ()=>{
+        qs.forEach(q => aplicarAjusteInflacionCotizacion(q, tipo, puntosMargen, pctCosto, quien));
+        cerrarModal();
+        render();
+        aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + qs.length + ' ' + plural(qs.length,'cotización','cotizaciones') + '.');
+      });
+  };
+}
+
 function modalCotizacion(id, origenReporte){
   const q = id ? cotizacionPorId(id) : null;
 
@@ -34453,6 +34673,8 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'ajuste-inflacion-poliza') modalAjusteInflacionPoliza(estado.polizaId);
     else if(a === 'ajuste-inflacion-masivo-polizas') modalAjusteInflacionMasivoPolizas();
     else if(a === 'ajuste-inflacion-masivo-forpass') modalAjusteInflacionMasivoForpass();
+    else if(a === 'ajuste-inflacion-cotizacion') modalAjusteInflacionCotizacion(estado.cotizacionId);
+    else if(a === 'ajuste-inflacion-masivo-cotizaciones') modalAjusteInflacionMasivoCotizaciones();
     else if(a === 'calendario-poliza') modalCalendario(estado.polizaId);
     else if(a === 'migrar-fotos-poliza') migrarFotosPolizaAStorage(estado.polizaId);
     else if(a === 'diagnostico-fotos-poliza') diagnosticarFotosPoliza(estado.polizaId);
