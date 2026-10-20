@@ -6097,6 +6097,11 @@ function normalizarCotizacion(q){
        normalizarPoliza) — mismo molde que historialAjustes de una póliza o
        un sitio de Forpass, más reciente primero. */
     historialAjustes: Array.isArray(q && q.historialAjustes) ? q.historialAjustes.map(normalizarAjustePrecio) : [],
+    /* Ajustes YA capturados pero con fechaVigencia futura — todavía no
+       tocan ningún precio. Se mueven a historialAjustes en cuanto
+       ajustePrecioVigente() los da por vencidos (ver
+       aplicarAjustesInflacionProgramadosVencidos). */
+    ajustesProgramados: Array.isArray(q && q.ajustesProgramados) ? q.ajustesProgramados.map(normalizarAjustePrecio) : [],
     partidas
   };
 }
@@ -9755,14 +9760,25 @@ function guardarCotizacion(q, accion, detalle){
    normalizarPartidaCotizacion) recibe `puntosMargen` como % normal sobre ese
    precio, igual que Pólizas/Forpass, porque ahí no hay ningún margen que
    mover. */
-function aplicarAjusteInflacionCotizacion(q, tipo, puntosMargen, pctCosto, quien){
+function mutarAjusteCotizacion(q, entrada){
+  const puntosMargen = entrada.pctPrecio, pctCosto = entrada.pctCosto, tipo = entrada.tipo;
   q.partidas.forEach(r=>{
     if(pctCosto) r.precioCosto = aplicarPctCampo(r.precioCosto, pctCosto, tipo);
     if(puntosMargen && r.precioClienteManual != null) r.precioClienteManual = aplicarPctCampo(r.precioClienteManual, puntosMargen, tipo);
   });
   if(puntosMargen) q.margen = Math.max(0, q.margen + (tipo === 'descuento' ? -puntosMargen : puntosMargen));
-  q.historialAjustes.unshift(normalizarAjustePrecio({ tipo, pctPrecio:puntosMargen, pctCosto, renglonesAfectados:q.partidas.length, quien }));
+  q.historialAjustes.unshift(entrada);
+}
+function aplicarAjusteInflacionCotizacion(q, tipo, puntosMargen, pctCosto, quien, fechaVigencia){
+  const entrada = normalizarAjustePrecio({ tipo, pctPrecio:puntosMargen, pctCosto, renglonesAfectados:q.partidas.length, quien, fechaVigencia });
   const detalle = (puntosMargen ? puntosMargen + ' puntos de margen' : '') + (puntosMargen && pctCosto ? ' y ' : '') + (pctCosto ? pctCosto + '% costo' : '');
+  if(!ajustePrecioVigente(entrada)){
+    q.ajustesProgramados.unshift(entrada);
+    guardarCotizacion(q, tipo === 'aumento' ? 'programó aumento de precio' : 'programó descuento de precio',
+      detalle + ' — entra en vigor el ' + fechaDocumento(entrada.fechaVigencia));
+    return;
+  }
+  mutarAjusteCotizacion(q, entrada);
   guardarCotizacion(q, tipo === 'aumento' ? 'aumentó precio' : 'descontó precio', detalle);
 }
 
@@ -9967,7 +9983,8 @@ function normalizarCotizacionForpass(q){
        normalizarAjustePrecio y el comentario grande junto a
        normalizarPoliza) — mismo molde que historialAjustes de una póliza,
        sitio o cotización de servicio, más reciente primero. */
-    historialAjustes: Array.isArray(q && q.historialAjustes) ? q.historialAjustes.map(normalizarAjustePrecio) : []
+    historialAjustes: Array.isArray(q && q.historialAjustes) ? q.historialAjustes.map(normalizarAjustePrecio) : [],
+    ajustesProgramados: Array.isArray(q && q.ajustesProgramados) ? q.ajustesProgramados.map(normalizarAjustePrecio) : []
   };
 }
 
@@ -10009,14 +10026,25 @@ function guardarCotizacionForpass(q, accion, detalle){
    cada sitio, el precio de cada renglón de implementación (costo de
    arranque) y el total de cada renglón de referencia mensual (la tabla
    informativa) — así el PDF entero queda consistente, no solo los sitios. */
-function aplicarAjusteInflacionCotizacionForpass(q, tipo, pctPrecio, quien){
+function mutarAjusteCotizacionForpass(q, entrada){
+  const pctPrecio = entrada.pctPrecio, tipo = entrada.tipo;
   q.sitios.forEach(s=>{
     s.precioBase = aplicarPctCampo(s.precioBase, pctPrecio, tipo);
     s.adicional = aplicarPctCampo(s.adicional, pctPrecio, tipo);
   });
   q.implementacion.forEach(r=>{ r.precio = aplicarPctCampo(r.precio, pctPrecio, tipo); });
   q.referenciaMensual.forEach(r=>{ r.total = aplicarPctCampo(r.total, pctPrecio, tipo); });
-  q.historialAjustes.unshift(normalizarAjustePrecio({ tipo, pctPrecio, pctCosto:0, renglonesAfectados:q.sitios.length, quien }));
+  q.historialAjustes.unshift(entrada);
+}
+function aplicarAjusteInflacionCotizacionForpass(q, tipo, pctPrecio, quien, fechaVigencia){
+  const entrada = normalizarAjustePrecio({ tipo, pctPrecio, pctCosto:0, renglonesAfectados:q.sitios.length, quien, fechaVigencia });
+  if(!ajustePrecioVigente(entrada)){
+    q.ajustesProgramados.unshift(entrada);
+    guardarCotizacionForpass(q, tipo === 'aumento' ? 'programó aumento de precio' : 'programó descuento de precio',
+      pctPrecio + '% en ' + q.sitios.length + ' ' + plural(q.sitios.length,'sitio','sitios') + ' — entra en vigor el ' + fechaDocumento(entrada.fechaVigencia));
+    return;
+  }
+  mutarAjusteCotizacionForpass(q, entrada);
   guardarCotizacionForpass(q, tipo === 'aumento' ? 'aumentó precio' : 'descontó precio', pctPrecio + '% en ' + q.sitios.length + ' ' + plural(q.sitios.length,'sitio','sitios'));
 }
 
@@ -11382,6 +11410,7 @@ function normalizarSitio(s){
        grande junto a normalizarPoliza) — mismo molde que historialAjustes
        de una póliza, más reciente primero. */
     historialAjustes: Array.isArray(s.historialAjustes) ? s.historialAjustes.map(normalizarAjustePrecio) : [],
+    ajustesProgramados: Array.isArray(s.ajustesProgramados) ? s.ajustesProgramados.map(normalizarAjustePrecio) : [],
     notas: s.notas || '',
     personalizados: (s.personalizados && typeof s.personalizados === 'object' && !Array.isArray(s.personalizados)) ? s.personalizados : {}
   };
@@ -11433,15 +11462,95 @@ function aplicarPctCampo(valor, pct, tipo){
   return Math.max(0, Math.round(valor * factor));
 }
 function normalizarAjustePrecio(a){
+  const fecha = /^\d{4}-\d{2}-\d{2}$/.test(a && a.fecha) ? a.fecha : hoyISO();
   return {
     id: (a && a.id ? String(a.id) : '').trim() || nuevoId(),
-    fecha: /^\d{4}-\d{2}-\d{2}$/.test(a && a.fecha) ? a.fecha : hoyISO(),
+    /* Cuándo se CAPTURÓ el ajuste (siempre hoy, salvo que se esté
+       renormalizando uno ya guardado). */
+    fecha,
+    /* A partir de cuándo debe IMPACTAR (17-oct-2026, pedido de Victor: "que
+       los aumentos consideren una fecha a partir de la cual tendrán
+       impacto"). Por default es la misma fecha de captura —"aplícalo ya",
+       el comportamiento de siempre— así que programar para después es una
+       decisión explícita, no algo que haya que recordar hacer. Ver
+       ajustePrecioVigente() y las funciones aplicarAjusteInflacionX /
+       aplicarAjustesProgramadosVencidosX de cada sección. */
+    fechaVigencia: /^\d{4}-\d{2}-\d{2}$/.test(a && a.fechaVigencia) ? a.fechaVigencia : fecha,
     tipo: (a && a.tipo === 'descuento') ? 'descuento' : 'aumento',
     pctPrecio: Math.max(0, Math.min(500, Number(a && a.pctPrecio) || 0)),
     pctCosto: Math.max(0, Math.min(500, Number(a && a.pctCosto) || 0)),
     renglonesAfectados: Math.max(0, Math.round(Number(a && a.renglonesAfectados) || 0)),
     quien: (a && a.quien ? String(a.quien) : '').trim()
   };
+}
+/* ¿Ya le toca impactar a este ajuste? Comparación de texto directa porque
+   las dos fechas son siempre 'AAAA-MM-DD' (ISO), que ordena igual como
+   texto que como fecha real — mismo truco que ya usa el resto de la app
+   para comparar fechas sin construir un Date(). */
+function ajustePrecioVigente(a){ return a.fechaVigencia <= hoyISO(); }
+
+/* Saca de `arr` (un ajustesProgramados) las entradas que ya vencieron, EN
+   ORDEN de fechaVigencia ascendente, y las quita del arreglo original in
+   place. El orden ascendente importa porque quien llama las vuelve a meter
+   a historialAjustes con unshift: la última en entrar (fechaVigencia más
+   reciente) queda arriba, que es el mismo criterio "más reciente primero"
+   del resto de la bitácora. */
+function sacarAjustesVencidos(arr){
+  const vencidos = arr.filter(ajustePrecioVigente).sort((a,b)=> a.fechaVigencia.localeCompare(b.fechaVigencia));
+  for(let i = arr.length - 1; i >= 0; i--){ if(ajustePrecioVigente(arr[i])) arr.splice(i, 1); }
+  return vencidos;
+}
+/* Pedido de Victor (17-oct-2026, "ambas cosas" al confirmar): una vez
+   programado un aumento con fecha futura, no hace falta volver a tocar nada
+   — se aplica SOLO en cuanto llega la fecha, sin pedir confirmación. Como la
+   app no tiene nada corriendo en el servidor (es un SPA de sincronización
+   eventual con Firestore), "solo" quiere decir: en cuanto CUALQUIER sesión
+   vuelve a abrir el tablero, aquí se revisan las 4 colecciones por si algo
+   ya venció, y si sí, se aplica de una vez — exactamente como si alguien lo
+   hubiera capturado hoy mismo.
+
+   Gateado a esAdmin(): los mismos campos que esto toca (partidas de una
+   póliza activa, sitios, cotizaciones, cotizaciones Forpass) son los que
+   `exigirAdmin()` ya protege en los botones manuales, y en Pólizas además
+   hay una regla de Firestore que de plano rechaza la escritura si quien
+   guarda no es Admin/Owner (ver el comentario grande de normalizarPoliza).
+   Sin este filtro, una sesión Analyst/Viewer que abriera el tablero después
+   de la fecha de vigencia se encontraría un 403 silencioso al guardar. Se
+   llama una sola vez por arranque, desde arrancarNube(). */
+function aplicarAjustesInflacionProgramadosVencidos(){
+  if(!esAdmin()) return;
+  datos.polizas.forEach(p=>{
+    if(!p.ajustesProgramados.length) return;
+    const vencidos = sacarAjustesVencidos(p.ajustesProgramados);
+    if(!vencidos.length) return;
+    vencidos.forEach(entrada => mutarAjustePoliza(p, entrada));
+    guardarPoliza(p, 'aplicó aumento programado',
+      numero(vencidos.length) + ' ' + plural(vencidos.length,'ajuste programado','ajustes programados') + ' que ya entraron en vigor');
+  });
+  datos.sitios.forEach(s=>{
+    if(!s.ajustesProgramados.length) return;
+    const vencidos = sacarAjustesVencidos(s.ajustesProgramados);
+    if(!vencidos.length) return;
+    vencidos.forEach(entrada => mutarAjusteSitio(s, entrada));
+    guardarSitio(s, 'aplicó aumento programado',
+      numero(vencidos.length) + ' ' + plural(vencidos.length,'ajuste programado','ajustes programados') + ' que ya entraron en vigor');
+  });
+  datos.cotizaciones.forEach(q=>{
+    if(!q.ajustesProgramados.length) return;
+    const vencidos = sacarAjustesVencidos(q.ajustesProgramados);
+    if(!vencidos.length) return;
+    vencidos.forEach(entrada => mutarAjusteCotizacion(q, entrada));
+    guardarCotizacion(q, 'aplicó aumento programado',
+      numero(vencidos.length) + ' ' + plural(vencidos.length,'ajuste programado','ajustes programados') + ' que ya entraron en vigor');
+  });
+  datos.cotizacionesForpass.forEach(q=>{
+    if(!q.ajustesProgramados.length) return;
+    const vencidos = sacarAjustesVencidos(q.ajustesProgramados);
+    if(!vencidos.length) return;
+    vencidos.forEach(entrada => mutarAjusteCotizacionForpass(q, entrada));
+    guardarCotizacionForpass(q, 'aplicó aumento programado',
+      numero(vencidos.length) + ' ' + plural(vencidos.length,'ajuste programado','ajustes programados') + ' que ya entraron en vigor');
+  });
 }
 
 /* Rellena valores faltantes para que una póliza vieja o importada no rompa la
@@ -11654,6 +11763,7 @@ function normalizarPoliza(p){
        uno, más reciente primero. Nunca se borra solo; es la prueba de
        cuándo y cuánto se subió el precio de este contrato. */
     historialAjustes: Array.isArray(p.historialAjustes) ? p.historialAjustes.map(normalizarAjustePrecio) : [],
+    ajustesProgramados: Array.isArray(p.ajustesProgramados) ? p.ajustesProgramados.map(normalizarAjustePrecio) : [],
     notas: p.notas || ''
   };
 }
@@ -11951,11 +12061,21 @@ function calcular(s){
    ajustarlo junto con mensualidad hubiera complicado el modal sin que
    Victor lo pidiera — se sigue editando a mano, como siempre, si hiciera
    falta. */
-function aplicarAjusteInflacionSitio(s, tipo, pctPrecio, pctCosto, quien){
-  if(pctPrecio) s.mensualidad = aplicarPctCampo(s.mensualidad, pctPrecio, tipo);
-  if(pctCosto) s.forpassCosto = aplicarPctCampo(s.forpassCosto, pctCosto, tipo);
-  s.historialAjustes.unshift(normalizarAjustePrecio({ tipo, pctPrecio, pctCosto, renglonesAfectados:1, quien }));
+function mutarAjusteSitio(s, entrada){
+  if(entrada.pctPrecio) s.mensualidad = aplicarPctCampo(s.mensualidad, entrada.pctPrecio, entrada.tipo);
+  if(entrada.pctCosto) s.forpassCosto = aplicarPctCampo(s.forpassCosto, entrada.pctCosto, entrada.tipo);
+  s.historialAjustes.unshift(entrada);
+}
+function aplicarAjusteInflacionSitio(s, tipo, pctPrecio, pctCosto, quien, fechaVigencia){
+  const entrada = normalizarAjustePrecio({ tipo, pctPrecio, pctCosto, renglonesAfectados:1, quien, fechaVigencia });
   const detalle = (pctPrecio ? pctPrecio + '% precio' : '') + (pctPrecio && pctCosto ? ' y ' : '') + (pctCosto ? pctCosto + '% costo' : '');
+  if(!ajustePrecioVigente(entrada)){
+    s.ajustesProgramados.unshift(entrada);
+    guardarSitio(s, tipo === 'aumento' ? 'programó aumento de precio' : 'programó descuento de precio',
+      detalle + ' — entra en vigor el ' + fechaDocumento(entrada.fechaVigencia));
+    return;
+  }
+  mutarAjusteSitio(s, entrada);
   guardarSitio(s, tipo === 'aumento' ? 'aumentó precio' : 'descontó precio', detalle);
 }
 
@@ -12439,14 +12559,27 @@ function calcularPoliza(p){
    campo no se toca" (permite subir solo precio, solo costo, o los dos a la
    vez con porcentajes distintos). Dos mutaciones + un guardado: el mismo
    patrón ya usado en modalAjusteConceptosProyectoImagen. */
-function aplicarAjusteInflacionPoliza(p, tipo, pctPrecio, pctCosto, quien){
+/* Mutación pura (sin guardar): sube/baja los campos y mete `entrada` ya hecha
+   al historial. La usan tanto la aplicación inmediata de abajo como
+   aplicarAjustesInflacionProgramadosVencidos() cuando una programada vence. */
+function mutarAjustePoliza(p, entrada){
   p.partidas.forEach(r=>{
-    if(pctPrecio) r.precioUnitario = aplicarPctCampo(r.precioUnitario, pctPrecio, tipo);
-    if(pctCosto) r.costoUnitario = aplicarPctCampo(r.costoUnitario, pctCosto, tipo);
+    if(entrada.pctPrecio) r.precioUnitario = aplicarPctCampo(r.precioUnitario, entrada.pctPrecio, entrada.tipo);
+    if(entrada.pctCosto) r.costoUnitario = aplicarPctCampo(r.costoUnitario, entrada.pctCosto, entrada.tipo);
   });
-  p.historialAjustes.unshift(normalizarAjustePrecio({ tipo, pctPrecio, pctCosto, renglonesAfectados:p.partidas.length, quien }));
+  p.historialAjustes.unshift(entrada);
+}
+function aplicarAjusteInflacionPoliza(p, tipo, pctPrecio, pctCosto, quien, fechaVigencia){
+  const entrada = normalizarAjustePrecio({ tipo, pctPrecio, pctCosto, renglonesAfectados:p.partidas.length, quien, fechaVigencia });
   const detalle = (pctPrecio ? pctPrecio + '% precio' : '') + (pctPrecio && pctCosto ? ' y ' : '') + (pctCosto ? pctCosto + '% costo' : '')
     + ' en ' + p.partidas.length + ' ' + plural(p.partidas.length,'equipo','equipos');
+  if(!ajustePrecioVigente(entrada)){
+    p.ajustesProgramados.unshift(entrada);
+    guardarPoliza(p, tipo === 'aumento' ? 'programó aumento de precio' : 'programó descuento de precio',
+      detalle + ' — entra en vigor el ' + fechaDocumento(entrada.fechaVigencia));
+    return;
+  }
+  mutarAjustePoliza(p, entrada);
   guardarPoliza(p, tipo === 'aumento' ? 'aumentó precio' : 'descontó precio', detalle);
 }
 
@@ -16476,7 +16609,8 @@ const TEMAS_AYUDA = [
             'La herramienta masiva solo opera sobre sitios con Forpass <b>activo</b> (módulos instalados y estado Activo) — puedes elegir "Todos" o filtrar a un solo cliente. Un sitio pausado o de baja se ajusta aparte, uno por uno, desde su propia tarjeta.',
             'Antes de aplicar se muestra una <b>vista previa</b> (mensualidad antes → después; en la herramienta masiva, además, cuántos sitios se afectan y cuánto sube la mensualidad total de todos juntos) — y cada ajuste queda en el <b>historial del sitio</b>, igual que en Pólizas, nunca se borra solo.',
             'No toca <b>"Renta mensual adicional"</b> (el campo que solo aparece con Tipo de cargo "Venta") — es un campo poco común que se sigue editando a mano si hiciera falta.',
-            'Esto es para sitios YA activos, no para cotizaciones en proceso de venta — una <b>Cotización Forpass</b> trae su propio ajuste aparte: el icono de gráfica junto a "Vista previa"/Editar en la lista de cada cliente, y el botón <b>"Aumento en cotizaciones"</b> (junto a este mismo, en el dashboard general) para ajustar varias en borrador a la vez. Ahí solo hay un porcentaje de precio, sin costo — es un documento de venta.'
+            'Esto es para sitios YA activos, no para cotizaciones en proceso de venta — una <b>Cotización Forpass</b> trae su propio ajuste aparte: el icono de gráfica junto a "Vista previa"/Editar en la lista de cada cliente, y el botón <b>"Aumento en cotizaciones"</b> (junto a este mismo, en el dashboard general) para ajustar varias en borrador a la vez. Ahí solo hay un porcentaje de precio, sin costo — es un documento de venta.',
+            '(17-oct-2026) Los 8 modales de ajuste por inflación —individual y masivo, en las 4 secciones, incluida Cotización Forpass— traen un campo <b>"A partir de cuándo"</b>, en blanco igual a hoy (se aplica de inmediato). Si lo adelantas a una fecha futura, el ajuste queda <b>programado</b> —no toca ningún precio todavía— y se aplica SOLO, sin que nadie tenga que volver a confirmar nada, en cuanto esa fecha llega y alguien Owner/Admin vuelve a abrir el tablero.'
           ])) },
 
   { id:'mi-agenda', titulo:'Mi agenda',
@@ -16677,7 +16811,8 @@ const TEMAS_AYUDA = [
             'Antes de aplicar, se muestra una <b>vista previa</b> con el precio anual/mensual y el margen antes → después — en la herramienta masiva, además, cuántas pólizas se van a afectar y cuánto sube el ingreso mensual total de todas juntas.',
             'La herramienta masiva (en la lista de Pólizas) solo opera sobre pólizas <b>activas</b> — puedes elegir "Todas" o filtrar a un solo cliente. Una póliza en cotización/enviada o cancelada se ajusta aparte, abriéndola y usando el botón individual.',
             'Cada vez que se aplica un ajuste queda una entrada en el <b>historial de la póliza</b> (fecha, tipo, % de precio, % de costo, cuántos equipos se tocaron) — nunca se borra sola, es la prueba de cuándo y cuánto se subió el precio de ese contrato. Aplicarlo varias veces se va SUMANDO sobre el precio ya ajustado, no reemplazándolo.',
-            'Por qué es exclusivo de Admin/Owner aunque un Analyst pueda editar pólizas: la regla del servidor congela los precios de una póliza en cuanto deja de ser cotización/enviada — solo Owner/Admin pueden corregirlos ahí, así que el botón ni se le muestra a un Analyst.'
+            'Por qué es exclusivo de Admin/Owner aunque un Analyst pueda editar pólizas: la regla del servidor congela los precios de una póliza en cuanto deja de ser cotización/enviada — solo Owner/Admin pueden corregirlos ahí, así que el botón ni se le muestra a un Analyst.',
+            '(17-oct-2026) El campo <b>"A partir de cuándo"</b> nace en hoy (se aplica de inmediato). Si lo adelantas, el ajuste se <b>programa</b> —no toca ningún precio todavía— y se aplica SOLO, sin volver a confirmar nada, en cuanto esa fecha llega y alguien Owner/Admin vuelve a abrir el tablero.'
           ])) },
 
   { id:'cotizaciones', titulo:'Cotizaciones',
@@ -16714,7 +16849,8 @@ const TEMAS_AYUDA = [
             'Aquí no hay un precio plano por renglón como en Pólizas o Forpass: el precio al cliente normalmente sale de costo × margen. Por eso capturas <b>"Puntos de margen"</b> (se suman/restan directo al margen actual, ej. 15% + 5 puntos = 20% — NO es un % del precio final) y, aparte, un <b>% en el costo</b> de cada concepto.',
             'Un concepto con <b>precio manual</b> capturado (la excepción que sí es un número fijo, no margen) recibe los "puntos de margen" como un % normal sobre ESE precio — ahí no hay margen que mover.',
             'La herramienta masiva solo opera sobre cotizaciones todavía en <b>borrador</b> — una ya enviada, aprobada o en cualquier etapa del tablero de 13 pasos es un trato ya comunicado al cliente, así que no se toca ahí; se corrige individual, a sabiendas, si hiciera falta.',
-            'Antes de aplicar se muestra una vista previa (margen y totales antes → después; en la masiva, además, cuántas cotizaciones se afectan y cuánto sube el total cotizado) — y cada ajuste queda en el historial de la cotización, igual que en Pólizas y Forpass.'
+            'Antes de aplicar se muestra una vista previa (margen y totales antes → después; en la masiva, además, cuántas cotizaciones se afectan y cuánto sube el total cotizado) — y cada ajuste queda en el historial de la cotización, igual que en Pólizas y Forpass.',
+            '(17-oct-2026) El campo <b>"A partir de cuándo"</b> nace en hoy (se aplica de inmediato). Si lo adelantas, el ajuste se <b>programa</b> —no toca ningún precio todavía— y se aplica SOLO, sin volver a confirmar nada, en cuanto esa fecha llega y alguien Owner/Admin vuelve a abrir el tablero.'
           ])) },
 
   { id:'activos', titulo:'Activos',
@@ -17353,10 +17489,12 @@ function modalAjusteInflacionSitio(id){
     +   '<div class="campo"><label>% en el costo</label><input type="number" id="afiPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
     + '</div>'
     + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar. Un descuento nunca deja ningún campo en menos de $0.</div>'
+    + campoFechaVigenciaAjuste('afiFechaVigencia')
+    + '<div id="afiPistaVigencia"></div>'
     + '<div id="afiPreview" style="margin-top:12px"></div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
-            + '<button type="button" class="btn btn-primario" data-modal="guardar">Aplicar</button>';
+            + '<button type="button" class="btn btn-primario" id="afiBtnGuardar" data-modal="guardar">Aplicar</button>';
 
   abrirModal('Aumento / descuento de precio — Forpass', cuerpo, pie);
 
@@ -17364,11 +17502,14 @@ function modalAjusteInflacionSitio(id){
     return {
       tipo: $('afiTipo').value,
       pctPrecio: Math.max(0, parseFloat($('afiPctPrecio').value) || 0),
-      pctCosto: Math.max(0, parseFloat($('afiPctCosto').value) || 0)
+      pctCosto: Math.max(0, parseFloat($('afiPctCosto').value) || 0),
+      fechaVigencia: $('afiFechaVigencia').value || hoyISO()
     };
   }
   function pintarPreview(){
-    const { tipo, pctPrecio, pctCosto } = leer();
+    const { tipo, pctPrecio, pctCosto, fechaVigencia } = leer();
+    $('afiPistaVigencia').innerHTML = pistaVigenciaAjuste(fechaVigencia);
+    $('afiBtnGuardar').textContent = ajustePrecioVigente({ fechaVigencia }) ? 'Aplicar' : 'Programar';
     if(!pctPrecio && !pctCosto){ $('afiPreview').innerHTML = ''; return; }
     const nuevaMensualidad = pctPrecio ? aplicarPctCampo(s.mensualidad, pctPrecio, tipo) : s.mensualidad;
     const nuevoCosto = pctCosto ? aplicarPctCampo(s.forpassCosto, pctCosto, tipo) : s.forpassCosto;
@@ -17378,15 +17519,19 @@ function modalAjusteInflacionSitio(id){
       +   filaAntesDespues('Costo', dinero(s.forpassCosto), dinero(nuevoCosto))
       + '</div>';
   }
-  ['afiTipo','afiPctPrecio','afiPctCosto'].forEach(id2 => $(id2).addEventListener(id2 === 'afiTipo' ? 'change' : 'input', pintarPreview));
+  ['afiTipo','afiPctPrecio','afiPctCosto','afiFechaVigencia'].forEach(id2 => $(id2).addEventListener(id2 === 'afiTipo' ? 'change' : 'input', pintarPreview));
+  pintarPreview();
 
   cerrarModalActual = ()=>{
-    const { tipo, pctPrecio, pctCosto } = leer();
+    const { tipo, pctPrecio, pctCosto, fechaVigencia } = leer();
     if(!pctPrecio && !pctCosto){ aviso('Captura al menos un porcentaje mayor a 0.', true); return; }
-    aplicarAjusteInflacionSitio(s, tipo, pctPrecio, pctCosto, nombreDe(sesion));
+    const programado = !ajustePrecioVigente({ fechaVigencia });
+    aplicarAjusteInflacionSitio(s, tipo, pctPrecio, pctCosto, nombreDe(sesion), fechaVigencia);
     cerrarModal();
     render();
-    aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a «' + s.nombre + '».');
+    aviso(programado
+      ? (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' programado para el ' + fechaDocumento(fechaVigencia) + ' en «' + s.nombre + '».'
+      : (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a «' + s.nombre + '».');
   };
 }
 
@@ -17423,10 +17568,12 @@ function modalAjusteInflacionMasivoForpass(){
     +   '<div class="campo"><label>% en el costo</label><input type="number" id="afmPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
     + '</div>'
     + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar.</div>'
+    + campoFechaVigenciaAjuste('afmFechaVigencia')
+    + '<div id="afmPistaVigencia"></div>'
     + '<div id="afmPreview" style="margin-top:12px"></div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
-            + '<button type="button" class="btn btn-primario" data-modal="guardar">Ver resumen y aplicar</button>';
+            + '<button type="button" class="btn btn-primario" id="afmBtnGuardar" data-modal="guardar">Ver resumen y aplicar</button>';
 
   abrirModal('Aumento / descuento de precio por inflación — Forpass', cuerpo, pie);
   $('modal').classList.add('ancho');
@@ -17435,7 +17582,8 @@ function modalAjusteInflacionMasivoForpass(){
     return {
       tipo: $('afmTipo').value,
       pctPrecio: Math.max(0, parseFloat($('afmPctPrecio').value) || 0),
-      pctCosto: Math.max(0, parseFloat($('afmPctCosto').value) || 0)
+      pctCosto: Math.max(0, parseFloat($('afmPctCosto').value) || 0),
+      fechaVigencia: $('afmFechaVigencia').value || hoyISO()
     };
   }
   function sitiosElegidos(){
@@ -17446,7 +17594,9 @@ function modalAjusteInflacionMasivoForpass(){
     return activos;
   }
   function pintarPreview(){
-    const { tipo, pctPrecio, pctCosto } = leer();
+    const { tipo, pctPrecio, pctCosto, fechaVigencia } = leer();
+    $('afmPistaVigencia').innerHTML = pistaVigenciaAjuste(fechaVigencia);
+    $('afmBtnGuardar').textContent = ajustePrecioVigente({ fechaVigencia }) ? 'Ver resumen y aplicar' : 'Ver resumen y programar';
     const elegidos = sitiosElegidos();
     if((!pctPrecio && !pctCosto) || !elegidos.length){ $('afmPreview').innerHTML = ''; return; }
     const mensualAntes = elegidos.reduce((t,s)=> t + s.mensualidad, 0);
@@ -17468,23 +17618,28 @@ function modalAjusteInflacionMasivoForpass(){
     pintarPreview();
   });
   if($('afmCliente')) $('afmCliente').addEventListener('change', pintarPreview);
-  ['afmTipo','afmPctPrecio','afmPctCosto'].forEach(id2 => $(id2).addEventListener(id2 === 'afmTipo' ? 'change' : 'input', pintarPreview));
+  ['afmTipo','afmPctPrecio','afmPctCosto','afmFechaVigencia'].forEach(id2 => $(id2).addEventListener(id2 === 'afmTipo' ? 'change' : 'input', pintarPreview));
+  pintarPreview();
 
   cerrarModalActual = ()=>{
-    const { tipo, pctPrecio, pctCosto } = leer();
+    const { tipo, pctPrecio, pctCosto, fechaVigencia } = leer();
     const elegidos = sitiosElegidos();
     if(!pctPrecio && !pctCosto){ aviso('Captura al menos un porcentaje mayor a 0.', true); return; }
     if(!elegidos.length){ aviso('No hay ningún sitio que coincida.', true); return; }
     const quien = nombreDe(sesion);
-    confirmar('Aplicar ' + (tipo === 'aumento' ? 'aumento' : 'descuento') + ' de precio',
-      'Se va a aplicar a <b>' + elegidos.length + ' ' + plural(elegidos.length,'sitio','sitios') + '</b>'
+    const programado = !ajustePrecioVigente({ fechaVigencia });
+    confirmar((programado ? 'Programar ' : 'Aplicar ') + (tipo === 'aumento' ? 'aumento' : 'descuento') + ' de precio',
+      'Se va a ' + (programado ? ('programar para el <b>' + fechaDocumento(fechaVigencia) + '</b>') : 'aplicar de inmediato')
+        + ' en <b>' + elegidos.length + ' ' + plural(elegidos.length,'sitio','sitios') + '</b>'
         + (pctPrecio ? ', ' + pctPrecio + '% en precio' : '') + (pctCosto ? (pctPrecio ? ' y ' : ', ') + pctCosto + '% en costo' : '')
         + '. Esta acción no se puede deshacer de un jalón — habría que corregir sitio por sitio.',
-      'Sí, aplicar', ()=>{
-        elegidos.forEach(s => aplicarAjusteInflacionSitio(s, tipo, pctPrecio, pctCosto, quien));
+      programado ? 'Sí, programar' : 'Sí, aplicar', ()=>{
+        elegidos.forEach(s => aplicarAjusteInflacionSitio(s, tipo, pctPrecio, pctCosto, quien, fechaVigencia));
         cerrarModal();
         render();
-        aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + elegidos.length + ' ' + plural(elegidos.length,'sitio','sitios') + '.');
+        aviso(programado
+          ? (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' programado para el ' + fechaDocumento(fechaVigencia) + ' en ' + elegidos.length + ' ' + plural(elegidos.length,'sitio','sitios') + '.'
+          : (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + elegidos.length + ' ' + plural(elegidos.length,'sitio','sitios') + '.');
       });
   };
 }
@@ -30527,10 +30682,12 @@ function modalAjusteInflacionPoliza(id){
     +   '<div class="campo"><label>% en el costo</label><input type="number" id="apiPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
     + '</div>'
     + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar. Un descuento nunca deja ningún campo en menos de $0.</div>'
+    + campoFechaVigenciaAjuste('apiFechaVigencia')
+    + '<div id="apiPistaVigencia"></div>'
     + '<div id="apiPreview" style="margin-top:12px"></div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
-            + '<button type="button" class="btn btn-primario" data-modal="guardar">Aplicar</button>';
+            + '<button type="button" class="btn btn-primario" id="apiBtnGuardar" data-modal="guardar">Aplicar</button>';
 
   abrirModal('Aumento / descuento de precio — inflación', cuerpo, pie);
 
@@ -30538,11 +30695,14 @@ function modalAjusteInflacionPoliza(id){
     return {
       tipo: $('apiTipo').value,
       pctPrecio: Math.max(0, parseFloat($('apiPctPrecio').value) || 0),
-      pctCosto: Math.max(0, parseFloat($('apiPctCosto').value) || 0)
+      pctCosto: Math.max(0, parseFloat($('apiPctCosto').value) || 0),
+      fechaVigencia: $('apiFechaVigencia').value || hoyISO()
     };
   }
   function pintarPreview(){
-    const { tipo, pctPrecio, pctCosto } = leer();
+    const { tipo, pctPrecio, pctCosto, fechaVigencia } = leer();
+    $('apiPistaVigencia').innerHTML = pistaVigenciaAjuste(fechaVigencia);
+    $('apiBtnGuardar').textContent = ajustePrecioVigente({ fechaVigencia }) ? 'Aplicar' : 'Programar';
     if(!pctPrecio && !pctCosto){ $('apiPreview').innerHTML = ''; return; }
     const simulada = Object.assign({}, p, { partidas: p.partidas.map(r => Object.assign({}, r, {
       precioUnitario: pctPrecio ? aplicarPctCampo(r.precioUnitario, pctPrecio, tipo) : r.precioUnitario,
@@ -30556,15 +30716,19 @@ function modalAjusteInflacionPoliza(id){
       +   filaAntesDespues('Margen', numero(Math.round(antes.margenPct)) + '%', numero(Math.round(despues.margenPct)) + '%')
       + '</div>';
   }
-  ['apiTipo','apiPctPrecio','apiPctCosto'].forEach(id2 => $(id2).addEventListener(id2==='apiTipo' ? 'change' : 'input', pintarPreview));
+  ['apiTipo','apiPctPrecio','apiPctCosto','apiFechaVigencia'].forEach(id2 => $(id2).addEventListener(id2==='apiTipo' ? 'change' : 'input', pintarPreview));
+  pintarPreview();
 
   cerrarModalActual = ()=>{
-    const { tipo, pctPrecio, pctCosto } = leer();
+    const { tipo, pctPrecio, pctCosto, fechaVigencia } = leer();
     if(!pctPrecio && !pctCosto){ aviso('Captura al menos un porcentaje mayor a 0.', true); return; }
-    aplicarAjusteInflacionPoliza(p, tipo, pctPrecio, pctCosto, nombreDe(sesion));
+    const programado = !ajustePrecioVigente({ fechaVigencia });
+    aplicarAjusteInflacionPoliza(p, tipo, pctPrecio, pctCosto, nombreDe(sesion), fechaVigencia);
     cerrarModal();
     render();
-    aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + p.partidas.length + ' ' + plural(p.partidas.length,'equipo','equipos') + '.');
+    aviso(programado
+      ? (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' programado para el ' + fechaDocumento(fechaVigencia) + '.'
+      : (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + p.partidas.length + ' ' + plural(p.partidas.length,'equipo','equipos') + '.');
   };
 }
 /* Fila "Antes → Después" reusada por el modal individual y el masivo de abajo
@@ -30581,6 +30745,22 @@ function filaAntesDespues(etiqueta, antes, despues){
     + '<span class="pista">' + esc(etiqueta) + '</span>'
     + '<span>' + (antes ? antes + ' → ' : '') + '<b>' + despues + '</b></span>'
     + '</div>';
+}
+/* Campo "A partir de cuándo" + su pista dinámica, reusados por los 8 modales
+   de ajuste por inflación (individual y masivo, en las 4 secciones) — pedido
+   de Victor (17-oct-2026): "que los aumentos consideren una fecha a partir
+   de la cual tendrán impacto". Nace en hoyISO() —aplícalo ya, el
+   comportamiento de siempre— así que adelantarla es una decisión explícita.
+   `min` evita programar hacia el pasado, que no tendría ningún efecto nuevo
+   (ajustePrecioVigente() ya la daría por vencida de inmediato). */
+function campoFechaVigenciaAjuste(idInput){
+  return '<div class="campo"><label>A partir de cuándo</label>'
+    + '<input type="date" id="' + idInput + '" value="' + hoyISO() + '" min="' + hoyISO() + '"></div>';
+}
+function pistaVigenciaAjuste(fechaVigencia){
+  return ajustePrecioVigente({ fechaVigencia })
+    ? '<p class="pista">Se aplica de inmediato, en cuanto guardes.</p>'
+    : '<p class="pista">Se programa: entra en vigor solo, sin volver a confirmar nada, el <b>' + fechaDocumento(fechaVigencia) + '</b>.</p>';
 }
 
 /* ---------- Aumento por inflación: varias pólizas a la vez, con vista previa
@@ -30617,10 +30797,12 @@ function modalAjusteInflacionMasivoPolizas(){
     +   '<div class="campo"><label>% en el costo</label><input type="number" id="amPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
     + '</div>'
     + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar.</div>'
+    + campoFechaVigenciaAjuste('amFechaVigencia')
+    + '<div id="amPistaVigencia"></div>'
     + '<div id="amPreview" style="margin-top:12px"></div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
-            + '<button type="button" class="btn btn-primario" data-modal="guardar">Ver resumen y aplicar</button>';
+            + '<button type="button" class="btn btn-primario" id="amBtnGuardar" data-modal="guardar">Ver resumen y aplicar</button>';
 
   abrirModal('Aumento / descuento de precio por inflación', cuerpo, pie);
   $('modal').classList.add('ancho');
@@ -30629,7 +30811,8 @@ function modalAjusteInflacionMasivoPolizas(){
     return {
       tipo: $('amTipo').value,
       pctPrecio: Math.max(0, parseFloat($('amPctPrecio').value) || 0),
-      pctCosto: Math.max(0, parseFloat($('amPctCosto').value) || 0)
+      pctCosto: Math.max(0, parseFloat($('amPctCosto').value) || 0),
+      fechaVigencia: $('amFechaVigencia').value || hoyISO()
     };
   }
   function polizasElegidas(){
@@ -30640,7 +30823,9 @@ function modalAjusteInflacionMasivoPolizas(){
     return activas;
   }
   function pintarPreview(){
-    const { tipo, pctPrecio, pctCosto } = leer();
+    const { tipo, pctPrecio, pctCosto, fechaVigencia } = leer();
+    $('amPistaVigencia').innerHTML = pistaVigenciaAjuste(fechaVigencia);
+    $('amBtnGuardar').textContent = ajustePrecioVigente({ fechaVigencia }) ? 'Ver resumen y aplicar' : 'Ver resumen y programar';
     const elegidas = polizasElegidas();
     if((!pctPrecio && !pctCosto) || !elegidas.length){ $('amPreview').innerHTML = ''; return; }
     let mensualAntes = 0, mensualDespues = 0;
@@ -30669,23 +30854,28 @@ function modalAjusteInflacionMasivoPolizas(){
     pintarPreview();
   });
   if($('amCliente')) $('amCliente').addEventListener('change', pintarPreview);
-  ['amTipo','amPctPrecio','amPctCosto'].forEach(id2 => $(id2).addEventListener(id2==='amTipo' ? 'change' : 'input', pintarPreview));
+  ['amTipo','amPctPrecio','amPctCosto','amFechaVigencia'].forEach(id2 => $(id2).addEventListener(id2==='amTipo' ? 'change' : 'input', pintarPreview));
+  pintarPreview();
 
   cerrarModalActual = ()=>{
-    const { tipo, pctPrecio, pctCosto } = leer();
+    const { tipo, pctPrecio, pctCosto, fechaVigencia } = leer();
     const elegidas = polizasElegidas();
     if(!pctPrecio && !pctCosto){ aviso('Captura al menos un porcentaje mayor a 0.', true); return; }
     if(!elegidas.length){ aviso('No hay ninguna póliza que coincida.', true); return; }
     const quien = nombreDe(sesion);
-    confirmar('Aplicar ' + (tipo === 'aumento' ? 'aumento' : 'descuento') + ' de precio',
-      'Se va a aplicar a <b>' + elegidas.length + ' ' + plural(elegidas.length,'póliza','pólizas') + '</b>'
+    const programado = !ajustePrecioVigente({ fechaVigencia });
+    confirmar((programado ? 'Programar ' : 'Aplicar ') + (tipo === 'aumento' ? 'aumento' : 'descuento') + ' de precio',
+      'Se va a ' + (programado ? ('programar para el <b>' + fechaDocumento(fechaVigencia) + '</b>') : 'aplicar de inmediato')
+        + ' en <b>' + elegidas.length + ' ' + plural(elegidas.length,'póliza','pólizas') + '</b>'
         + (pctPrecio ? ', ' + pctPrecio + '% en precio' : '') + (pctCosto ? (pctPrecio ? ' y ' : ', ') + pctCosto + '% en costo' : '')
         + '. Esta acción no se puede deshacer de un jalón — habría que corregir póliza por póliza.',
-      'Sí, aplicar', ()=>{
-        elegidas.forEach(p => aplicarAjusteInflacionPoliza(p, tipo, pctPrecio, pctCosto, quien));
+      programado ? 'Sí, programar' : 'Sí, aplicar', ()=>{
+        elegidas.forEach(p => aplicarAjusteInflacionPoliza(p, tipo, pctPrecio, pctCosto, quien, fechaVigencia));
         cerrarModal();
         render();
-        aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + elegidas.length + ' ' + plural(elegidas.length,'póliza','pólizas') + '.');
+        aviso(programado
+          ? (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' programado para el ' + fechaDocumento(fechaVigencia) + ' en ' + elegidas.length + ' ' + plural(elegidas.length,'póliza','pólizas') + '.'
+          : (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + elegidas.length + ' ' + plural(elegidas.length,'póliza','pólizas') + '.');
       });
   };
 }
@@ -31859,10 +32049,12 @@ function modalAjusteInflacionCotizacion(id){
     +   '<div class="campo"><label>% en el costo</label><input type="number" id="aciPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
     + '</div>'
     + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar. Un descuento nunca deja ningún campo en menos de $0.</div>'
+    + campoFechaVigenciaAjuste('aciFechaVigencia')
+    + '<div id="aciPistaVigencia"></div>'
     + '<div id="aciPreview" style="margin-top:12px"></div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
-            + '<button type="button" class="btn btn-primario" data-modal="guardar">Aplicar</button>';
+            + '<button type="button" class="btn btn-primario" id="aciBtnGuardar" data-modal="guardar">Aplicar</button>';
 
   abrirModal('Aumento / descuento de precio — inflación', cuerpo, pie);
 
@@ -31870,11 +32062,14 @@ function modalAjusteInflacionCotizacion(id){
     return {
       tipo: $('aciTipo').value,
       puntosMargen: Math.max(0, parseFloat($('aciPuntosMargen').value) || 0),
-      pctCosto: Math.max(0, parseFloat($('aciPctCosto').value) || 0)
+      pctCosto: Math.max(0, parseFloat($('aciPctCosto').value) || 0),
+      fechaVigencia: $('aciFechaVigencia').value || hoyISO()
     };
   }
   function pintarPreview(){
-    const { tipo, puntosMargen, pctCosto } = leer();
+    const { tipo, puntosMargen, pctCosto, fechaVigencia } = leer();
+    $('aciPistaVigencia').innerHTML = pistaVigenciaAjuste(fechaVigencia);
+    $('aciBtnGuardar').textContent = ajustePrecioVigente({ fechaVigencia }) ? 'Aplicar' : 'Programar';
     if(!puntosMargen && !pctCosto){ $('aciPreview').innerHTML = ''; return; }
     const nuevoMargen = puntosMargen ? Math.max(0, q.margen + (tipo === 'descuento' ? -puntosMargen : puntosMargen)) : q.margen;
     const simulada = Object.assign({}, q, { margen: nuevoMargen, partidas: q.partidas.map(r => Object.assign({}, r, {
@@ -31889,15 +32084,19 @@ function modalAjusteInflacionCotizacion(id){
       +   filaAntesDespues('Total costo', dinero(antes.totalCosto), dinero(despues.totalCosto))
       + '</div>';
   }
-  ['aciTipo','aciPuntosMargen','aciPctCosto'].forEach(id2 => $(id2).addEventListener(id2 === 'aciTipo' ? 'change' : 'input', pintarPreview));
+  ['aciTipo','aciPuntosMargen','aciPctCosto','aciFechaVigencia'].forEach(id2 => $(id2).addEventListener(id2 === 'aciTipo' ? 'change' : 'input', pintarPreview));
+  pintarPreview();
 
   cerrarModalActual = ()=>{
-    const { tipo, puntosMargen, pctCosto } = leer();
+    const { tipo, puntosMargen, pctCosto, fechaVigencia } = leer();
     if(!puntosMargen && !pctCosto){ aviso('Captura al menos un porcentaje/puntos mayor a 0.', true); return; }
-    aplicarAjusteInflacionCotizacion(q, tipo, puntosMargen, pctCosto, nombreDe(sesion));
+    const programado = !ajustePrecioVigente({ fechaVigencia });
+    aplicarAjusteInflacionCotizacion(q, tipo, puntosMargen, pctCosto, nombreDe(sesion), fechaVigencia);
     cerrarModal();
     render();
-    aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a la cotización.');
+    aviso(programado
+      ? (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' programado para el ' + fechaDocumento(fechaVigencia) + '.'
+      : (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a la cotización.');
   };
 }
 
@@ -31936,10 +32135,12 @@ function modalAjusteInflacionMasivoCotizaciones(){
     +   '<div class="campo"><label>% en el costo</label><input type="number" id="acmPctCosto" min="0" max="500" step="0.01" placeholder="0"></div>'
     + '</div>'
     + '<div class="pista">Deja uno en 0 si ese campo no se debe tocar.</div>'
+    + campoFechaVigenciaAjuste('acmFechaVigencia')
+    + '<div id="acmPistaVigencia"></div>'
     + '<div id="acmPreview" style="margin-top:12px"></div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
-            + '<button type="button" class="btn btn-primario" data-modal="guardar">Ver resumen y aplicar</button>';
+            + '<button type="button" class="btn btn-primario" id="acmBtnGuardar" data-modal="guardar">Ver resumen y aplicar</button>';
 
   abrirModal('Aumento / descuento de precio por inflación — Cotizaciones', cuerpo, pie);
   $('modal').classList.add('ancho');
@@ -31948,7 +32149,8 @@ function modalAjusteInflacionMasivoCotizaciones(){
     return {
       tipo: $('acmTipo').value,
       puntosMargen: Math.max(0, parseFloat($('acmPuntosMargen').value) || 0),
-      pctCosto: Math.max(0, parseFloat($('acmPctCosto').value) || 0)
+      pctCosto: Math.max(0, parseFloat($('acmPctCosto').value) || 0),
+      fechaVigencia: $('acmFechaVigencia').value || hoyISO()
     };
   }
   function elegidas(){
@@ -31959,7 +32161,9 @@ function modalAjusteInflacionMasivoCotizaciones(){
     return borradores;
   }
   function pintarPreview(){
-    const { tipo, puntosMargen, pctCosto } = leer();
+    const { tipo, puntosMargen, pctCosto, fechaVigencia } = leer();
+    $('acmPistaVigencia').innerHTML = pistaVigenciaAjuste(fechaVigencia);
+    $('acmBtnGuardar').textContent = ajustePrecioVigente({ fechaVigencia }) ? 'Ver resumen y aplicar' : 'Ver resumen y programar';
     const qs = elegidas();
     if((!puntosMargen && !pctCosto) || !qs.length){ $('acmPreview').innerHTML = ''; return; }
     let clienteAntes = 0, clienteDespues = 0;
@@ -31989,23 +32193,28 @@ function modalAjusteInflacionMasivoCotizaciones(){
     pintarPreview();
   });
   if($('acmCliente')) $('acmCliente').addEventListener('change', pintarPreview);
-  ['acmTipo','acmPuntosMargen','acmPctCosto'].forEach(id2 => $(id2).addEventListener(id2 === 'acmTipo' ? 'change' : 'input', pintarPreview));
+  ['acmTipo','acmPuntosMargen','acmPctCosto','acmFechaVigencia'].forEach(id2 => $(id2).addEventListener(id2 === 'acmTipo' ? 'change' : 'input', pintarPreview));
+  pintarPreview();
 
   cerrarModalActual = ()=>{
-    const { tipo, puntosMargen, pctCosto } = leer();
+    const { tipo, puntosMargen, pctCosto, fechaVigencia } = leer();
     const qs = elegidas();
     if(!puntosMargen && !pctCosto){ aviso('Captura al menos un porcentaje/puntos mayor a 0.', true); return; }
     if(!qs.length){ aviso('No hay ninguna cotización que coincida.', true); return; }
     const quien = nombreDe(sesion);
-    confirmar('Aplicar ' + (tipo === 'aumento' ? 'aumento' : 'descuento') + ' de precio',
-      'Se va a aplicar a <b>' + qs.length + ' ' + plural(qs.length,'cotización','cotizaciones') + '</b>'
+    const programado = !ajustePrecioVigente({ fechaVigencia });
+    confirmar((programado ? 'Programar ' : 'Aplicar ') + (tipo === 'aumento' ? 'aumento' : 'descuento') + ' de precio',
+      'Se va a ' + (programado ? ('programar para el <b>' + fechaDocumento(fechaVigencia) + '</b>') : 'aplicar de inmediato')
+        + ' en <b>' + qs.length + ' ' + plural(qs.length,'cotización','cotizaciones') + '</b>'
         + (puntosMargen ? ', ' + puntosMargen + ' puntos de margen' : '') + (pctCosto ? (puntosMargen ? ' y ' : ', ') + pctCosto + '% en costo' : '')
         + '. Esta acción no se puede deshacer de un jalón — habría que corregir cotización por cotización.',
-      'Sí, aplicar', ()=>{
-        qs.forEach(q => aplicarAjusteInflacionCotizacion(q, tipo, puntosMargen, pctCosto, quien));
+      programado ? 'Sí, programar' : 'Sí, aplicar', ()=>{
+        qs.forEach(q => aplicarAjusteInflacionCotizacion(q, tipo, puntosMargen, pctCosto, quien, fechaVigencia));
         cerrarModal();
         render();
-        aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + qs.length + ' ' + plural(qs.length,'cotización','cotizaciones') + '.');
+        aviso(programado
+          ? (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' programado para el ' + fechaDocumento(fechaVigencia) + ' en ' + qs.length + ' ' + plural(qs.length,'cotización','cotizaciones') + '.'
+          : (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + qs.length + ' ' + plural(qs.length,'cotización','cotizaciones') + '.');
       });
   };
 }
@@ -32560,18 +32769,22 @@ function modalAjusteInflacionCotizacionForpass(id){
     + '</select></div>'
     + '<div class="campo"><label>% en el precio</label><input type="number" id="acfiPct" min="0" max="500" step="0.01" placeholder="0"></div>'
     + '<div class="pista">Un descuento nunca deja ningún campo en menos de $0.</div>'
+    + campoFechaVigenciaAjuste('acfiFechaVigencia')
+    + '<div id="acfiPistaVigencia"></div>'
     + '<div id="acfiPreview" style="margin-top:12px"></div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
-            + '<button type="button" class="btn btn-primario" data-modal="guardar">Aplicar</button>';
+            + '<button type="button" class="btn btn-primario" id="acfiBtnGuardar" data-modal="guardar">Aplicar</button>';
 
   abrirModal('Aumento / descuento de precio — Cotización Forpass', cuerpo, pie);
 
   function leer(){
-    return { tipo: $('acfiTipo').value, pct: Math.max(0, parseFloat($('acfiPct').value) || 0) };
+    return { tipo: $('acfiTipo').value, pct: Math.max(0, parseFloat($('acfiPct').value) || 0), fechaVigencia: $('acfiFechaVigencia').value || hoyISO() };
   }
   function pintarPreview(){
-    const { tipo, pct } = leer();
+    const { tipo, pct, fechaVigencia } = leer();
+    $('acfiPistaVigencia').innerHTML = pistaVigenciaAjuste(fechaVigencia);
+    $('acfiBtnGuardar').textContent = ajustePrecioVigente({ fechaVigencia }) ? 'Aplicar' : 'Programar';
     if(!pct){ $('acfiPreview').innerHTML = ''; return; }
     const simulada = Object.assign({}, q, {
       sitios: q.sitios.map(s => Object.assign({}, s, { precioBase: aplicarPctCampo(s.precioBase, pct, tipo), adicional: aplicarPctCampo(s.adicional, pct, tipo) })),
@@ -32586,14 +32799,19 @@ function modalAjusteInflacionCotizacionForpass(id){
   }
   $('acfiTipo').addEventListener('change', pintarPreview);
   $('acfiPct').addEventListener('input', pintarPreview);
+  $('acfiFechaVigencia').addEventListener('input', pintarPreview);
+  pintarPreview();
 
   cerrarModalActual = ()=>{
-    const { tipo, pct } = leer();
+    const { tipo, pct, fechaVigencia } = leer();
     if(!pct){ aviso('Captura un porcentaje mayor a 0.', true); return; }
-    aplicarAjusteInflacionCotizacionForpass(q, tipo, pct, nombreDe(sesion));
+    const programado = !ajustePrecioVigente({ fechaVigencia });
+    aplicarAjusteInflacionCotizacionForpass(q, tipo, pct, nombreDe(sesion), fechaVigencia);
     cerrarModal();
     render();
-    aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a la cotización.');
+    aviso(programado
+      ? (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' programado para el ' + fechaDocumento(fechaVigencia) + '.'
+      : (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a la cotización.');
   };
 }
 
@@ -32627,16 +32845,18 @@ function modalAjusteInflacionMasivoCotizacionesForpass(){
     +   '<option value="descuento">Descuento — baja</option>'
     + '</select></div>'
     + '<div class="campo"><label>% en el precio</label><input type="number" id="acfmPct" min="0" max="500" step="0.01" placeholder="0"></div>'
+    + campoFechaVigenciaAjuste('acfmFechaVigencia')
+    + '<div id="acfmPistaVigencia"></div>'
     + '<div id="acfmPreview" style="margin-top:12px"></div>';
 
   const pie = '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
-            + '<button type="button" class="btn btn-primario" data-modal="guardar">Ver resumen y aplicar</button>';
+            + '<button type="button" class="btn btn-primario" id="acfmBtnGuardar" data-modal="guardar">Ver resumen y aplicar</button>';
 
   abrirModal('Aumento / descuento de precio por inflación — Cotizaciones Forpass', cuerpo, pie);
   $('modal').classList.add('ancho');
 
   function leer(){
-    return { tipo: $('acfmTipo').value, pct: Math.max(0, parseFloat($('acfmPct').value) || 0) };
+    return { tipo: $('acfmTipo').value, pct: Math.max(0, parseFloat($('acfmPct').value) || 0), fechaVigencia: $('acfmFechaVigencia').value || hoyISO() };
   }
   function elegidas(){
     if($('acfmAlcance').value === 'cliente'){
@@ -32646,7 +32866,9 @@ function modalAjusteInflacionMasivoCotizacionesForpass(){
     return borradores;
   }
   function pintarPreview(){
-    const { tipo, pct } = leer();
+    const { tipo, pct, fechaVigencia } = leer();
+    $('acfmPistaVigencia').innerHTML = pistaVigenciaAjuste(fechaVigencia);
+    $('acfmBtnGuardar').textContent = ajustePrecioVigente({ fechaVigencia }) ? 'Ver resumen y aplicar' : 'Ver resumen y programar';
     const qs = elegidas();
     if(!pct || !qs.length){ $('acfmPreview').innerHTML = ''; return; }
     let mensualAntes = 0, mensualDespues = 0;
@@ -32676,21 +32898,27 @@ function modalAjusteInflacionMasivoCotizacionesForpass(){
   if($('acfmCliente')) $('acfmCliente').addEventListener('change', pintarPreview);
   $('acfmTipo').addEventListener('change', pintarPreview);
   $('acfmPct').addEventListener('input', pintarPreview);
+  $('acfmFechaVigencia').addEventListener('input', pintarPreview);
+  pintarPreview();
 
   cerrarModalActual = ()=>{
-    const { tipo, pct } = leer();
+    const { tipo, pct, fechaVigencia } = leer();
     const qs = elegidas();
     if(!pct){ aviso('Captura un porcentaje mayor a 0.', true); return; }
     if(!qs.length){ aviso('No hay ninguna cotización que coincida.', true); return; }
     const quien = nombreDe(sesion);
-    confirmar('Aplicar ' + (tipo === 'aumento' ? 'aumento' : 'descuento') + ' de precio',
-      'Se va a aplicar a <b>' + qs.length + ' ' + plural(qs.length,'cotización Forpass','cotizaciones Forpass') + '</b>, ' + pct + '% en precio.'
+    const programado = !ajustePrecioVigente({ fechaVigencia });
+    confirmar((programado ? 'Programar ' : 'Aplicar ') + (tipo === 'aumento' ? 'aumento' : 'descuento') + ' de precio',
+      'Se va a ' + (programado ? ('programar para el <b>' + fechaDocumento(fechaVigencia) + '</b>') : 'aplicar de inmediato')
+        + ' en <b>' + qs.length + ' ' + plural(qs.length,'cotización Forpass','cotizaciones Forpass') + '</b>, ' + pct + '% en precio.'
         + ' Esta acción no se puede deshacer de un jalón — habría que corregir cotización por cotización.',
-      'Sí, aplicar', ()=>{
-        qs.forEach(q => aplicarAjusteInflacionCotizacionForpass(q, tipo, pct, quien));
+      programado ? 'Sí, programar' : 'Sí, aplicar', ()=>{
+        qs.forEach(q => aplicarAjusteInflacionCotizacionForpass(q, tipo, pct, quien, fechaVigencia));
         cerrarModal();
         render();
-        aviso((tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + qs.length + ' ' + plural(qs.length,'cotización','cotizaciones') + '.');
+        aviso(programado
+          ? (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' programado para el ' + fechaDocumento(fechaVigencia) + ' en ' + qs.length + ' ' + plural(qs.length,'cotización','cotizaciones') + '.'
+          : (tipo === 'aumento' ? 'Aumento' : 'Descuento') + ' aplicado a ' + qs.length + ' ' + plural(qs.length,'cotización','cotizaciones') + '.');
       });
   };
 }
@@ -37285,6 +37513,10 @@ async function arrancarNube(){
   try{
     const r = await bajarDeLaNube();
     sincronizado = true;
+    /* Con los datos ya frescos: aplica de una vez cualquier aumento
+       programado cuya fecha de vigencia ya llegó (ver el comentario grande
+       junto a aplicarAjustesInflacionProgramadosVencidos). */
+    aplicarAjustesInflacionProgramadosVencidos();
     /* Sin await encadenado al render: si tardan, no retrasan el tablero. */
     /* Las dos revisiones solo cambian avisos de la portada, nada de las tarjetas.
        Van juntas y con UN solo render, y únicamente si el aviso cambió de verdad:
