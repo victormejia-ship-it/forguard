@@ -8905,6 +8905,26 @@ function esConceptoManoDeObra(c){
   const norm = (c.proveedor || '').toLowerCase().trim().replace(/\s*\/\s*/g, '/').replace(/\s+/g, ' ');
   return norm === 'servicios' || norm === 'servicios/it';
 }
+/* Orden por proveedor (20-oct-2026, pedido de Victor viendo la tabla de
+   Costos/conceptos de un proyecto: "acomoda los conceptos por orden
+   alfabetico de proveedor"). Es un orden SOLO DE PRESENTACIÓN —se calcula
+   al pintar la vista y el PDF, nunca se guarda reordenado en
+   p.conceptos/conceptosTmp— así que aplica igual a un proyecto de ayer que a
+   uno capturado hoy mismo, sin tocar ni migrar ningún dato viejo. No se
+   aplica a la tabla EDITABLE del modal (`pintarConceptosPI`): ahí el orden
+   es el de captura a propósito, para no reacomodar filas debajo del cursor
+   mientras alguien todavía está escribiendo el proveedor de un renglón
+   nuevo. Un proveedor en blanco se manda al final en vez de encabezar la
+   lista (que es donde cae una cadena vacía con un simple localeCompare). */
+function conceptosOrdenadosPorProveedor(conceptos){
+  return conceptos.slice().sort((a, b)=>{
+    const pa = (a.proveedor || '').trim(), pb = (b.proveedor || '').trim();
+    if(!pa && !pb) return 0;
+    if(!pa) return 1;
+    if(!pb) return -1;
+    return pa.localeCompare(pb, 'es', { sensitivity:'base' });
+  });
+}
 /* costo* = lo que factura el proveedor (como siempre); venta* = lo que se le
    cobra al cliente por esos mismos renglones (21-sep-2026). utilidad/margenPct
    comparan los dos totales — mismo criterio que Pólizas (precio de venta vs.
@@ -13388,7 +13408,7 @@ function armarPayloadProyectoImagen(p, usarCosto){
     duracionDias: (p.fechaEntrada && p.fechaSalida) ? (diasEntre(p.fechaEntrada, p.fechaSalida) + 1) : null,
     responsable: p.responsable || '',
     notas: p.notas || '',
-    conceptos: p.conceptos.map(c => {
+    conceptos: conceptosOrdenadosPorProveedor(p.conceptos).map(c => {
       const unitario = usarCosto ? c.costoUnitario : c.precioVenta;
       return {
         proveedor: c.proveedor || '',
@@ -16963,7 +16983,7 @@ const TEMAS_AYUDA = [
       guiaSeccion('Lo básico', guiaPasos([
         'Usa <b>Nuevo proyecto</b>: Cliente (o nombre libre si es prospecto), Sitio (o ubicación libre), Nombre del proyecto*, Tipo (Apertura nueva/Remodelación/Cambio de imagen), Estatus (En diseño/En cotización/Aprobado/En obra/Terminado/Cancelado), Fecha de alta, Fecha de apertura, Entrada al sitio, Salida/fin de obra, Responsable, Notas.',
         'Agrega los <b>Costos/conceptos</b> uno por uno (Proveedor, Concepto, Cantidad, Precio unitario) — el resumen de inversión total se arma solo.',
-        'Sube <b>Imágenes y planos</b> etiquetados por tipo: Render, Plano/layout o Foto (hasta 12 archivos, imagen o PDF).',
+        'Sube <b>Imágenes y planos</b> etiquetados por tipo: Render, Plano/layout o Foto (hasta 12 archivos, imagen o PDF). Clic en cualquier imagen de la galería (no en un PDF, que abre aparte) para verla en grande en un modal.',
         'Busca por folio/proyecto/sitio/cliente y filtra por estatus; alterna entre tarjetas, tabla y <b>Cronograma</b> (vista Gantt).',
         'Usa <b>Generar PDF</b> para el documento del proyecto, con el precio de venta — sin mostrar de qué proveedor sale cada concepto (30-sep-2026, pedido de Victor). Si eres Admin, <b>PDF con costos</b> (uso interno) es el mismo documento pero con el costo real y SÍ con la columna Proveedor.'
       ]))
@@ -16979,6 +16999,11 @@ const TEMAS_AYUDA = [
           ])
         + guiaTip('El único módulo oculto del todo a quien no edita', [
             'A diferencia de Levantamientos (que sigue visible de solo lectura), Imagen/Aperturas desaparece por completo del selector de módulos para cualquiera que no tenga permiso de edición — ni Viewer, ni Técnico, ni Reportero lo ven jamás.'
+          ])
+        + guiaTip('Orden de la tabla de Costos / conceptos (20-oct-2026, pedido de Victor)', [
+            'La tabla "Costos / conceptos" (en la vista del proyecto y en el PDF, en los dos modos) siempre sale ordenada <b>alfabéticamente por proveedor</b> — un concepto sin proveedor capturado se manda al final en vez de encabezar la lista.',
+            'Es un orden SOLO de presentación: nunca se reescribe el orden en que capturaste los conceptos, así que aplica igual a un proyecto de hace meses que a uno de hoy mismo, sin tener que tocar nada.',
+            'La tabla EDITABLE del formulario (al dar "Editar") es la única excepción a propósito: ahí los renglones se quedan en el orden en que los vas agregando, para no reacomodarse debajo del cursor mientras sigues escribiendo.'
           ])) },
 
   { id:'equipos', titulo:'Catálogo de equipos',
@@ -24501,6 +24526,27 @@ function vistaProyectosImagen(){
   return h;
 }
 
+/* Ver en grande una imagen de la galería de un proyecto (20-oct-2026,
+   pedido de Victor viendo la galería de renders: "adicional que si quiero
+   ver la imagen en directo pueda desplegar un pequeño modal para poder
+   visaulizar las imagenes adjuntas"). Reusa el modal genérico de la app en
+   vez de inventar un visor aparte — un <img> sencillo, sin pie de botones
+   más que "Cerrar" (la X y el fondo ya cierran solos, como cualquier otro
+   modal). Solo aplica a imágenes de verdad: un PDF de la misma galería ya
+   es un enlace que se abre en pestaña aparte (ver vistaProyectoImagen), así
+   que nunca llega aquí. */
+function modalVerImagenProyecto(proyectoId, imagenId){
+  const p = proyectoImagenPorId(proyectoId);
+  const im = p && p.imagenes.find(x => x.id === imagenId);
+  if(!im) return;
+  const titulo = ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo] + (im.nota ? ' · ' + im.nota : '');
+  const cuerpo = '<div style="display:flex; justify-content:center; background:var(--bg); border-radius:10px; padding:10px">'
+    + '<img src="' + esc(im.dataUrl) + '" alt="' + esc(titulo) + '" style="max-width:100%; max-height:74vh; border-radius:6px; display:block">'
+    + '</div>';
+  abrirModal(titulo, cuerpo, '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
+  $('modal').classList.add('ancho');
+}
+
 function vistaProyectoImagen(){
   const p = proyectoImagenPorId(estado.proyectoImagenId);
   if(!p){ estado.vista = 'proyectos-imagen'; return vistaProyectosImagen(); }
@@ -24582,7 +24628,7 @@ function vistaProyectoImagen(){
     h += '<div class="rodillo' + (p.conceptos.length > 12 ? ' rodillo-alto' : '') + '"><table class="tabla">'
        + '<thead><tr><th>Proveedor</th><th>Concepto</th><th>Cantidad</th><th>Costo unitario</th><th>Precio unitario</th>'
        +   '<th>Subtotal costo</th><th>Subtotal precio</th></tr></thead><tbody>'
-       + p.conceptos.map(c => {
+       + conceptosOrdenadosPorProveedor(p.conceptos).map(c => {
            const subCosto = c.cantidad * c.costoUnitario, subVenta = c.cantidad * c.precioVenta;
            return '<tr><td>' + esc(c.proveedor || '—') + '</td><td>' + esc(c.concepto) + '</td><td>' + numero(c.cantidad) + '</td>'
              + '<td>' + dinero(c.costoUnitario) + '</td><td>' + dinero(c.precioVenta) + '</td>'
@@ -24606,7 +24652,8 @@ function vistaProyectoImagen(){
     h += '<p class="pista" style="margin:0">Todavía no se ha agregado ninguna imagen.</p>';
   }else{
     h += '<div class="galeria-evidencia">' + p.imagenes.map(im =>
-      '<div class="evidencia-foto' + (im.formato === 'pdf' ? ' respaldo-pdf' : '') + '" title="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + (im.nota ? ' · ' + esc(im.nota) : '') + '">'
+      '<div class="evidencia-foto' + (im.formato === 'pdf' ? ' respaldo-pdf' : '') + '" title="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + (im.nota ? ' · ' + esc(im.nota) : '') + '"'
+      +   (im.formato === 'pdf' ? '' : ' data-ver-imagen-proyecto="' + esc(im.id) + '"') + '>'
       +   (im.formato === 'pdf'
             ? '<a href="' + esc(im.dataUrl) + '" class="respaldo-pdf-enlace">' + ICONO.documento + '<span>' + esc(im.nombre) + '</span></a>'
             : '<img src="' + esc(im.dataUrl) + '" alt="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '" loading="lazy">')
@@ -35555,6 +35602,9 @@ $('vista').addEventListener('click', ev=>{
 
   const tarPI = t.closest('[data-proyecto-imagen]');
   if(tarPI){ entrarProyectoImagen(tarPI.dataset.proyectoImagen); return; }
+
+  const verImgPI = t.closest('[data-ver-imagen-proyecto]');
+  if(verImgPI){ modalVerImagenProyecto(estado.proyectoImagenId, verImgPI.dataset.verImagenProyecto); return; }
 
   const lado = t.closest('[data-lado-cotizacion]');
   if(lado){ estado.ladoCotizacion = lado.dataset.ladoCotizacion; render(); return; }

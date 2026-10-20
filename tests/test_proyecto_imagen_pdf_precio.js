@@ -47,10 +47,13 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Existe el botón secundario "PDF con costos" (solo Admin/Owner)', await page.locator('[data-accion="imprimir-proyecto-imagen-costo"]').count() === 1);
 
   // --------- Payload del PDF normal: usa precio de venta ---------
+  // 20-oct-2026: los conceptos del payload salen ordenados alfabéticamente
+  // por proveedor (conceptosOrdenadosPorProveedor) — "Servicios" antes que
+  // "ZODEK" — así que el renglón de Instalación ($650) queda primero.
   const payloadVenta = await page.evaluate(() => armarPayloadProyectoImagen(proyectoImagenPorId('pi1')));
   console.log('Conceptos (venta):', JSON.stringify(payloadVenta.conceptos.map(c => c.precioUnitario)));
-  chkF('El PDF normal muestra el PRECIO DE VENTA por renglón (1,300 y 650), no el costo (1,000/500)',
-    payloadVenta.conceptos[0].precioUnitario === '$1,300' && payloadVenta.conceptos[1].precioUnitario === '$650');
+  chkF('El PDF normal muestra el PRECIO DE VENTA por renglón (650 y 1,300, orden alfabético por proveedor), no el costo (500/1,000)',
+    payloadVenta.conceptos[0].precioUnitario === '$650' && payloadVenta.conceptos[1].precioUnitario === '$1,300');
   chkF('El total del PDF normal es el de venta: (2×1300)+(1×650)=3,250', payloadVenta.totalConceptos === '$3,250');
   chkF('La etiqueta de materiales dice "Materiales" (sin la palabra Costo)', payloadVenta.etiquetas.materiales === 'Materiales');
   chkF('La etiqueta del total dice "Monto total del proyecto"', payloadVenta.etiquetas.total === 'Monto total del proyecto');
@@ -59,8 +62,8 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   // --------- Payload del PDF "con costos": usa el costo real ---------
   const payloadCosto = await page.evaluate(() => armarPayloadProyectoImagen(proyectoImagenPorId('pi1'), true));
   console.log('Conceptos (costo):', JSON.stringify(payloadCosto.conceptos.map(c => c.precioUnitario)));
-  chkF('El PDF "con costos" muestra el COSTO por renglón (1,000 y 500)',
-    payloadCosto.conceptos[0].precioUnitario === '$1,000' && payloadCosto.conceptos[1].precioUnitario === '$500');
+  chkF('El PDF "con costos" muestra el COSTO por renglón (500 y 1,000, mismo orden alfabético por proveedor)',
+    payloadCosto.conceptos[0].precioUnitario === '$500' && payloadCosto.conceptos[1].precioUnitario === '$1,000');
   chkF('El total del PDF "con costos" es el de costo: (2×1000)+(1×500)=2,500', payloadCosto.totalConceptos === '$2,500');
   chkF('La etiqueta de materiales dice "Costo de materiales"', payloadCosto.etiquetas.materiales === 'Costo de materiales');
   chkF('esCosto es true en el modo de costos', payloadCosto.esCosto === true);

@@ -118,8 +118,14 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   paginasConTabla.forEach(m => chkF('Página ' + m.idx + ': el último renglón de la tabla NO se empalma con el pie', !m.overlap));
 
   // Confirma que el Tipo oración sobre conceptos en mayúsculas sigue vivo en un documento real multi-hoja.
-  const textoPagina2 = await docNormal.locator('.page').nth(1).locator('table.costos-tabla').textContent();
-  chkF('Los conceptos siguen en Tipo oración en el documento real (no quedaron en MAYÚSCULAS)', /Suministro de barra deslizadora/.test(textoPagina2) && !/SUMINISTRO DE BARRA/.test(textoPagina2));
+  // 20-oct-2026: los conceptos ahora salen ordenados alfabéticamente por
+  // proveedor (conceptosOrdenadosPorProveedor) — ZODEK queda al final del
+  // listado, no en la primera hoja — así que se busca en el texto de TODAS
+  // las hojas de la tabla, en vez de asumir una página fija.
+  const textoTablaCompleta = (await Promise.all(
+    (await docNormal.locator('.page').all()).map(p => p.locator('table.costos-tabla').count().then(n => n ? p.locator('table.costos-tabla').textContent() : ''))
+  )).join(' ');
+  chkF('Los conceptos siguen en Tipo oración en el documento real (no quedaron en MAYÚSCULAS)', /Suministro de barra deslizadora/.test(textoTablaCompleta) && !/SUMINISTRO DE BARRA/.test(textoTablaCompleta));
   await docNormal.close();
 
   // --------- 2) PDF "con costos" (con proveedor): también sin empalmes ---------
