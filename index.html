@@ -24518,6 +24518,9 @@ function vistaProyectosImagen(){
                  + '<div class="t-dato"><div class="d-label">Margen</div><div class="d-valor chico ' + (desglosePi.utilidad >= 0 ? 'ok' : 'error') + '">' + desglosePi.margenPct.toFixed(1) + '%</div></div>'
                : '')
          +     '<div class="t-dato"><div class="d-label">Imágenes</div><div class="d-valor chico">' + numero(p.imagenes.length) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Inicio de obra</div><div class="d-valor chico">' + fmtFecha(p.fechaEntrada) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Término de obra</div><div class="d-valor chico">' + fmtFecha(p.fechaSalida) + '</div></div>'
+         +     '<div class="t-dato"><div class="d-label">Fecha de apertura</div><div class="d-valor chico">' + fmtFecha(p.fechaObjetivo) + '</div></div>'
          +   '</div>'
          +   '<div class="t-pie"><span class="pista">' + esc(p.sitioNombre || 'Sin sitio') + '</span></div>'
          + '</div>';
