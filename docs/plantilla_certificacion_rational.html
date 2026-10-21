@@ -110,9 +110,19 @@
   .error-doc{max-width:520px;margin:80px auto;text-align:center;font-size:15px;color:#7a2c28;}
 
   @media print{
+    /* El margen de la hoja (21-oct-2026, pedido de Victor con el PDF real
+       exportado: "no estan correctos los margenes") va en @page, NO como
+       padding de .doc. .doc es UN SOLO bloque que el navegador parte en
+       varias hojas al paginar — su padding-top solo se dibuja al inicio de
+       la hoja 1 y su padding-bottom solo al final de la última, nunca se
+       repite en las hojas de en medio (fragmentación estándar de CSS para
+       impresión). Por eso "Evidencia fotográfica" y las fotos de las hojas
+       2+ salían pegadas al borde superior, sin margen, mientras la hoja 1
+       sí lo tenía. El margen de @page SÍ lo repite el navegador en cada
+       hoja automáticamente — por eso el padding de .doc se quita aquí. */
     body{background:#fff;}
-    .doc{margin:0;box-shadow:none;padding:.5in .6in;max-width:none;}
-    @page{size:letter;margin:0;}
+    .doc{margin:0;box-shadow:none;padding:0;max-width:none;}
+    @page{size:letter;margin:.5in .6in;}
     .aviso-impresion{display:none;}
   }
 </style>
@@ -185,7 +195,16 @@ function pintarError(msg){
 if(!DOC){
   pintarError(LEIDO.error || 'No se pudo leer el documento.');
 }else{
-  document.title = 'Certificación RATIONAL · ' + (DOC.equipo || '');
+  /* Nombre del archivo al exportar (21-oct-2026, pedido de Victor con un
+     PDF real: "Reporte de atencion rational (modelo y no. de serie) -
+     comedor (Mercado Libre MXCD09)") — el navegador usa document.title
+     como nombre sugerido al hacer "Guardar como PDF"/imprimir. DOC.equipo
+     es el nombre/concepto del equipo tal cual se capturó en el servicio
+     (en su ejemplo real, "Comedor"), no un campo nuevo. */
+  document.title = 'Reporte de atención RATIONAL'
+    + ((DOC.modelo || DOC.serie) ? ' (' + [DOC.modelo, DOC.serie].filter(Boolean).join(' ') + ')' : '')
+    + (DOC.equipo ? ' - ' + DOC.equipo : '')
+    + (DOC.sitio ? ' (' + DOC.sitio + ')' : '');
 
   const equipoLinea = [DOC.equipo, DOC.marca && ('Marca ' + DOC.marca), DOC.modelo && ('Modelo ' + DOC.modelo), DOC.serie && ('Serie ' + DOC.serie)]
     .filter(Boolean).join(' · ');

@@ -52,9 +52,31 @@
    navegador terminaba encimando/recortando el contenido de forma
    impredecible. page-break-after:avoid en .seccion-tit (sin tocar) ya
    evita que el título quede solo al final de una hoja; el texto largo
-   ahora simplemente fluye y se parte entre hojas como cualquier párrafo. */
+   ahora simplemente fluye y se parte entre hojas como cualquier párrafo.
+
+   Actualización 21-oct-2026 (quinta, mismo día — Victor mandó el PDF real
+   ya exportado): el bug de "márgenes descuadrados" seguía ahí por una causa
+   distinta y más de fondo: el margen de hoja estaba puesto como PADDING de
+   .doc, no en @page. .doc es un solo bloque que el navegador parte en
+   varias hojas al paginar — su padding-top solo se dibuja al inicio de la
+   hoja 1 y su padding-bottom solo al final de la última; las hojas de en
+   medio NO heredan ese padding (fragmentación estándar de CSS en
+   impresión). Por eso en el PDF real "Evidencia fotográfica" y las fotos
+   de las hojas 2+ salían pegadas al borde superior sin margen, mientras la
+   hoja 1 sí lo tenía. Arreglo: el margen ahora vive en @page (que el
+   navegador SÍ repite en cada hoja), y .doc queda con padding:0 bajo
+   impresión.
+
+   También en este PDF real, Victor pidió una nomenclatura fija para el
+   nombre del archivo al exportar: "Reporte de atencion rational (modelo y
+   no. de serie) - comedor (Mercado Libre MXCD09)" — el navegador usa
+   document.title como nombre sugerido al imprimir/"Guardar como PDF". Se
+   arma como 'Reporte de atención RATIONAL (MODELO SERIE) - EQUIPO (SITIO)',
+   donde EQUIPO es DOC.equipo (el nombre/concepto del equipo ya capturado,
+   en su ejemplo real literalmente "Comedor" — no un campo nuevo). */
 const { chromium } = require('playwright');
 const path = require('path');
+const fs = require('fs');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
 let fallas = 0;
@@ -131,6 +153,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await docSv.waitForTimeout(400);
 
   chkF('Doc póliza: NO muestra el error de "Sin datos"', await docSv.locator('.error-doc').count() === 0);
+  chkF('Doc póliza: el nombre de exportación sigue la nomenclatura pedida', (await docSv.title()) === 'Reporte de atención RATIONAL (iCOMBIPRO E22SJ24073155686) - Horno Rational (BorgWarner)');
   chkF('Doc póliza: trae el nombre del equipo, marca, modelo y serie', (await docSv.locator('.h1').textContent()).includes('Horno Rational') && (await docSv.locator('.h1').textContent()).includes('iCOMBIPRO') && (await docSv.locator('.h1').textContent()).includes('E22SJ24073155686'));
   chkF('Doc póliza: trae el cliente y el sitio correctos', (await docSv.locator('.metabar').textContent()).includes('BORGWARNER') && (await docSv.locator('.metabar').textContent()).includes('BorgWarner'));
   chkF('Doc póliza: trae los 36 puntos del checklist', await docSv.locator('.chk-item').count() === 36);
@@ -158,6 +181,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await docHz.waitForTimeout(400);
 
   chkF('Doc levantamiento: NO muestra el error de "Sin datos"', await docHz.locator('.error-doc').count() === 0);
+  chkF('Doc levantamiento: el nombre de exportación sigue la nomenclatura pedida', (await docHz.title()) === 'Reporte de atención RATIONAL (iCOMBIPRO E22SJ24073155686) - Horno Rational (BorgWarner)');
   chkF('Doc levantamiento: trae el equipo del hallazgo (no el de la póliza)', (await docHz.locator('.h1').textContent()).includes('Horno Rational'));
   chkF('Doc levantamiento: trae el sitio del levantamiento', (await docHz.locator('.metabar').textContent()).includes('BorgWarner'));
   chkF('Doc levantamiento: trae los 36 puntos del checklist (ninguno marcado, no se tocó)', await docHz.locator('.chk-item').count() === 36 && (await docHz.locator('.resumen-marcados').textContent()).includes('0 de 36'));
@@ -189,6 +213,16 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Abrir la plantilla sin datos muestra el error de "Sin datos"', await docDirecto.locator('.error-doc').count() === 1);
   chkF('El mensaje de error explica cómo generarlo de verdad', (await docDirecto.locator('.error-doc').textContent()).includes('Exportar PDF de certificación'));
   await docDirecto.close();
+
+  /* Guarda de regresión del bug real de "márgenes descuadrados" (21-oct-2026,
+     PDF real de Victor): el margen de hoja va en @page, NO como padding de
+     .doc — .doc es un solo bloque que el navegador parte en varias hojas, y
+     su padding-top/bottom NO se repite en las hojas de en medio (solo en la
+     primera/última). Si alguien vuelve a mover el margen a .doc, este check
+     textual lo detecta sin tener que generar un PDF real en cada corrida. */
+  const fuentePlantilla = fs.readFileSync(path.join(__dirname, '..', 'docs', 'plantilla_certificacion_rational.html'), 'utf8');
+  chkF('Plantilla: el margen de impresión está en @page (se repite en cada hoja), no en el padding de .doc', /@page\{size:letter;margin:\.5in \.6in;\}/.test(fuentePlantilla));
+  chkF('Plantilla: .doc NO tiene padding de margen bajo @media print (eso solo se dibuja en la 1a/última hoja)', /@media print\{[\s\S]*?\.doc\{margin:0;box-shadow:none;padding:0;max-width:none;\}/.test(fuentePlantilla));
 
   chkF('No hubo errores de página en todo el escenario', errores.length === 0);
   console.log('Errores capturados:', JSON.stringify(errores));
