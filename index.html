@@ -12400,9 +12400,24 @@ function calcularPoliza(p){
      le suma encima. Se redondea a pesos enteros para que el documento y
      la cobranza partan del mismo número exacto. */
   const esInterno = p.cargoA === 'interno';
-  const baseCent = esInterno ? costoAnualCent : subtotalCent;
+  /* Margen administrativo FIJO sobre el costo cuando "Cargo a" es Interno
+     (20-oct-2026, pedido de Victor al revisar los cálculos emitidos en las
+     pólizas: "el costo debe ser nuestro costo + 10% regla fija + otro 10%
+     finales que estos serán los editables"). Es una regla de negocio que
+     SIEMPRE se aplica, nunca se captura ni se puede apagar — a diferencia
+     del "Descuento / aumento (%)" de siempre (`p.descuento`, el campo
+     editable de modalPoliza), que sigue existiendo tal cual pero ahora se
+     aplica sobre el costo YA con este 10% fijo encima, no sobre el costo
+     crudo. Para 'cliente' nada de esto aplica: la base sigue siendo el
+     subtotal de precios ya establecidos, sin ningún margen fijo de por
+     medio — eso no cambió. */
+  const MARGEN_INTERNO_FIJO_PCT = 10;
+  const costoConMargenFijoCent = esInterno ? Math.round(costoAnualCent * (1 + MARGEN_INTERNO_FIJO_PCT / 100)) : costoAnualCent;
+  const margenInternoFijoMontoCent = esInterno ? (costoConMargenFijoCent - costoAnualCent) : 0;
+  const margenInternoFijoMonto = deEnteros(margenInternoFijoMontoCent);
+  const baseCent = esInterno ? costoConMargenFijoCent : subtotalCent;
   const base = deEnteros(baseCent);
-  const etiquetaBase = esInterno ? 'Costo anual' : 'Subtotal';
+  const etiquetaBase = esInterno ? 'Costo anual + 10% fijo' : 'Subtotal';
 
   const descuento = p.descuento || 0;
   const descuentoCent = descuento ? Math.round(baseCent * descuento / 100) : 0;
@@ -12427,7 +12442,8 @@ function calcularPoliza(p){
      de verdad se cobra: precioAnual arriba sigue siendo el único número real. */
   const separadoAnualCent = aEnteros(separadoAnual);
   const costoAnualCompletoCent = aEnteros(costos.reduce((t,n)=> t + n, 0));
-  const baseCompletaCent = esInterno ? costoAnualCompletoCent : (subtotalCent + separadoAnualCent);
+  const costoCompletoConMargenFijoCent = esInterno ? Math.round(costoAnualCompletoCent * (1 + MARGEN_INTERNO_FIJO_PCT / 100)) : costoAnualCompletoCent;
+  const baseCompletaCent = esInterno ? costoCompletoConMargenFijoCent : (subtotalCent + separadoAnualCent);
   const descuentoCompletoCent = descuento ? Math.round(baseCompletaCent * descuento / 100) : 0;
   const precioAnualCompletoCent = baseCompletaCent - descuentoCompletoCent;
   const precioAnualCompleto = deEnteros(precioAnualCompletoCent);
@@ -12549,10 +12565,16 @@ function calcularPoliza(p){
            subtotal, subtotalCent, separadoAnual, separadoCant, descuento, descuentoCent,
            precioAnualCompleto, precioMensualCompleto,
            /* esInterno/base/etiquetaBase: sobre qué número se aplicó el %
-              (costo anual si es 'interno', subtotal de venta si es
-              'cliente') — lo necesita cualquier pantalla que quiera mostrar
-              "de dónde sale" el precio anual sin repetir la cuenta. */
+              (costo anual YA con el 10% fijo encima si es 'interno',
+              subtotal de venta si es 'cliente') — lo necesita cualquier
+              pantalla que quiera mostrar "de dónde sale" el precio anual
+              sin repetir la cuenta. margenInternoFijoPct/Monto son solo
+              para 'interno' (0 en 'cliente'): el monto del 10% fijo, para
+              mostrarlo como su propio renglón entre el costo crudo y el
+              ajuste editable. */
            esInterno, base, baseCent, etiquetaBase,
+           margenInternoFijoPct: esInterno ? MARGEN_INTERNO_FIJO_PCT : 0,
+           margenInternoFijoMonto,
            montoDescuento: deEnteros(descuentoCent),
            /* Un descuento negativo es, en realidad, un AUMENTO — la póliza es
               'interno' y en vez de restarle al total se le suma (ver
@@ -12759,7 +12781,11 @@ function armarPayloadPoliza(p, soloCalendario){
      EXACTO contra Precio Anual, solo que ya repartida renglón por
      renglón en vez de expuesta como "Aumento 15%". */
   const enAlcancePoliza = p.partidas.map(x => x.alcance !== 'cliente');
-  const hayAjustePoliza = !!c.descuento;
+  /* 'interno' SIEMPRE trae el 10% fijo encima del costo (ver calcularPoliza),
+     así que el precio anual difiere de la suma de totales crudos aunque
+     p.descuento esté en 0 — sin esto, un 'interno' sin ajuste editable
+     capturado imprimiría el costo crudo renglón por renglón, sin el 10%. */
+  const hayAjustePoliza = !!c.descuento || c.esInterno;
   const totalesAjustadosPoliza = hayAjustePoliza
     ? prorratearPorPeso(c.totales.map((t,i) => enAlcancePoliza[i] ? t : 0), c.precioAnualCent)
     : c.totales;
@@ -25436,18 +25462,28 @@ function vistaPoliza(){
            + '</tr>';
        }).join('')
      + '</tbody></table></div>'
-     /* Con descuento/aumento se enseñan los tres renglones: sin la base a la
-        vista, el «Precio anual» no cuadra contra la columna de arriba y
-        parece un error de la app. Para 'interno' la base es el costo (la
-        columna de arriba sigue mostrando precio de venta, que aquí ya no
-        interviene), por eso el texto lo aclara. */
-     + (c.descuento
-         ? '<div class="c-fila" style="margin-top:12px"><span>' + esc(c.etiquetaBase)
-             + (c.esInterno ? ' — suma de costos, no de precios de venta' : ' — suma de los renglones') + '</span><b>' + dinero(c.base) + '</b></div>'
-           + '<div class="c-fila"><span>' + (c.esAumento ? 'Aumento' : 'Descuento') + ' ' + c.descuentoAbs + '%</span>'
-           +   '<b style="color:' + (c.esAumento ? 'var(--ok)' : 'var(--error)') + '">' + (c.esAumento ? '+' : '−') + dinero(c.montoDescuentoAbs) + '</b></div>'
-           + '<div class="c-fila"><span>Precio anual — ya con ' + (c.esAumento ? 'el aumento' : 'el descuento') + '</span><b>' + dinero(c.precioAnual) + '</b></div>'
-         : '<div class="c-fila" style="margin-top:12px"><span>Precio anual — suma de los renglones</span><b>' + dinero(c.precioAnual) + '</b></div>')
+     /* Con descuento/aumento, o si es 'interno' (que SIEMPRE trae el 10% fijo
+        encima del costo, ver calcularPoliza), se enseñan los renglones del
+        desglose: sin la base a la vista, el «Precio anual» no cuadra contra
+        la columna de arriba y parece un error de la app. Para 'interno' se
+        parte siempre del costo crudo (nunca del precio de venta, que aquí
+        ya no interviene) y se ve el 10% fijo como su propio renglón, antes
+        del ajuste editable (si lo hay) — así queda claro que son DOS cosas
+        distintas apiladas, no un solo número inventado. */
+     + (c.esInterno
+         ? '<div class="c-fila" style="margin-top:12px"><span>Costo anual</span><b>' + dinero(c.costoAnual) + '</b></div>'
+           + '<div class="c-fila"><span>Margen interno ' + c.margenInternoFijoPct + '% (fijo)</span><b style="color:var(--ok)">+' + dinero(c.margenInternoFijoMonto) + '</b></div>'
+           + (c.descuento
+               ? '<div class="c-fila"><span>' + (c.esAumento ? 'Aumento' : 'Descuento') + ' ' + c.descuentoAbs + '%</span>'
+                 +   '<b style="color:' + (c.esAumento ? 'var(--ok)' : 'var(--error)') + '">' + (c.esAumento ? '+' : '−') + dinero(c.montoDescuentoAbs) + '</b></div>'
+               : '')
+           + '<div class="c-fila"><span>Precio anual — ya con el margen fijo' + (c.descuento ? (c.esAumento ? ' y el aumento' : ' y el descuento') : '') + '</span><b>' + dinero(c.precioAnual) + '</b></div>'
+         : (c.descuento
+             ? '<div class="c-fila" style="margin-top:12px"><span>' + esc(c.etiquetaBase) + ' — suma de los renglones</span><b>' + dinero(c.base) + '</b></div>'
+               + '<div class="c-fila"><span>' + (c.esAumento ? 'Aumento' : 'Descuento') + ' ' + c.descuentoAbs + '%</span>'
+               +   '<b style="color:' + (c.esAumento ? 'var(--ok)' : 'var(--error)') + '">' + (c.esAumento ? '+' : '−') + dinero(c.montoDescuentoAbs) + '</b></div>'
+               + '<div class="c-fila"><span>Precio anual — ya con ' + (c.esAumento ? 'el aumento' : 'el descuento') + '</span><b>' + dinero(c.precioAnual) + '</b></div>'
+             : '<div class="c-fila" style="margin-top:12px"><span>Precio anual — suma de los renglones</span><b>' + dinero(c.precioAnual) + '</b></div>'))
      + '<div class="c-fila"><span>Precio mensual — anual ÷ ' + MESES_POLIZA + '</span><b>' + dinero(c.precioMensual) + '</b></div>'
      + '</div>';
 
@@ -31220,7 +31256,7 @@ function modalPoliza(id, origenLevantamiento){
           +     '<input type="number" id="pDescuento" min="0" max="500" step="0.01" '
           +       'value="' + ((p ? p.descuento : (origenDup ? origenDup.descuento : 0)) ? Math.abs(p ? p.descuento : origenDup.descuento) : '') + '" placeholder="0"></div>'
           + '</div>'
-          + '<div class="pista">Se aplica sobre el subtotal (el costo anual si "Cargo a" es Interno) — descuento resta, '
+          + '<div class="pista">Se aplica sobre el subtotal — o sobre el costo anual YA con el 10% fijo encima, si "Cargo a" es Interno (ver abajo) — descuento resta, '
           +   'aumento suma. Se imprime como renglón aparte y <b>los precios de los equipos no se tocan</b>. Déjalo vacío si no hay.</div>'
         : (p && p.descuento
             ? '<div class="campo"><label>' + (p.descuento < 0 ? 'Aumento' : 'Descuento') + '</label>'
@@ -31240,6 +31276,7 @@ function modalPoliza(id, origenLevantamiento){
        criterio que ya usa para el pie de la tabla de equipos. */
     +   '<div class="resumen" id="avisoPrecioInterno" hidden style="margin-top:2px">'
     +     '<div class="r-fila"><span>Costo anual</span><span id="avisoPICosto"></span></div>'
+    +     '<div class="r-fila"><span id="avisoPIMargenEtiqueta">Margen interno (fijo)</span><span id="avisoPIMargen"></span></div>'
     +     '<div class="r-fila" id="avisoPIAjusteFila" style="display:none"><span id="avisoPIAjusteEtiqueta"></span><span id="avisoPIAjuste"></span></div>'
     +     '<div class="r-fila r-total"><span>Precio de venta interno</span><span id="avisoPITotal"></span></div>'
     +   '</div>'
@@ -31615,14 +31652,18 @@ function modalPoliza(id, origenLevantamiento){
     const prov = normalizarPoliza(Object.assign({}, f, { partidas: partidasTmp, id:'tmp' }));
     const c = calcularPoliza(prov);
     /* Precio de venta interno, junto a "Cargo a" — ver el comentario de ahí.
-       c.base YA es el costo anual cuando esInterno (ver calcularPoliza), y
-       c.precioAnual ya trae aplicado el aumento/descuento sobre ese costo:
-       aquí solo se muestran, no se recalculan aparte. */
+       c.costoAnual es el costo crudo; c.margenInternoFijoMonto es el 10%
+       fijo que SIEMPRE se le suma (ver calcularPoliza); c.precioAnual ya
+       trae aplicado ese margen fijo MÁS el aumento/descuento editable (si
+       hay) sobre lo que resulte: aquí solo se muestran, no se recalculan
+       aparte. */
     if($('avisoPrecioInterno')){
       const esInterno = prov.cargoA === 'interno';
       $('avisoPrecioInterno').hidden = !esInterno;
       if(esInterno){
-        $('avisoPICosto').textContent = dinero(c.base);
+        $('avisoPICosto').textContent = dinero(c.costoAnual);
+        $('avisoPIMargenEtiqueta').textContent = 'Margen interno ' + c.margenInternoFijoPct + '% (fijo)';
+        $('avisoPIMargen').textContent = '+' + dinero(c.margenInternoFijoMonto);
         const hayAjuste = c.descuento !== 0;
         $('avisoPIAjusteFila').style.display = hayAjuste ? '' : 'none';
         if(hayAjuste){

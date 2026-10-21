@@ -182,12 +182,16 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     };
   });
   chkF('"Pólizas de mantenimiento" (cargo cliente): $1,000/mes (12,000 ÷ 12), la de cotización NO se cuela', pilarTecnicos.cliente.every(m => m === 1000));
-  chkF('"…incluidas en precio" (cargo interno): $440/mes (4,800 de costo + 10% de aumento = 5,280 ÷ 12)', pilarTecnicos.interno.every(m => m === 440));
+  // 20-oct-2026: cargoA:'interno' ahora SIEMPRE suma un 10% fijo sobre el costo
+  // (ver calcularPoliza) antes del aumento/descuento editable de la póliza —
+  // 4,800 de costo → 5,280 con el 10% fijo → 5,808 con el 10% de aumento
+  // editable (descuento:-10) → 484/mes.
+  chkF('"…incluidas en precio" (cargo interno): $484/mes (4,800 costo → +10% fijo = 5,280 → +10% de aumento editable = 5,808 ÷ 12)', pilarTecnicos.interno.every(m => m === 484));
   chkF('"Refacciones y materiales": suma el costo de AMBAS pólizas ($500 + $400 = $900/mes)', pilarTecnicos.refacciones.every(m => m === 900));
 
   const vistaConDatos = await page.evaluate(() => document.getElementById('vista').textContent);
   chkF('El ingreso ya wireado se refleja en la tabla ($1,000)', vistaConDatos.includes('$1,000'));
-  chkF('El ingreso "incluidas en precio" ya wireado se refleja en la tabla ($440)', vistaConDatos.includes('$440'));
+  chkF('El ingreso "incluidas en precio" ya wireado se refleja en la tabla ($484)', vistaConDatos.includes('$484'));
   chkF('El costo de Refacciones y materiales ya wireado se refleja en la tabla ($900)', vistaConDatos.includes('$900'));
 
   // --------- 8) Trabajos correctivos / preventivo + Otros costos directos (segundo renglón conectado, Cotizaciones) ---------
@@ -255,14 +259,14 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     const r = resumenGeneralProforma(hoyISO().slice(0,4));
     return { totalIngresos: r.totalIngresos, porPilarTecnicos: r.porPilar.find(p => p.nombre === 'Servicios Técnicos').totalIngresos };
   });
-  chkF('Resumen general: Ingresos totales de la empresa = suma de Servicios Técnicos ($12,000 + $5,280 + $2,070 = $19,350)', resumenConDatos.totalIngresos === 19350);
-  chkF('Resumen general: el aporte de Servicios Técnicos al ranking es ese mismo total', resumenConDatos.porPilarTecnicos === 19350);
+  chkF('Resumen general: Ingresos totales de la empresa = suma de Servicios Técnicos ($12,000 + $5,808 + $2,070 = $19,878)', resumenConDatos.totalIngresos === 19878);
+  chkF('Resumen general: el aporte de Servicios Técnicos al ranking es ese mismo total', resumenConDatos.porPilarTecnicos === 19878);
 
   const kpiIngresos = await page.evaluate(() => {
     const kpi = Array.from(document.querySelectorAll('#vista .kpis .kpi')).find(k => k.textContent.includes('Ingresos totales'));
     return kpi ? kpi.querySelector('.k-valor').textContent : null;
   });
-  chkF('La tarjeta KPI "Ingresos totales" del Resumen general muestra $19,350', kpiIngresos === '$19,350');
+  chkF('La tarjeta KPI "Ingresos totales" del Resumen general muestra $19,878', kpiIngresos === '$19,878');
 
   const graficoTecnicos = await page.evaluate(() => {
     const bloque = document.querySelector('.bloque-pilar');
@@ -282,8 +286,8 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.waitForTimeout(80);
   const tt = await page.evaluate(() => ({ visible: document.getElementById('graficaTT').classList.contains('visible'), texto: document.getElementById('graficaTT').textContent }));
   chkF('El tooltip aparece al pasar el mouse sobre un mes del gráfico', tt.visible === true);
-  chkF('El tooltip de Febrero muestra el ingreso correcto ($2,590 = $1,000 pólizas cliente + $440 incluidas en precio + $1,150 de la cotización "realizado")',
-    tt.texto.includes('Feb') && tt.texto.includes('$2,590'));
+  chkF('El tooltip de Febrero muestra el ingreso correcto ($2,634 = $1,000 pólizas cliente + $484 incluidas en precio + $1,150 de la cotización "realizado")',
+    tt.texto.includes('Feb') && tt.texto.includes('$2,634'));
   await page.mouse.move(5, 5);
   await page.waitForTimeout(80);
   const ttOculto = await page.evaluate(() => document.getElementById('graficaTT').classList.contains('visible'));
@@ -304,8 +308,8 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     cumplimiento.cantidad === 2 && JSON.stringify(cumplimiento.folios) === JSON.stringify(['POL-1','POL-2']));
   chkF('Ambas pólizas tienen su servicio de enero sin marcar como hecho: 0 de 2 servicios debidos cumplidos',
     cumplimiento.hechosTotal === 0 && cumplimiento.debidosTotal === 2);
-  chkF('El ingreso anual de cada punto es el mismo que ya usan "Pólizas de mantenimiento" ($12,000 y $5,280)',
-    JSON.stringify(cumplimiento.ingresos) === JSON.stringify([5280, 12000]));
+  chkF('El ingreso anual de cada punto es el mismo que ya usan "Pólizas de mantenimiento" ($12,000 y $5,808)',
+    JSON.stringify(cumplimiento.ingresos) === JSON.stringify([5808, 12000]));
 
   // Pedido de Victor (25-sep-2026, tras ver la primera versión como sección
   // aparte): "que este apartado se incluyera debajo de la gráfica de la
