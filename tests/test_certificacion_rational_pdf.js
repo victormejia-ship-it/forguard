@@ -41,7 +41,18 @@
    — reusa det.refaccion, el texto que ya se captura al marcar "¿Necesita
    alguna refacción?" en el registro del servicio de una Póliza. Los
    hallazgos de Levantamientos no tienen ese campo, así que ahí la sección
-   simplemente no aparece (mismo patrón de omitir-si-vacío). */
+   simplemente no aparece (mismo patrón de omitir-si-vacío).
+
+   Actualización 21-oct-2026 (cuarta, mismo día: "revisa nuevamente las
+   secciones ya que se siguen descuadrando los margenes"): se quitó
+   page-break-inside:avoid del contenedor de Comentarios/Refacciones
+   solicitadas. Forzar TODO el bloque a no partirse solo funciona si cabe
+   completo en una sola hoja — con un texto largo (p.ej. una lista larga de
+   refacciones pegada), el bloque no cabía en NINGUNA página completa y el
+   navegador terminaba encimando/recortando el contenido de forma
+   impredecible. page-break-after:avoid en .seccion-tit (sin tocar) ya
+   evita que el título quede solo al final de una hoja; el texto largo
+   ahora simplemente fluye y se parte entre hojas como cualquier párrafo. */
 const { chromium } = require('playwright');
 const path = require('path');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
