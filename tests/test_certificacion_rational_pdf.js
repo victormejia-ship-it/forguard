@@ -9,7 +9,24 @@
    hallazgo YA ESTÁ GUARDADO (yaHecho en Pólizas, `hz` en Levantamientos):
    exporta la última versión guardada, no evidenciasTmp/checklistTmp sin
    guardar del formulario abierto — mismo criterio que el resto de
-   documentos de Forguard, que siempre documentan lo ya persistido. */
+   documentos de Forguard, que siempre documentan lo ya persistido.
+
+   Actualización 21-oct-2026 (pedido de Victor viendo el PDF ya exportado):
+   "necesito que las imagenes del reporte, se vean mas grande y no en forma
+   de lista, que sea como una seccion de evidencias donde se vean más
+   grandes no que las divida por secciones" + "y tambien añadir una seccion
+   que podamos hacer comentarios". La sección "Evidencia fotográfica" dejó
+   de ser un bloque por categoría (Orden de servicio/Placa/Panel eléctrico…
+   cada uno con su encabezado y fotos chicas de 1.35in) y ahora es UNA sola
+   cuadrícula de 2 columnas con fotos grandes (3.1in de alto) — la
+   categoría de cada foto se conserva, pero como etiqueta chica debajo, no
+   como sección aparte (`.evidencia-grid`/`.evidencia-item`/
+   `.evidencia-etiqueta`, ya no `.categoria`/`.categoria-tit`/
+   `.categoria-fotos`). La nueva sección "Comentarios" (`DOC.comentarios`)
+   reusa una nota que YA existía en el servicio/hallazgo —`det.nota` en
+   Pólizas, `hz.resueltoNota || hz.accionSugerida` en Levantamientos— en vez
+   de inventar un campo de captura nuevo; se omite por completo cuando no
+   hay nada que mostrar, nunca un renglón en blanco. */
 const { chromium } = require('playwright');
 const path = require('path');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
@@ -46,7 +63,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
     datos.levantamientos = [normalizarLevantamiento({
       id:'l1', clienteId:'c1', sitioNombre:'BorgWarner', fecha:'2026-09-01', realizoNombre:'Edgar',
       hallazgos: [
-        { id:'h1', ubicacion:'Cocina caliente', equipoNombre:'Horno Rational', marca:'Rational', modelo:'iCOMBIPRO', serie:'E22SJ24073155686', hallazgo:'Fuga de vapor en la puerta', accion:'correctivo', prioridad:'alta' }
+        { id:'h1', ubicacion:'Cocina caliente', equipoNombre:'Horno Rational', marca:'Rational', modelo:'iCOMBIPRO', serie:'E22SJ24073155686', hallazgo:'Fuga de vapor en la puerta', accion:'correctivo', prioridad:'alta', accionSugerida:'Reemplazar el empaque de la puerta en el próximo mantenimiento.' }
       ]
     })];
     render();
@@ -68,6 +85,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await fc.setFiles(fixturePath);
   await page.waitForTimeout(300);
   await page.fill('#svCuando', '2026-09-15');
+  await page.fill('#svNota', 'Se cambió el empaque de la puerta, equipo quedó funcionando correctamente.');
   await page.click('[data-modal="guardar"]');
   await page.waitForTimeout(300);
 
@@ -89,8 +107,9 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Doc póliza: trae el cliente y el sitio correctos', (await docSv.locator('.metabar').textContent()).includes('BORGWARNER') && (await docSv.locator('.metabar').textContent()).includes('BorgWarner'));
   chkF('Doc póliza: trae los 36 puntos del checklist', await docSv.locator('.chk-item').count() === 36);
   chkF('Doc póliza: marca 1 de 36 (el que se checó antes de guardar)', (await docSv.locator('.resumen-marcados').textContent()).includes('1 de 36'));
-  chkF('Doc póliza: la foto de "Placa del equipo" aparece en su categoría', (await docSv.locator('.categoria-tit').allTextContents()).some(t => t.includes('Placa')));
-  chkF('Doc póliza: trae exactamente 1 foto (la que se subió)', await docSv.locator('.categoria-fotos img').count() === 1);
+  chkF('Doc póliza: la foto de "Placa del equipo" aparece con su etiqueta de categoría', (await docSv.locator('.evidencia-etiqueta').allTextContents()).some(t => t.includes('Placa')));
+  chkF('Doc póliza: trae exactamente 1 foto (la que se subió), en la cuadrícula grande', await docSv.locator('.evidencia-item img').count() === 1);
+  chkF('Doc póliza: la sección Comentarios muestra la nota del servicio (det.nota)', (await docSv.locator('.comentarios-texto').textContent()).includes('Se cambió el empaque de la puerta'));
   await docSv.close();
 
   await page.click('[data-modal="cancelar"]');
@@ -113,6 +132,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Doc levantamiento: trae el sitio del levantamiento', (await docHz.locator('.metabar').textContent()).includes('BorgWarner'));
   chkF('Doc levantamiento: trae los 36 puntos del checklist (ninguno marcado, no se tocó)', await docHz.locator('.chk-item').count() === 36 && (await docHz.locator('.resumen-marcados').textContent()).includes('0 de 36'));
   chkF('Doc levantamiento: sin fotos categorizadas, muestra el aviso correspondiente', await docHz.locator('.sin-evidencia').count() === 1);
+  chkF('Doc levantamiento: la sección Comentarios muestra la acción sugerida (no está resuelto aún)', (await docHz.locator('.comentarios-texto').textContent()).includes('Reemplazar el empaque de la puerta'));
   await docHz.close();
 
   await page.click('[data-modal="cancelar"]');

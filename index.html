@@ -13370,7 +13370,13 @@ function armarPayloadCertificacionRational(contexto){
     categorias: CATEGORIA_EVIDENCIA_RATIONAL.map(cat => ({
       etiqueta: ETIQUETA_CATEGORIA_EVIDENCIA_RATIONAL[cat],
       fotos: (contexto.evidencias || []).filter(e => e.categoriaRational === cat).map(e => e.dataUrl)
-    })).filter(c => c.fotos.length)
+    })).filter(c => c.fotos.length),
+    /* Sección libre de "Comentarios" (21-oct-2026, pedido de Victor) — toma
+       lo que ya se haya capturado como nota del servicio/hallazgo (ver los
+       dos llamadores de abrirDocumentoCertificacionRational), nunca un
+       campo nuevo que haya que volver a llenar aparte. Vacío = la plantilla
+       omite la sección entera, nunca imprime un renglón en blanco. */
+    comentarios: (contexto.comentarios || '').trim()
   };
 }
 
@@ -23607,7 +23613,8 @@ function modalHallazgo(levantamientoId, hallazgoId){
         cliente: cli ? cli.nombre : '', sitio: l.sitioNombre || '',
         concepto: hz.equipoNombre, marca: hz.marca, modelo: hz.modelo, serie: hz.serie,
         fecha: l.fecha, quien: l.realizoNombre,
-        checklistResultado: hz.checklistRational, evidencias: hz.evidencias
+        checklistResultado: hz.checklistRational, evidencias: hz.evidencias,
+        comentarios: hz.resueltoNota || hz.accionSugerida || ''
       });
     });
   }
@@ -30114,7 +30121,8 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
         cliente: cli ? cli.nombre : '', sitio: p.sitioNombre || p.folio || '',
         concepto: x.concepto, marca: x.marca, modelo: x.modelo, serie: det.numeroSerie || x.serie,
         fecha: det.cuando, quien: det.quien,
-        checklistResultado: det.checklistRational, evidencias: det.evidencias
+        checklistResultado: det.checklistRational, evidencias: det.evidencias,
+        comentarios: det.nota || ''
       });
     });
   }
