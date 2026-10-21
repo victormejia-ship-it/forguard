@@ -73,7 +73,30 @@
    document.title como nombre sugerido al imprimir/"Guardar como PDF". Se
    arma como 'Reporte de atención RATIONAL (MODELO SERIE) - EQUIPO (SITIO)',
    donde EQUIPO es DOC.equipo (el nombre/concepto del equipo ya capturado,
-   en su ejemplo real literalmente "Comedor" — no un campo nuevo). */
+   en su ejemplo real literalmente "Comedor" — no un campo nuevo).
+
+   Actualización 21-oct-2026 (sexta, mismo día — Victor mandó el PDF real
+   que salió de ESE arreglo, y salió PEOR: TODAS las hojas, incluida la
+   primera, quedaron sin margen). La causa: @page{margin} depende de que el
+   cuadro de diálogo de impresión del navegador/SO tenga su selector de
+   "Márgenes" en "Default" — si quedó en "Ninguno" de una impresión
+   anterior (es una preferencia que el navegador recuerda), esa elección
+   IGNORA el margen de @page sin importar qué le pongamos. El padding de
+   .doc (como estaba ANTES del primer intento) no depende de ese selector:
+   es espacio real dentro del contenido, así que se ve sin importar la
+   configuración de impresión. Se regresa a padding:.5in .6in en .doc y
+   @page{margin:0}, PERO ahora con box-decoration-break:clone (y su
+   -webkit- para Chrome/Edge) en .doc — eso sí resuelve el problema
+   original (las hojas de en medio sin margen) sin depender de @page:
+   le dice al navegador que "clone" el padding en CADA fragmento de hoja,
+   no solo en la primera y la última. Verificado con un PDF real de 5
+   páginas: las 5 ahora tienen el mismo margen, incluida la 1.
+
+   Victor también corrigió la nomenclatura del nombre de archivo en el mismo
+   mensaje: "Reporte de atención rational Modelo No. de serie -
+   Cliente/sitio" — sin paréntesis y sin el equipo; ahora es
+   'Reporte de atención RATIONAL MODELO SERIE - CLIENTE/SITIO' (cliente y
+   sitio van unidos con diagonal, tal cual DOC.cliente/DOC.sitio). */
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
@@ -153,7 +176,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await docSv.waitForTimeout(400);
 
   chkF('Doc póliza: NO muestra el error de "Sin datos"', await docSv.locator('.error-doc').count() === 0);
-  chkF('Doc póliza: el nombre de exportación sigue la nomenclatura pedida', (await docSv.title()) === 'Reporte de atención RATIONAL (iCOMBIPRO E22SJ24073155686) - Horno Rational (BorgWarner)');
+  chkF('Doc póliza: el nombre de exportación sigue la nomenclatura pedida', (await docSv.title()) === 'Reporte de atención RATIONAL iCOMBIPRO E22SJ24073155686 - BORGWARNER/BorgWarner');
   chkF('Doc póliza: trae el nombre del equipo, marca, modelo y serie', (await docSv.locator('.h1').textContent()).includes('Horno Rational') && (await docSv.locator('.h1').textContent()).includes('iCOMBIPRO') && (await docSv.locator('.h1').textContent()).includes('E22SJ24073155686'));
   chkF('Doc póliza: trae el cliente y el sitio correctos', (await docSv.locator('.metabar').textContent()).includes('BORGWARNER') && (await docSv.locator('.metabar').textContent()).includes('BorgWarner'));
   chkF('Doc póliza: trae los 36 puntos del checklist', await docSv.locator('.chk-item').count() === 36);
@@ -181,7 +204,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await docHz.waitForTimeout(400);
 
   chkF('Doc levantamiento: NO muestra el error de "Sin datos"', await docHz.locator('.error-doc').count() === 0);
-  chkF('Doc levantamiento: el nombre de exportación sigue la nomenclatura pedida', (await docHz.title()) === 'Reporte de atención RATIONAL (iCOMBIPRO E22SJ24073155686) - Horno Rational (BorgWarner)');
+  chkF('Doc levantamiento: el nombre de exportación sigue la nomenclatura pedida', (await docHz.title()) === 'Reporte de atención RATIONAL iCOMBIPRO E22SJ24073155686 - BORGWARNER/BorgWarner');
   chkF('Doc levantamiento: trae el equipo del hallazgo (no el de la póliza)', (await docHz.locator('.h1').textContent()).includes('Horno Rational'));
   chkF('Doc levantamiento: trae el sitio del levantamiento', (await docHz.locator('.metabar').textContent()).includes('BorgWarner'));
   chkF('Doc levantamiento: trae los 36 puntos del checklist (ninguno marcado, no se tocó)', await docHz.locator('.chk-item').count() === 36 && (await docHz.locator('.resumen-marcados').textContent()).includes('0 de 36'));
@@ -221,8 +244,8 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
      primera/última). Si alguien vuelve a mover el margen a .doc, este check
      textual lo detecta sin tener que generar un PDF real en cada corrida. */
   const fuentePlantilla = fs.readFileSync(path.join(__dirname, '..', 'docs', 'plantilla_certificacion_rational.html'), 'utf8');
-  chkF('Plantilla: el margen de impresión está en @page (se repite en cada hoja), no en el padding de .doc', /@page\{size:letter;margin:\.5in \.6in;\}/.test(fuentePlantilla));
-  chkF('Plantilla: .doc NO tiene padding de margen bajo @media print (eso solo se dibuja en la 1a/última hoja)', /@media print\{[\s\S]*?\.doc\{margin:0;box-shadow:none;padding:0;max-width:none;\}/.test(fuentePlantilla));
+  chkF('Plantilla: el margen de impresión es padding de .doc (inmune al selector de "Márgenes" del cuadro de impresión), no @page', /@page\{size:letter;margin:0;\}/.test(fuentePlantilla));
+  chkF('Plantilla: .doc SÍ tiene box-decoration-break:clone (repite el padding en TODAS las hojas, no solo la 1a/última)', /\.doc\{margin:0;box-shadow:none;padding:\.5in \.6in;max-width:none;\s*-webkit-box-decoration-break:clone;box-decoration-break:clone;\}/.test(fuentePlantilla));
 
   chkF('No hubo errores de página en todo el escenario', errores.length === 0);
   console.log('Errores capturados:', JSON.stringify(errores));
