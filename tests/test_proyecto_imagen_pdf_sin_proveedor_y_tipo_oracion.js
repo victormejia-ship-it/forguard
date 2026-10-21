@@ -94,8 +94,12 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('"Generar PDF" (precio de venta): el encabezado ya NO trae "Proveedor"', !encabezadosNormal.some(h => /proveedor/i.test(h)));
   chkF('"Generar PDF": cada renglón de concepto trae 4 celdas (Concepto/Cantidad/Precio/Subtotal), no 5', primeraFilaNormal === 4);
   chkF('"Generar PDF": el renglón de total usa colspan=3 (una columna menos que antes)', totalRowNormal === '3');
-  const conceptoEnPdfNormal = await docNormal.locator('table.costos-tabla tbody tr').first().locator('td').first().textContent();
-  chkF('"Generar PDF": el concepto importado en mayúsculas también sale en Tipo oración en el PDF real', conceptoEnPdfNormal.trim() === 'Acrilico transparente 1.35 x 1.8 mts.');
+  // 20-oct-2026: los conceptos salen ordenados alfabéticamente por proveedor
+  // (conceptosOrdenadosPorProveedor) — "SARO TECH" antes que "ZODEK" — así
+  // que el renglón de lambrín sintético queda primero, no el de acrílico.
+  const conceptosEnPdfNormal = await docNormal.locator('table.costos-tabla tbody tr').locator('td:first-child').allTextContents();
+  chkF('"Generar PDF": el concepto importado en mayúsculas también sale en Tipo oración en el PDF real',
+    conceptosEnPdfNormal.some(t => t.trim() === 'Acrilico transparente 1.35 x 1.8 mts.'));
   await docNormal.close();
 
   // --------- 4) El "PDF con costos" SIGUE trayendo Proveedor, sin cambios ---------
@@ -112,7 +116,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   const primeraFilaCostos = await docCostos.locator('table.costos-tabla tbody tr').first().locator('td').allTextContents();
   const totalRowCostos = await docCostos.locator('table.costos-tabla tr.total td').first().getAttribute('colspan');
   chkF('"PDF con costos": el encabezado SÍ sigue trayendo "Proveedor"', encabezadosCostos.some(h => /proveedor/i.test(h)));
-  chkF('"PDF con costos": el renglón SÍ trae el nombre del proveedor', primeraFilaCostos[0].trim() === 'ZODEK');
+  chkF('"PDF con costos": el renglón SÍ trae el nombre del proveedor (primero SARO TECH, orden alfabético)', primeraFilaCostos[0].trim() === 'SARO TECH');
   chkF('"PDF con costos": el renglón de total sigue con colspan=4, sin cambios', totalRowCostos === '4');
   await docCostos.close();
 

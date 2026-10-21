@@ -457,7 +457,14 @@ service cloud.firestore {
       allow read:   if conAcceso() && !esCliente();
       allow create: if puedeEditar() || (conAcceso() && rol() in ['tecnico', 'control_activos']);
       allow update: if puedeEditar() || (conAcceso() && rol() in ['tecnico', 'control_activos']);
-      allow delete: if esAdmin();
+      /* control_activos también puede borrar (09-oct-2026, pedido de
+         Victor: "no es para el cliente sino para la persona que administra
+         el activo") — es el único rol dedicado por completo a este
+         catálogo, así que si puede dar de alta e importar pero nunca
+         corregir un error borrándolo, se queda atorado esperando siempre a
+         un Admin. Ver puedeBorrarActivos()/exigirBorrarActivos() en
+         index.html — el mismo candado de este lado. */
+      allow delete: if esAdmin() || (conAcceso() && rol() == 'control_activos');
     }
 
     /* --- Proveedores (catálogo + sus gastos) ---
@@ -496,6 +503,20 @@ service cloud.firestore {
       allow read:   if conAcceso() && !esCliente();
       allow create: if puedeEditar() || (conAcceso() && rol() == 'tecnico');
       allow update: if puedeEditar() || (conAcceso() && rol() == 'tecnico');
+      allow delete: if esAdmin();
+    }
+
+    /* --- CRM (pipeline de oportunidades) ---
+       Módulo nuevo (12-oct-2026): a diferencia de /visitas o /activos, aquí
+       no hay un rol de campo con excepción propia — dar seguimiento al
+       pipeline de ventas es trabajo de administración de siempre
+       (Owner/Admin/Analyst, mismo candado que /cotizaciones), nunca de
+       Técnico/Reportero/control_activos. Viewer sigue de solo lectura, como
+       en el resto de la app. Cerrado por completo al portal de clientes. */
+    match /oportunidades/{id} {
+      allow read:   if conAcceso() && !esCliente();
+      allow create: if puedeEditar();
+      allow update: if puedeEditar();
       allow delete: if esAdmin();
     }
 
@@ -555,6 +576,49 @@ service cloud.firestore {
     match /parametros/{doc} {
       allow read:  if conAcceso() && !esCliente();
       allow write: if esAdmin();
+    }
+    /* --- Permisos por módulo (cuadrante Rol×Módulo, 12-oct-2026) ---
+       Mismo molde que /segmentos y /parametros: un documento único. TODOS
+       los roles con acceso necesitan LEERLO —modulosPermitidos() lo consulta
+       para cualquiera— pero solo Owner/Admin lo cambian: es quién-ve-qué, el
+       mismo nivel de sensibilidad que crear o bloquear una cuenta. */
+    match /permisosModulos/{doc} {
+      allow read:  if conAcceso() && !esCliente();
+      allow write: if esAdmin();
+    }
+
+    /* --- Catálogo de Forpass (13-oct-2026) ---
+       Mismo molde que /segmentos y /permisosModulos: un documento único.
+       Lo ve cualquiera con acceso (se ofrece al capturar un sitio), solo
+       Owner/Admin lo cambia — mismo nivel que la Lista de precios. */
+    match /catalogoForpass/{doc} {
+      allow read:  if conAcceso() && !esCliente();
+      allow write: if esAdmin();
+    }
+
+    /* --- Checklist de certificación RATIONAL ---
+       Mismo molde que /catalogo y /segmentos: un documento único con un
+       arreglo adentro. Un técnico necesita LEERLO para marcar los puntos al
+       dar servicio a un equipo Rational; solo Owner o Admin lo edita (por si
+       RATIONAL cambia sus requisitos). */
+    match /checklistRational/{doc} {
+      allow read:  if conAcceso() && !esCliente();
+      allow write: if esAdmin();
+    }
+
+    /* --- Propiedad de equipos RATIONAL (09-oct-2026) ---
+       Un documento POR EQUIPO (llave = número de serie normalizado), a
+       diferencia de /checklistRational que es un solo documento — aquí
+       puede haber cientos de unidades. Mismo alcance que /activos: lo lee
+       cualquiera con acceso (menos el portal de clientes, que no tiene
+       nada que ver con esto), y lo edita quien puede editar en general
+       (igual que el resto de clasificaciones del tablero) — borrar, solo
+       Admin, como todo lo demás. */
+    match /propiedadEquiposRational/{id} {
+      allow read:   if conAcceso() && !esCliente();
+      allow create: if puedeEditar();
+      allow update: if puedeEditar();
+      allow delete: if esAdmin();
     }
 
     /* --- Historial: cualquiera con acceso lo escribe, solo admin lo lee,
