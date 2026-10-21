@@ -23,7 +23,21 @@
    Un PDF de la galería (planos, por ejemplo) se deja FUERA a propósito: ya
    es un `<a>` que abre el archivo real en una pestaña aparte —convertirlo
    también en un trigger del modal duplicaría la función con un
-   comportamiento distinto (un modal no puede mostrar un PDF como imagen). */
+   comportamiento distinto (un modal no puede mostrar un PDF como imagen).
+
+   Actualización 21-oct-2026 (mismo pedido, ampliado viendo la galería ya en
+   producción): "permite que podamos visualizarla sin necesidad de
+   descargarla, expande un pequeño modal que pueda recorrer entre las
+   imágenes que vienen capturadas en el proyecto" — el modal ahora trae
+   flechas Anterior/Siguiente (clic o ← →) que recorren TODAS las imágenes
+   del proyecto (nunca los PDFs, que ni cuentan para el "1 de 2") sin cerrar
+   y reabrir el modal, dando la vuelta del final al principio y viceversa.
+   Con una sola imagen visible no se pintan flechas — no hay a dónde ir. El
+   listener de teclado vive en `document` (no dentro de #modalCuerpo), así
+   que se desconecta explícito al cerrar vía el hook genérico
+   `alCerrarModalExtra` (ver cerrarModal()) — si no se desconectara, abrir
+   una imagen distinta después dejaría DOS listeners respondiendo a la vez a
+   la misma flecha. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -85,6 +99,59 @@ const DATA_URL_PRUEBA = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABC
   await page.click('[data-ver-imagen-proyecto="im2"]');
   await page.waitForTimeout(200);
   chkF('Una imagen sin nota capturada abre con solo el tipo como título', (await page.locator('#modalTitulo').textContent()).trim() === 'Foto');
+  await page.click('[data-modal="cancelar"]');
+  await page.waitForTimeout(150);
+
+  // --------- 5) Recorrer el proyecto con las flechas (clic) ---------
+  await page.click('[data-ver-imagen-proyecto="im1"]');
+  await page.waitForTimeout(200);
+  chkF('Con 2 imágenes visibles (el PDF no cuenta), aparecen las flechas Anterior/Siguiente', (await page.locator('#viAnterior').count()) === 1 && (await page.locator('#viSiguiente').count()) === 1);
+  chkF('El contador dice "1 de 2" (el PDF no se cuenta)', (await page.locator('#modalCuerpo .pista').textContent()).trim() === '1 de 2');
+  await page.click('#viSiguiente');
+  await page.waitForTimeout(150);
+  chkF('"Siguiente" avanza a la segunda imagen sin cerrar el modal', (await page.locator('#modalTitulo').textContent()).trim() === 'Foto');
+  chkF('El contador avanza a "2 de 2"', (await page.locator('#modalCuerpo .pista').textContent()).trim() === '2 de 2');
+  await page.click('#viSiguiente');
+  await page.waitForTimeout(150);
+  chkF('"Siguiente" desde la última da la vuelta a la primera', (await page.locator('#modalTitulo').textContent()).trim() === 'Render · Vista general del comedor');
+  await page.click('#viAnterior');
+  await page.waitForTimeout(150);
+  chkF('"Anterior" desde la primera da la vuelta a la última', (await page.locator('#modalTitulo').textContent()).trim() === 'Foto');
+
+  // --------- 6) Recorrer con las flechas del teclado (← →) ---------
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(150);
+  chkF('ArrowRight también avanza (vuelve a la primera)', (await page.locator('#modalTitulo').textContent()).trim() === 'Render · Vista general del comedor');
+  await page.keyboard.press('ArrowLeft');
+  await page.waitForTimeout(150);
+  chkF('ArrowLeft también retrocede', (await page.locator('#modalTitulo').textContent()).trim() === 'Foto');
+  await page.click('[data-modal="cancelar"]');
+  await page.waitForTimeout(150);
+
+  // --------- 7) El listener de teclado se desconecta al cerrar (no se acumula) ---------
+  await page.click('[data-ver-imagen-proyecto="im1"]');
+  await page.waitForTimeout(200);
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(150);
+  chkF('En un modal recién abierto, UNA sola pulsación avanza UN solo paso (no quedó un listener viejo duplicando el salto)',
+    (await page.locator('#modalTitulo').textContent()).trim() === 'Foto');
+  await page.click('[data-modal="cancelar"]');
+  await page.waitForTimeout(150);
+
+  // --------- 8) Con una sola imagen visible, no se pintan flechas ---------
+  await page.evaluate((dataUrl) => {
+    datos.proyectosImagen.push(normalizarProyectoImagen({
+      id:'pi2', clienteId:'c1', clienteNombre:'BANORTE', sitioNombre:'Sucursal Norte', folio:'PI-002',
+      nombreProyecto:'Proyecto con una sola imagen',
+      imagenes: [{ id:'imX', dataUrl, formato:'imagen', tipo:'render' }]
+    }));
+    estado.vista='proyecto-imagen'; estado.proyectoImagenId='pi2'; render();
+  }, DATA_URL_PRUEBA);
+  await page.waitForTimeout(200);
+  await page.click('[data-ver-imagen-proyecto="imX"]');
+  await page.waitForTimeout(200);
+  chkF('Con una sola imagen en el proyecto, NO aparecen flechas (no hay a dónde ir)', (await page.locator('#viAnterior').count()) === 0 && (await page.locator('#viSiguiente').count()) === 0);
+  chkF('Tampoco se muestra un contador "1 de 1"', (await page.locator('#modalCuerpo .pista').count()) === 0);
   await page.click('[data-modal="cancelar"]');
   await page.waitForTimeout(150);
 

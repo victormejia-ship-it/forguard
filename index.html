@@ -14288,7 +14288,9 @@ const ICONO = {
   ojoTachado:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 4.22-5.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>',
   listaSerie:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg>',
   medidor:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0-9 9c0 2.6 1 5 2.7 6.8h12.6A9 9 0 0 0 21 12a9 9 0 0 0-9-9z"/><path d="M12 12l4.2-4.2"/><path d="M8 14.5a4.5 4.5 0 0 1 7.4-3.4"/></svg>',
-  dinero:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 9v.01M18 15v.01"/></svg>'
+  dinero:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 9v.01M18 15v.01"/></svg>',
+  flechaIzquierda:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
+  flechaDerecha:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
 };
 
 /* Code128 (subconjunto B), para el código interno de cada equipo — la app no
@@ -16983,7 +16985,7 @@ const TEMAS_AYUDA = [
       guiaSeccion('Lo básico', guiaPasos([
         'Usa <b>Nuevo proyecto</b>: Cliente (o nombre libre si es prospecto), Sitio (o ubicación libre), Nombre del proyecto*, Tipo (Apertura nueva/Remodelación/Cambio de imagen), Estatus (En diseño/En cotización/Aprobado/En obra/Terminado/Cancelado), Fecha de alta, Fecha de apertura, Entrada al sitio, Salida/fin de obra, Responsable, Notas.',
         'Agrega los <b>Costos/conceptos</b> uno por uno (Proveedor, Concepto, Cantidad, Precio unitario) — el resumen de inversión total se arma solo.',
-        'Sube <b>Imágenes y planos</b> etiquetados por tipo: Render, Plano/layout o Foto (hasta 12 archivos, imagen o PDF). Clic en cualquier imagen de la galería (no en un PDF, que abre aparte) para verla en grande en un modal.',
+        'Sube <b>Imágenes y planos</b> etiquetados por tipo: Render, Plano/layout o Foto (hasta 12 archivos, imagen o PDF). Clic en cualquier imagen de la galería (no en un PDF, que abre aparte) para verla en grande en un modal, con flechas (o ← →) para recorrer todas las imágenes del proyecto sin cerrarlo.',
         'Busca por folio/proyecto/sitio/cliente y filtra por estatus; alterna entre tarjetas, tabla y <b>Cronograma</b> (vista Gantt).',
         'Usa <b>Generar PDF</b> para el documento del proyecto, con el precio de venta — sin mostrar de qué proveedor sale cada concepto (30-sep-2026, pedido de Victor). Si eres Admin, <b>PDF con costos</b> (uso interno) es el mismo documento pero con el costo real y SÍ con la columna Proveedor.'
       ]))
@@ -24533,21 +24535,67 @@ function vistaProyectosImagen(){
    pedido de Victor viendo la galería de renders: "adicional que si quiero
    ver la imagen en directo pueda desplegar un pequeño modal para poder
    visaulizar las imagenes adjuntas"). Reusa el modal genérico de la app en
-   vez de inventar un visor aparte — un <img> sencillo, sin pie de botones
-   más que "Cerrar" (la X y el fondo ya cierran solos, como cualquier otro
+   vez de inventar un visor aparte — un <img> grande, sin pie de botones más
+   que "Cerrar" (la X y el fondo ya cierran solos, como cualquier otro
    modal). Solo aplica a imágenes de verdad: un PDF de la misma galería ya
    es un enlace que se abre en pestaña aparte (ver vistaProyectoImagen), así
-   que nunca llega aquí. */
+   que nunca llega aquí ni cuenta para el "2 de 4" del recorrido.
+
+   21-oct-2026, mismo pedido ampliado viendo la galería ya en uso: "permite
+   que podamos visualizarla sin necesidad de descargarla, expande un pequeño
+   modal que pueda recorrer entre las imágenes que vienen capturadas en el
+   proyecto" — las flechas (clic o ← →) avanzan/retroceden en el MISMO modal,
+   sin cerrarlo y volverlo a abrir, dando la vuelta del final al principio.
+   El listener de teclado vive en `document` (las flechas del modal son solo
+   una entrada más), así que se desconecta explícito al cerrar vía
+   `alCerrarModalExtra` — el reemplazo de #modalCuerpo en cerrarModal() no lo
+   alcanza por no colgar de ahí. */
 function modalVerImagenProyecto(proyectoId, imagenId){
   const p = proyectoImagenPorId(proyectoId);
-  const im = p && p.imagenes.find(x => x.id === imagenId);
-  if(!im) return;
-  const titulo = ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo] + (im.nota ? ' · ' + im.nota : '');
-  const cuerpo = '<div style="display:flex; justify-content:center; background:var(--bg); border-radius:10px; padding:10px">'
-    + '<img src="' + esc(im.dataUrl) + '" alt="' + esc(titulo) + '" style="max-width:100%; max-height:74vh; border-radius:6px; display:block">'
-    + '</div>';
-  abrirModal(titulo, cuerpo, '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
+  if(!p) return;
+  const visibles = p.imagenes.filter(im => im.formato !== 'pdf');
+  let idx = visibles.findIndex(im => im.id === imagenId);
+  if(idx < 0) return;
+
+  function cuerpoDe(im){
+    return '<div style="display:flex; align-items:center; gap:8px">'
+      + (visibles.length > 1
+          ? '<button type="button" class="btn btn-suave btn-mini" id="viAnterior" title="Anterior" style="flex-shrink:0">' + ICONO.flechaIzquierda + '</button>'
+          : '')
+      + '<div style="flex:1; min-width:0; display:flex; justify-content:center; background:var(--bg); border-radius:10px; padding:10px">'
+      +   '<img src="' + esc(im.dataUrl) + '" alt="' + esc(ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo]) + '" style="max-width:100%; max-height:68vh; border-radius:6px; display:block">'
+      + '</div>'
+      + (visibles.length > 1
+          ? '<button type="button" class="btn btn-suave btn-mini" id="viSiguiente" title="Siguiente" style="flex-shrink:0">' + ICONO.flechaDerecha + '</button>'
+          : '')
+      + '</div>'
+      + (visibles.length > 1 ? '<p class="pista" style="text-align:center; margin:10px 0 0">' + (idx+1) + ' de ' + visibles.length + '</p>' : '');
+  }
+  function tituloDe(im){
+    return ETIQUETA_TIPO_IMAGEN_PROYECTO[im.tipo] + (im.nota ? ' · ' + im.nota : '');
+  }
+  function pintar(){
+    const im = visibles[idx];
+    $('modalTitulo').textContent = tituloDe(im);
+    $('modalCuerpo').innerHTML = cuerpoDe(im);
+    if(visibles.length > 1){
+      $('viAnterior').addEventListener('click', ()=>{ idx = (idx - 1 + visibles.length) % visibles.length; pintar(); });
+      $('viSiguiente').addEventListener('click', ()=>{ idx = (idx + 1) % visibles.length; pintar(); });
+    }
+  }
+  function conTeclado(ev){
+    if(ev.key === 'ArrowLeft'){ idx = (idx - 1 + visibles.length) % visibles.length; pintar(); }
+    else if(ev.key === 'ArrowRight'){ idx = (idx + 1) % visibles.length; pintar(); }
+  }
+
+  abrirModal(tituloDe(visibles[idx]), cuerpoDe(visibles[idx]), '<button type="button" class="btn btn-suave" data-modal="cancelar">Cerrar</button>');
   $('modal').classList.add('ancho');
+  if(visibles.length > 1){
+    $('viAnterior').addEventListener('click', ()=>{ idx = (idx - 1 + visibles.length) % visibles.length; pintar(); });
+    $('viSiguiente').addEventListener('click', ()=>{ idx = (idx + 1) % visibles.length; pintar(); });
+    document.addEventListener('keydown', conTeclado);
+    alCerrarModalExtra = () => document.removeEventListener('keydown', conTeclado);
+  }
 }
 
 function vistaProyectoImagen(){
@@ -28382,6 +28430,11 @@ let cerrarModalActual = null;
    SIGUE sin pasar por aquí a propósito: es la única salida que de verdad
    cancela, para quien capturó algo y en verdad ya no lo quiere. */
 let guardarBorradorAlSalir = null;
+/* Para un modal que colgó algo FUERA de #modalCuerpo (ej. un listener de
+   teclado en `document`, para las flechas del visor de imágenes) y que por
+   eso no se limpia solo con el reemplazo del contenedor de abajo. null
+   significa que no hay nada extra que desconectar. */
+let alCerrarModalExtra = null;
 
 function abrirModal(titulo, cuerpo, pie){
   $('modalTitulo').textContent = titulo;
@@ -28404,6 +28457,7 @@ function cerrarModal(){
   document.body.style.overflow = '';
   cerrarModalActual = null;
   guardarBorradorAlSalir = null;
+  if(alCerrarModalExtra){ alCerrarModalExtra(); alCerrarModalExtra = null; }
 }
 /* Cerrar "por fuera": la X, el fondo oscuro o Escape. Ninguna de las tres es
    una decisión explícita de cancelar —a diferencia del botón "Cancelar"—, así
