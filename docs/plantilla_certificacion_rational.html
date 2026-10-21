@@ -84,7 +84,15 @@
      patrón que "Consideraciones Relevantes" en Pólizas/Cotizaciones — se
      omite por completo cuando no hay nada capturado, nunca un renglón vacío. */
   .comentarios-texto{font-size:9.5px;line-height:1.6;color:var(--text);white-space:pre-wrap;}
-  .seccion-comentarios{page-break-inside:avoid;}
+  /* NO page-break-inside:avoid aquí (quitado 21-oct-2026, mismo día: Victor
+     reportó "se siguen descuadrando los margenes" con una nota/refacción
+     larga) — forzar TODO el bloque a no partirse solo funciona si cabe
+     completo en una hoja; con texto largo no cabía en ninguna página
+     completa y el navegador terminaba encimando/recortando el contenido
+     igual, solo que ahora en un punto más impredecible. Con
+     .seccion-tit{page-break-after:avoid} (ver arriba) el título nunca
+     queda solo al final de una hoja — eso basta; el texto largo puede
+     seguir su flujo normal y partirse entre hojas como cualquier párrafo. */
 
   .footwrap{margin-top:30px;padding-top:14px;border-top:1px solid var(--rule);}
   .foot{font-size:8px;color:var(--muted);line-height:1.5;}
@@ -204,7 +212,7 @@ if(!DOC){
     : '<div class="sin-evidencia">Sin fotos de evidencia categorizada capturadas.</div>';
 
   const comentariosHTML = DOC.comentarios
-    ? '<div class="seccion seccion-comentarios"><div class="seccion-tit">Comentarios</div>'
+    ? '<div class="seccion"><div class="seccion-tit">Comentarios</div>'
       + '<div class="comentarios-texto">' + esc(DOC.comentarios) + '</div></div>'
     : '';
 
@@ -212,7 +220,7 @@ if(!DOC){
      "tambien incluye las refacciones que se solicitan cotizar") — mismo
      patrón que Comentarios: se omite por completo si no se pidió ninguna. */
   const refaccionHTML = DOC.refaccion
-    ? '<div class="seccion seccion-comentarios"><div class="seccion-tit">Refacciones solicitadas</div>'
+    ? '<div class="seccion"><div class="seccion-tit">Refacciones solicitadas</div>'
       + '<div class="comentarios-texto">' + esc(DOC.refaccion) + '</div></div>'
     : '';
 
