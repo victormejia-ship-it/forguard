@@ -67,7 +67,15 @@
      viendo, pero como una etiqueta chica debajo, no como una sección aparte. */
   .evidencia-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
   .evidencia-item{page-break-inside:avoid;}
-  .evidencia-item img{width:100%;height:3.1in;object-fit:cover;border-radius:8px;border:1px solid var(--rule);display:block;}
+  /* object-fit:contain, NO cover (21-oct-2026, pedido de Victor: "el que se
+     ajuste la imagen no significa que se agrande y se pierda la
+     informacion" — con cover, una foto de aspecto distinto a la caja de
+     3.1in se recorta por los lados y se puede perder justo el dato que
+     importa, p.ej. el número de serie de la placa). Con contain la foto
+     completa siempre se ve, sin recortar nada; el fondo relleno es solo
+     para que el espacio sobrante (cuando la foto no es exactamente 3.1in
+     de proporción) no se vea como un hueco en blanco. */
+  .evidencia-item img{width:100%;height:3.1in;object-fit:contain;background:#F2F3F5;border-radius:8px;border:1px solid var(--rule);display:block;}
   .evidencia-etiqueta{margin-top:5px;font-size:9px;font-weight:700;color:#5C6673;text-transform:uppercase;letter-spacing:.03em;}
 
   .sin-evidencia{font-size:9.5px;color:var(--muted);font-style:italic;}
