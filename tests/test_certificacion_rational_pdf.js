@@ -26,7 +26,22 @@
    reusa una nota que YA existía en el servicio/hallazgo —`det.nota` en
    Pólizas, `hz.resueltoNota || hz.accionSugerida` en Levantamientos— en vez
    de inventar un campo de captura nuevo; se omite por completo cuando no
-   hay nada que mostrar, nunca un renglón en blanco. */
+   hay nada que mostrar, nunca un renglón en blanco.
+
+   Actualización 21-oct-2026 (segunda, mismo día — Victor vio la versión para
+   imprimir y notó las secciones desfasadas): el orden correcto es Checklist
+   → Comentarios → Evidencia fotográfica (antes era Checklist → Evidencia →
+   Comentarios). Además, "Comentarios" ahora lleva page-break-inside:avoid
+   en su contenedor (`.seccion-comentarios`) para que el título y el texto no
+   queden separados por un salto de página al imprimir.
+
+   Actualización 21-oct-2026 (tercera, mismo día: "tambien incluye las
+   refacciones que se solicitan cotizar"): nueva sección "Refacciones
+   solicitadas" (`DOC.refaccion`) entre Comentarios y Evidencia fotográfica
+   — reusa det.refaccion, el texto que ya se captura al marcar "¿Necesita
+   alguna refacción?" en el registro del servicio de una Póliza. Los
+   hallazgos de Levantamientos no tienen ese campo, así que ahí la sección
+   simplemente no aparece (mismo patrón de omitir-si-vacío). */
 const { chromium } = require('playwright');
 const path = require('path');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
@@ -86,6 +101,8 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.waitForTimeout(300);
   await page.fill('#svCuando', '2026-09-15');
   await page.fill('#svNota', 'Se cambió el empaque de la puerta, equipo quedó funcionando correctamente.');
+  await page.locator('#svRefaccionChk').check();
+  await page.fill('#svRefaccionTexto', 'Empaque de puerta modelo iCOMBIPRO (código RTN-4471)');
   await page.click('[data-modal="guardar"]');
   await page.waitForTimeout(300);
 
@@ -109,7 +126,9 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Doc póliza: marca 1 de 36 (el que se checó antes de guardar)', (await docSv.locator('.resumen-marcados').textContent()).includes('1 de 36'));
   chkF('Doc póliza: la foto de "Placa del equipo" aparece con su etiqueta de categoría', (await docSv.locator('.evidencia-etiqueta').allTextContents()).some(t => t.includes('Placa')));
   chkF('Doc póliza: trae exactamente 1 foto (la que se subió), en la cuadrícula grande', await docSv.locator('.evidencia-item img').count() === 1);
-  chkF('Doc póliza: la sección Comentarios muestra la nota del servicio (det.nota)', (await docSv.locator('.comentarios-texto').textContent()).includes('Se cambió el empaque de la puerta'));
+  chkF('Doc póliza: la sección Comentarios muestra la nota del servicio (det.nota)', (await docSv.locator('.comentarios-texto').nth(0).textContent()).includes('Se cambió el empaque de la puerta'));
+  chkF('Doc póliza: la sección "Refacciones solicitadas" muestra lo que se pidió cotizar', (await docSv.locator('.comentarios-texto').nth(1).textContent()).includes('Empaque de puerta modelo iCOMBIPRO'));
+  chkF('Doc póliza: el orden es Checklist → Comentarios → Refacciones solicitadas → Evidencia fotográfica', (await docSv.locator('.seccion-tit').allTextContents()).join('|') === 'Checklist de inspección|Comentarios|Refacciones solicitadas|Evidencia fotográfica');
   await docSv.close();
 
   await page.click('[data-modal="cancelar"]');
@@ -133,6 +152,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Doc levantamiento: trae los 36 puntos del checklist (ninguno marcado, no se tocó)', await docHz.locator('.chk-item').count() === 36 && (await docHz.locator('.resumen-marcados').textContent()).includes('0 de 36'));
   chkF('Doc levantamiento: sin fotos categorizadas, muestra el aviso correspondiente', await docHz.locator('.sin-evidencia').count() === 1);
   chkF('Doc levantamiento: la sección Comentarios muestra la acción sugerida (no está resuelto aún)', (await docHz.locator('.comentarios-texto').textContent()).includes('Reemplazar el empaque de la puerta'));
+  chkF('Doc levantamiento: NO trae "Refacciones solicitadas" (los hallazgos no tienen ese campo)', !(await docHz.locator('.seccion-tit').allTextContents()).includes('Refacciones solicitadas'));
   await docHz.close();
 
   await page.click('[data-modal="cancelar"]');

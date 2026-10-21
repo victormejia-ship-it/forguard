@@ -13376,7 +13376,14 @@ function armarPayloadCertificacionRational(contexto){
        dos llamadores de abrirDocumentoCertificacionRational), nunca un
        campo nuevo que haya que volver a llenar aparte. Vacío = la plantilla
        omite la sección entera, nunca imprime un renglón en blanco. */
-    comentarios: (contexto.comentarios || '').trim()
+    comentarios: (contexto.comentarios || '').trim(),
+    /* "Refacciones solicitadas" (21-oct-2026, mismo día, pedido de Victor:
+       "tambien incluye las refacciones que se solicitan cotizar") — toma
+       det.refaccion, el texto que ya se captura al marcar "¿Necesita alguna
+       refacción?" en el registro del servicio (ver modalServicioPoliza);
+       solo existe en Pólizas, Levantamientos no tiene ese campo, así que
+       modalHallazgo manda '' y la sección se omite ahí. */
+    refaccion: (contexto.refaccion || '').trim()
   };
 }
 
@@ -30122,7 +30129,7 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
         concepto: x.concepto, marca: x.marca, modelo: x.modelo, serie: det.numeroSerie || x.serie,
         fecha: det.cuando, quien: det.quien,
         checklistResultado: det.checklistRational, evidencias: det.evidencias,
-        comentarios: det.nota || ''
+        comentarios: det.nota || '', refaccion: det.refaccion || ''
       });
     });
   }
