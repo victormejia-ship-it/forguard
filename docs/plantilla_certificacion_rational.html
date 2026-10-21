@@ -57,12 +57,25 @@
   .chk-item:not(.marcado) .chk-texto{color:#5C6673;}
   .resumen-marcados{margin-top:10px;font-size:9.5px;color:var(--muted);}
 
-  .categoria{margin-bottom:16px;page-break-inside:avoid;}
-  .categoria-tit{font-size:10px;font-weight:700;color:#2B3341;margin-bottom:6px;}
-  .categoria-fotos{display:flex;gap:7px;flex-wrap:wrap;}
-  .categoria-fotos img{width:1.35in;height:1.35in;object-fit:cover;border-radius:6px;border:1px solid var(--rule);}
+  /* Pedido de Victor (21-oct-2026, viendo el PDF ya exportado): "las imagenes
+     del reporte, se vean mas grande y no en forma de lista, que sea como una
+     seccion de evidencias donde se vean más grandes no que las divida por
+     secciones" — antes cada categoría (Orden de servicio, Placa, Panel
+     eléctrico…) era su propio bloque con encabezado y fotos de 1.35in en
+     fila; ahora es UNA sola cuadrícula de 2 columnas con fotos grandes, sin
+     encabezados que corten el flujo — la categoría de cada foto se sigue
+     viendo, pero como una etiqueta chica debajo, no como una sección aparte. */
+  .evidencia-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .evidencia-item{page-break-inside:avoid;}
+  .evidencia-item img{width:100%;height:3.1in;object-fit:cover;border-radius:8px;border:1px solid var(--rule);display:block;}
+  .evidencia-etiqueta{margin-top:5px;font-size:9px;font-weight:700;color:#5C6673;text-transform:uppercase;letter-spacing:.03em;}
 
   .sin-evidencia{font-size:9.5px;color:var(--muted);font-style:italic;}
+
+  /* Comentarios (21-oct-2026, mismo pedido): sección libre de texto, mismo
+     patrón que "Consideraciones Relevantes" en Pólizas/Cotizaciones — se
+     omite por completo cuando no hay nada capturado, nunca un renglón vacío. */
+  .comentarios-texto{font-size:9.5px;line-height:1.6;color:var(--text);white-space:pre-wrap;}
 
   .footwrap{margin-top:30px;padding-top:14px;border-top:1px solid var(--rule);}
   .foot{font-size:8px;color:var(--muted);line-height:1.5;}
@@ -169,13 +182,22 @@ if(!DOC){
     + '</div>'
   ).join('');
 
-  const categoriasHTML = DOC.categorias.length
-    ? DOC.categorias.map(c =>
-        '<div class="categoria"><div class="categoria-tit">' + esc(c.etiqueta) + '</div>'
-        + '<div class="categoria-fotos">' + c.fotos.map(url => '<img src="' + esc(url) + '" alt="Evidencia">').join('') + '</div>'
-        + '</div>'
-      ).join('')
+  /* Una sola cuadrícula con TODAS las fotos de todas las categorías, grandes
+     — no un bloque por categoría. La etiqueta de categoría se conserva, pero
+     como pie de cada foto, no como encabezado de sección (ver el comentario
+     de .evidencia-grid en el CSS). */
+  const todasLasFotos = DOC.categorias.flatMap(c => c.fotos.map(url => ({ url, etiqueta: c.etiqueta })));
+  const categoriasHTML = todasLasFotos.length
+    ? '<div class="evidencia-grid">' + todasLasFotos.map(f =>
+        '<div class="evidencia-item"><img src="' + esc(f.url) + '" alt="Evidencia">'
+        + '<div class="evidencia-etiqueta">' + esc(f.etiqueta) + '</div></div>'
+      ).join('') + '</div>'
     : '<div class="sin-evidencia">Sin fotos de evidencia categorizada capturadas.</div>';
+
+  const comentariosHTML = DOC.comentarios
+    ? '<div class="seccion"><div class="seccion-tit">Comentarios</div>'
+      + '<div class="comentarios-texto">' + esc(DOC.comentarios) + '</div></div>'
+    : '';
 
   document.getElementById('doc').innerHTML =
       '<div class="doc">'
@@ -202,6 +224,8 @@ if(!DOC){
     +     '<div class="seccion-tit">Evidencia fotográfica</div>'
     +     categoriasHTML
     +   '</div>'
+
+    +   comentariosHTML
 
     +   '<div class="footwrap"><div class="foot">'
     +     '<span class="k">' + esc(DOC.contacto.telOficina || '') + '</span> · '
