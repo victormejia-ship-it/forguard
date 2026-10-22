@@ -987,6 +987,20 @@ button.mes{cursor:pointer;}
 .pista{font-size:11px; color:var(--gray); margin-top:4px; line-height:1.45;}
 .casilla{display:flex; align-items:center; gap:9px; font-size:13px; font-weight:500; color:var(--etiqueta-texto); cursor:pointer; margin-bottom:11px;}
 .casilla input{width:16px; height:16px; accent-color:var(--navy); cursor:pointer;}
+/* Pad de firma (21-oct-2026, ver modalFirma): lienzo con fondo claro propio
+   para que una firma transparente se vea mientras se dibuja; el PNG que se
+   guarda SIEMPRE sale con fondo transparente (nunca se rellena el canvas),
+   así pega limpio sobre cualquier plantilla impresa. */
+.firma-lienzo-wrap{border:1.5px dashed #c3cadb; border-radius:10px; background:#fbfbfd; overflow:hidden;}
+.firma-lienzo-wrap canvas{display:block; width:100%; height:180px; cursor:crosshair; touch-action:none;}
+.firma-pad-botones{display:flex; gap:8px; justify-content:flex-end; margin-top:10px; flex-wrap:wrap;}
+.firmas-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+@media (max-width:560px){ .firmas-grid{grid-template-columns:1fr;} }
+.firma-tarjeta{border:1px solid #e4e8f2; border-radius:10px; padding:12px; text-align:center;}
+.firma-tarjeta-vacia{display:flex; flex-direction:column; align-items:center; gap:8px; justify-content:center; min-height:96px;}
+.firma-miniatura{max-width:100%; height:70px; object-fit:contain; display:block; margin:0 auto 6px;}
+.firma-tarjeta-nombre{font-size:12.5px; font-weight:600; color:var(--ink); margin-bottom:8px;}
+.firma-tarjeta-botones{display:flex; gap:6px; justify-content:center; flex-wrap:wrap;}
 
 /* Resumen dentro del modal */
 .resumen{background:var(--navy); color:#fff; border-radius:13px; padding:15px 17px; margin-top:4px;}
@@ -6102,8 +6116,49 @@ function normalizarCotizacion(q){
        ajustePrecioVigente() los da por vencidos (ver
        aplicarAjustesInflacionProgramadosVencidos). */
     ajustesProgramados: Array.isArray(q && q.ajustesProgramados) ? q.ajustesProgramados.map(normalizarAjustePrecio) : [],
+    /* Reporte de servicio realizado (21-oct-2026, pedido de Victor: "en las
+       cotizaciones realizadas permite realizar un reporte de servicio
+       realizado, donde pueda ingresar los datos relevantes para que el
+       cliente este seguro que el trabajo cotizado se realizo") — evidencia
+       antes/después/hallazgo con descripción, notas libres y firmas de
+       técnico/cliente, exportable en su propio PDF. Se guarda como un solo
+       objeto (igual que `instalacion`), nunca null, para no repetir el
+       checkeo "si existe" en cada pantalla — vacío = nada capturado
+       todavía. */
+    reporteServicio: normalizarReporteServicioCotizacion(q && q.reporteServicio),
     partidas
   };
+}
+/* Un renglón de evidencia del reporte de servicio: qué foto es, de qué tipo
+   (antes del trabajo, después, o un hallazgo encontrado en el camino) y su
+   descripción — mismo espíritu que categoriaRational en la evidencia de
+   Pólizas/Levantamientos, pero con su propio set de categorías porque es un
+   concepto distinto (evidencia de ANTES/DESPUÉS de un trabajo, no de
+   certificación). */
+const TIPO_ITEM_REPORTE_SERVICIO = ['antes', 'despues', 'hallazgo'];
+const ETIQUETA_TIPO_ITEM_REPORTE_SERVICIO = { antes: 'Antes', despues: 'Después', hallazgo: 'Hallazgo' };
+function normalizarItemReporteServicio(it){
+  return {
+    id: (it && it.id) || nuevoId(),
+    tipo: TIPO_ITEM_REPORTE_SERVICIO.includes(it && it.tipo) ? it.tipo : 'despues',
+    dataUrl: (it && it.dataUrl) ? String(it.dataUrl) : '',
+    descripcion: (it && it.descripcion ? String(it.descripcion) : '').trim()
+  };
+}
+function normalizarReporteServicioCotizacion(r){
+  return {
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(r && r.fecha) ? r.fecha : hoyISO(),
+    quien: (r && r.quien ? String(r.quien) : '').trim(),
+    notas: (r && r.notas ? String(r.notas) : '').trim(),
+    items: (Array.isArray(r && r.items) ? r.items : []).map(normalizarItemReporteServicio).filter(it => it.dataUrl),
+    firmaTecnico: normalizarFirma(r && r.firmaTecnico),
+    firmaCliente: normalizarFirma(r && r.firmaCliente)
+  };
+}
+/* Hay algo que mostrar/exportar del reporte — nunca un documento vacío con
+   puros guiones. */
+function reporteServicioTieneContenido(r){
+  return !!(r && (r.items.length || r.notas || r.firmaTecnico || r.firmaCliente));
 }
 
 function cotizacionPorId(id){ return datos.cotizaciones.find(q => q.id === id); }
@@ -6356,6 +6411,20 @@ function normalizarListaEvidencias(lista, topeGeneral){
   const categorizadas = CATEGORIA_EVIDENCIA_RATIONAL.flatMap(cat =>
     crudas.filter(e => e.categoriaRational === cat).slice(0, EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL));
   return generales.concat(categorizadas);
+}
+
+/* Firma capturada con modalFirma (21-oct-2026) — compartida por la
+   certificación RATIONAL (servicio de póliza/hallazgo) y el reporte de
+   servicio de Cotizaciones: {nombre, dataUrl, fecha}. Sin dataUrl se queda
+   en null, igual de vacía que si nunca se hubiera firmado — las plantillas
+   omiten la firma por completo en ese caso, nunca un hueco en blanco. */
+function normalizarFirma(f){
+  if(!f || !f.dataUrl) return null;
+  return {
+    nombre: (f.nombre ? String(f.nombre) : '').trim(),
+    dataUrl: String(f.dataUrl),
+    fecha: f.fecha ? String(f.fecha) : new Date().toISOString()
+  };
 }
 
 /* Un respaldo de costo: la cotización de un proveedor externo que sustenta
@@ -8640,7 +8709,14 @@ function normalizarHallazgo(h){
     /* Certificación RATIONAL (ver modalServicioPoliza): solo tiene algo
        cuando `marca` es "Rational" — en cualquier otro hallazgo se queda en
        {} para siempre. */
-    checklistRational: normalizarChecklistResultado(h && h.checklistRational)
+    checklistRational: normalizarChecklistResultado(h && h.checklistRational),
+    /* Firmas de la certificación RATIONAL (21-oct-2026, pedido de Victor:
+       "en los de certificación de rational puedan incluirse las firmas del
+       tecnico y del cliente") — mismo criterio que checklistRational: solo
+       tiene algo cuando de verdad se firmó, nunca un campo nuevo que haya
+       que capturar fuera de este mismo flujo. */
+    firmaTecnico: normalizarFirma(h && h.firmaTecnico),
+    firmaCliente: normalizarFirma(h && h.firmaCliente)
   };
 }
 
@@ -11712,7 +11788,11 @@ function normalizarPoliza(p){
           numeroSerie: (d.numeroSerie ? String(d.numeroSerie) : '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 40),
           /* Solo tiene algo cuando x.marca es Rational (ver modalServicioPoliza)
              — en cualquier otro servicio se queda en {} para siempre. */
-          checklistRational: normalizarChecklistResultado(d.checklistRational)
+          checklistRational: normalizarChecklistResultado(d.checklistRational),
+          /* Firmas de la certificación RATIONAL (21-oct-2026, pedido de
+             Victor) — mismo criterio: null hasta que de verdad se firme. */
+          firmaTecnico: normalizarFirma(d.firmaTecnico),
+          firmaCliente: normalizarFirma(d.firmaCliente)
         };
         if(hechas < tope && d.motivo) reg.motivo = String(d.motivo);
         limpio[String(m)] = reg;
@@ -13383,7 +13463,20 @@ function armarPayloadCertificacionRational(contexto){
        refacción?" en el registro del servicio (ver modalServicioPoliza);
        solo existe en Pólizas, Levantamientos no tiene ese campo, así que
        modalHallazgo manda '' y la sección se omite ahí. */
-    refaccion: (contexto.refaccion || '').trim()
+    refaccion: (contexto.refaccion || '').trim(),
+    /* Firmas (21-oct-2026, pedido de Victor: "en los de certificación de
+       rational puedan incluirse las firmas del tecnico y del cliente") —
+       contexto.firmaTecnico/firmaCliente ya vienen normalizados (null si no
+       se firmó) desde det/hz. La plantilla "solo strings ya formateados,
+       nada se calcula" (igual que el resto de documentos): la fecha ISO se
+       convierte aquí a texto, nunca en la plantilla. Cada una se omite por
+       completo si no se firmó. */
+    firmaTecnico: contexto.firmaTecnico
+      ? { nombre: contexto.firmaTecnico.nombre, dataUrl: contexto.firmaTecnico.dataUrl, fechaTexto: fechaHora(contexto.firmaTecnico.fecha) }
+      : null,
+    firmaCliente: contexto.firmaCliente
+      ? { nombre: contexto.firmaCliente.nombre, dataUrl: contexto.firmaCliente.dataUrl, fechaTexto: fechaHora(contexto.firmaCliente.fecha) }
+      : null
   };
 }
 
@@ -16839,7 +16932,7 @@ const TEMAS_AYUDA = [
         'El <b>Alcance</b> de cada equipo marca si esa actividad está "Dentro de nuestro alcance" o es "Responsabilidad del cliente" (por ejemplo, una fuga de gas o una instalación eléctrica que le toca a un especialista certificado, no al mantenimiento preventivo) — se ve como una etiqueta bajo el nombre del equipo, tanto al capturar como en el detalle del contrato. Un equipo "Responsabilidad del cliente" NO se suma al Precio Anual ni al Costo Anual del contrato: su monto se separa aparte, así nunca se le cobra al cliente algo que no es trabajo de Forguard.',
         'Estatus del contrato: Borrador → Enviada (en espera de confirmar) → Activa (precios ya congelados) — o Cancelada.',
         'En el <b>calendario</b> de un contrato, haz clic en un equipo del mes para <b>registrar el servicio</b>: qué unidades se atendieron (si son varias), fecha, quién, número de serie, foto de evidencia, nota, y si necesita alguna refacción. Si el renglón tiene más de una unidad, la casilla <b>"Fotos separadas por equipo"</b> reparte la galería en una sección por unidad — útil cuando a una le pasó algo distinto a las demás; si no, una sola galería sirve para todas. Cuando dos renglones del mismo contrato comparten el nombre (ej. dos "Horno Rational" distintos), tanto la lista del mes como el modal de registro muestran además marca/modelo/serie de cada uno, para no confundir cuál se está marcando.',
-        'Si la <b>marca</b> del equipo es "Rational", el registro de servicio trae además una sección de <b>Certificación RATIONAL</b>: el checklist de inspección que pide ese proveedor para certificar a Forguard, y evidencia fotográfica por categoría (orden de servicio, placa, panel eléctrico, mediciones, pruebas iCareSystem/válvulas, calidad del agua) — cada categoría con su propio cupo, aparte de las "Fotos de evidencia" generales. El checklist en sí y el catálogo de refacciones de ese proveedor viven en su propio módulo <b>RATIONAL</b> del menú principal, no aquí. Nada de esto —ni el checklist marcado ni esas fotos— viaja al portal de clientes: es control interno para la certificación.',
+        'Si la <b>marca</b> del equipo es "Rational", el registro de servicio trae además una sección de <b>Certificación RATIONAL</b>: el checklist de inspección que pide ese proveedor para certificar a Forguard, y evidencia fotográfica por categoría (orden de servicio, placa, panel eléctrico, mediciones, pruebas iCareSystem/válvulas, calidad del agua) — cada categoría con su propio cupo, aparte de las "Fotos de evidencia" generales. El checklist en sí y el catálogo de refacciones de ese proveedor viven en su propio módulo <b>RATIONAL</b> del menú principal, no aquí. Nada de esto —ni el checklist marcado ni esas fotos— viaja al portal de clientes: es control interno para la certificación. (21-oct-2026) La misma sección también deja capturar las <b>firmas</b> de quien dio el servicio y de quien lo recibe por parte del cliente, dibujadas directo en la pantalla — opcionales, y aparecen al final del PDF de certificación solo si de verdad se firmó.',
         'Haz clic en una casilla de cobro para <b>capturar el cobro</b>: quién captura, número de OC, si ya se facturó.',
         'Genera el <b>PDF</b> del contrato (cambia su texto solo según si sigue siendo cotización o ya es póliza activa) — un equipo "Responsabilidad del cliente" sale marcado ahí mismo: su fila se sombrea, su número lleva un "†", su Total sale en blanco, y una nota al final explica el símbolo y lista de nuevo cuáles son.',
         '<b>Imprimir calendario</b> (junto a Imprimir): abre solo la portada y la hoja del calendario de mantenimientos, sin la tabla de equipos, descripción de trabajos ni consideraciones — para cuando el técnico solo necesita el calendario en papel, sin las demás hojas. Sale en hoja horizontal (mejor visibilidad de las 12 columnas de mes) y con su propia portada, dejando bien claro que es SOLO el calendario, no el contrato completo.'
@@ -16912,6 +17005,11 @@ const TEMAS_AYUDA = [
             'La herramienta masiva solo opera sobre cotizaciones todavía en <b>borrador</b> — una ya enviada, aprobada o en cualquier etapa del tablero de 13 pasos es un trato ya comunicado al cliente, así que no se toca ahí; se corrige individual, a sabiendas, si hiciera falta.',
             'Antes de aplicar se muestra una vista previa (margen y totales antes → después; en la masiva, además, cuántas cotizaciones se afectan y cuánto sube el total cotizado) — y cada ajuste queda en el historial de la cotización, igual que en Pólizas y Forpass.',
             '(17-oct-2026) El campo <b>"A partir de cuándo"</b> nace en hoy (se aplica de inmediato). Si lo adelantas, el ajuste se <b>programa</b> —no toca ningún precio todavía— y se aplica SOLO, sin volver a confirmar nada, en cuanto esa fecha llega y alguien Owner/Admin vuelve a abrir el tablero.'
+          ])
+        + guiaTip('Reporte de servicio realizado (21-oct-2026, pedido de Victor)', [
+            'Una vez que la cotización llega a <b>Realizado</b> o <b>Realizado/Cargo a Comedor</b> en el tablero de 13 etapas, aparece un bloque para capturar el <b>reporte de servicio</b>: evidencia fotográfica (Antes/Después/Hallazgo, cada una con su descripción), notas generales, y las firmas de quien hizo el trabajo y de quien lo recibe por parte del cliente — para que el cliente tenga constancia de que el trabajo cotizado de verdad se hizo.',
+            'Las firmas se capturan dibujando con el dedo o el mouse, directo en la pantalla — no es una firma digital certificada, es el equivalente a firmar un papel.',
+            '"Exportar PDF" genera un documento aparte (no el de la cotización) con todo lo capturado; se omite cualquier sección vacía (sin notas, sin firmas) en vez de imprimir un hueco en blanco.'
           ])) },
 
   { id:'activos', titulo:'Activos',
@@ -18562,6 +18660,36 @@ function vistaCotizacion(){
        +     '<div><div class="d-label">Programada — fin</div><div class="d-valor chico">' + (cot.fechaProgramadaFin ? fmtFecha(cot.fechaProgramadaFin) : 'Sin definir') + '</div></div>'
        +     '<div><div class="d-label">Realizado</div><div class="d-valor chico">' + (cot.fechaRealizado ? fmtFecha(cot.fechaRealizado) : 'Sin definir') + '</div></div>'
        +   '</div></div>';
+  }
+
+  /* Reporte de servicio realizado (21-oct-2026, pedido de Victor: "en las
+     cotizaciones realizadas permite realizar un reporte de servicio
+     realizado... para que el cliente este seguro que el trabajo cotizado
+     se realizo") — solo tiene sentido una vez que el trabajo YA se hizo
+     (estatus "realizado"/"realizado_comedor" del tablero de 13 etapas), no
+     en una cotización todavía en borrador o pendiente de aprobar. */
+  if(cot.estatus === 'realizado' || cot.estatus === 'realizado_comedor'){
+    const hayReporte = reporteServicioTieneContenido(cot.reporteServicio);
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Reporte de servicio realizado</h3>'
+       +   '<p>Evidencia, notas y firmas que prueban al cliente que el trabajo cotizado se hizo.</p></div></div>'
+       +   (hayReporte
+            ? '<div class="resumen-datos">'
+              +   '<div><div class="d-label">Fecha</div><div class="d-valor chico">' + fmtFecha(cot.reporteServicio.fecha) + '</div></div>'
+              +   '<div><div class="d-label">Realizó</div><div class="d-valor chico">' + esc(cot.reporteServicio.quien || '—') + '</div></div>'
+              +   '<div><div class="d-label">Evidencia</div><div class="d-valor chico">' + cot.reporteServicio.items.length + ' ' + plural(cot.reporteServicio.items.length,'foto','fotos') + '</div></div>'
+              +   '<div><div class="d-label">Firmas</div><div class="d-valor chico">'
+              +     ([cot.reporteServicio.firmaTecnico ? 'Técnico' : '', cot.reporteServicio.firmaCliente ? 'Cliente' : ''].filter(Boolean).join(' y ') || 'Sin firmar')
+              +   '</div></div>'
+              + '</div>'
+              + '<div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">'
+              +   '<button type="button" class="btn btn-suave btn-mini" data-accion="exportar-reporte-servicio-cotizacion">' + ICONO.imprimir + 'Exportar PDF</button>'
+              +   (puedeEditar() ? '<button type="button" class="btn btn-suave btn-mini" data-accion="reporte-servicio-cotizacion">' + ICONO.lapiz + 'Editar reporte</button>' : '')
+              + '</div>'
+            : '<p class="pista">Todavía no se ha capturado el reporte de este servicio.</p>'
+              + (puedeEditar()
+                  ? '<button type="button" class="btn btn-suave btn-mini" data-accion="reporte-servicio-cotizacion" style="margin-top:8px">' + ICONO.camara + 'Crear reporte de servicio</button>'
+                  : ''))
+       + '</div>';
   }
 
   h += '<div class="lado-cotizacion" role="tablist" aria-label="Lado de la cotización" style="display:flex; gap:8px; margin:16px 0">'
@@ -23443,6 +23571,10 @@ function modalHallazgo(levantamientoId, hallazgoId){
      imprime y se muestra/esconde con un listener en #hzMarca (ver más
      abajo). Mismo patrón de staging que evidenciasTmp. */
   let hzChecklistTmp = Object.assign({}, hz && hz.checklistRational);
+  /* Firmas de la certificación RATIONAL (21-oct-2026, pedido de Victor) —
+     mismo patrón de staging que hzChecklistTmp/evidenciasTmp. */
+  let hzFirmaTecnicoTmp = (hz && hz.firmaTecnico) || null;
+  let hzFirmaClienteTmp = (hz && hz.firmaCliente) || null;
   const cat = catalogo().slice().sort((a,b)=> a.concepto.localeCompare(b.concepto,'es'));
   const opc = (lista, sel, texto, valor) => lista.map(o =>
     '<option value="' + esc(valor(o)) + '"' + (valor(o) === sel ? ' selected' : '') + '>' + esc(texto(o)) + '</option>').join('');
@@ -23506,6 +23638,10 @@ function modalHallazgo(levantamientoId, hallazgoId){
     +   '<div class="campo"><label>Evidencia categorizada (opcional)</label>'
     +     '<div id="hzEvidenciaRationalWrap"></div>'
     +     '<div class="pista">Hasta ' + EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL + ' fotos por categoría. No cuentan contra el cupo de "Fotos de evidencia" de arriba.</div>'
+    +   '</div>'
+    +   '<div class="campo"><label>Firmas (opcional)</label>'
+    +     '<div class="firmas-grid"><div id="hzFirmaTecnicoWrap"></div><div id="hzFirmaClienteWrap"></div></div>'
+    +     '<div class="pista">Firma de quien dio el servicio y de quien lo recibe por parte del cliente — aparecen al final del PDF de certificación.</div>'
     +   '</div>'
     /* Solo si el hallazgo ya existe (está guardado): exporta lo último
        guardado, no evidenciasTmp/hzChecklistTmp de este formulario abierto —
@@ -23614,6 +23750,14 @@ function modalHallazgo(levantamientoId, hallazgoId){
   pintarGaleriaHz();
   pintarChecklistRationalHz();
   pintarEvidenciaRationalHz();
+  function repintarFirmaTecnicoHz(){
+    pintarTarjetaFirma('hzFirmaTecnicoWrap', hzFirmaTecnicoTmp, 'Firma del técnico', l.realizoNombre, f=>{ hzFirmaTecnicoTmp = f; repintarFirmaTecnicoHz(); });
+  }
+  function repintarFirmaClienteHz(){
+    pintarTarjetaFirma('hzFirmaClienteWrap', hzFirmaClienteTmp, 'Firma del cliente', '', f=>{ hzFirmaClienteTmp = f; repintarFirmaClienteHz(); });
+  }
+  repintarFirmaTecnicoHz();
+  repintarFirmaClienteHz();
   if(hz && $('hzBtnExportarCertificacionRational')){
     $('hzBtnExportarCertificacionRational').addEventListener('click', ()=>{
       abrirDocumentoCertificacionRational({
@@ -23621,7 +23765,8 @@ function modalHallazgo(levantamientoId, hallazgoId){
         concepto: hz.equipoNombre, marca: hz.marca, modelo: hz.modelo, serie: hz.serie,
         fecha: l.fecha, quien: l.realizoNombre,
         checklistResultado: hz.checklistRational, evidencias: hz.evidencias,
-        comentarios: hz.resueltoNota || hz.accionSugerida || ''
+        comentarios: hz.resueltoNota || hz.accionSugerida || '',
+        firmaTecnico: hz.firmaTecnico, firmaCliente: hz.firmaCliente
       });
     });
   }
@@ -23714,7 +23859,8 @@ function modalHallazgo(levantamientoId, hallazgoId){
       evidencias: evidenciasTmp,
       cotizar,
       cotizacionId: (cotLigada && cotLigada.id) || '',
-      checklistRational: hzChecklistTmp
+      checklistRational: hzChecklistTmp,
+      firmaTecnico: hzFirmaTecnicoTmp, firmaCliente: hzFirmaClienteTmp
     };
     const nuevoHz = normalizarHallazgo(datosHz);
 
@@ -29817,6 +29963,11 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
      en memoria y solo se guarda de verdad al picar "Marcar como hecho". */
   const esRational = esMarcaRational(x.marca);
   let checklistTmp = Object.assign({}, det && det.checklistRational);
+  /* Firmas de la certificación RATIONAL (21-oct-2026, pedido de Victor) —
+     mismo patrón de staging que checklistTmp/evidenciasTmp: se editan en
+     memoria y solo se guardan de verdad al picar "Marcar como hecho". */
+  let firmaTecnicoTmp = (det && det.firmaTecnico) || null;
+  let firmaClienteTmp = (det && det.firmaCliente) || null;
   const conCuenta = HAY_NUBE && haySesion();
   const cli = clientePorId(p.clienteId);
   const enCalendario = x.mesesServicio.includes(mes);
@@ -29942,6 +30093,10 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
           +   '<div class="campo"><label>Evidencia categorizada (opcional)</label>'
           +     '<div id="svEvidenciaRationalWrap"></div>'
           +     '<div class="pista">Hasta ' + EVIDENCIA_MAX_POR_CATEGORIA_RATIONAL + ' fotos por categoría. No cuentan contra el cupo de "Fotos de evidencia" de arriba.</div>'
+          +   '</div>'
+          +   '<div class="campo"><label>Firmas (opcional)</label>'
+          +     '<div class="firmas-grid"><div id="svFirmaTecnicoWrap"></div><div id="svFirmaClienteWrap"></div></div>'
+          +     '<div class="pista">Firma de quien dio el servicio y de quien lo recibe por parte del cliente — aparecen al final del PDF de certificación.</div>'
           +   '</div>'
           /* Solo si ya está guardado: exporta la ÚLTIMA versión guardada, no
              los cambios sin guardar de este modal — igual que el PDF de
@@ -30120,6 +30275,13 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
   pintarFotosSv();
   pintarChecklistRational();
   pintarEvidenciaRational();
+  function repintarFirmaTecnicoSv(){
+    pintarTarjetaFirma('svFirmaTecnicoWrap', firmaTecnicoTmp, 'Firma del técnico', det && det.quien, f=>{ firmaTecnicoTmp = f; repintarFirmaTecnicoSv(); });
+  }
+  function repintarFirmaClienteSv(){
+    pintarTarjetaFirma('svFirmaClienteWrap', firmaClienteTmp, 'Firma del cliente', '', f=>{ firmaClienteTmp = f; repintarFirmaClienteSv(); });
+  }
+  if(esRational){ repintarFirmaTecnicoSv(); repintarFirmaClienteSv(); }
   /* Exporta la versión YA GUARDADA (det), no evidenciasTmp/checklistTmp del
      formulario abierto — por eso solo existe el botón cuando yaHecho. */
   if(esRational && yaHecho && $('svBtnExportarCertificacionRational')){
@@ -30129,7 +30291,8 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
         concepto: x.concepto, marca: x.marca, modelo: x.modelo, serie: det.numeroSerie || x.serie,
         fecha: det.cuando, quien: det.quien,
         checklistResultado: det.checklistRational, evidencias: det.evidencias,
-        comentarios: det.nota || '', refaccion: det.refaccion || ''
+        comentarios: det.nota || '', refaccion: det.refaccion || '',
+        firmaTecnico: det.firmaTecnico, firmaCliente: det.firmaCliente
       });
     });
   }
@@ -30245,7 +30408,8 @@ function modalServicioPoliza(polizaId, partidaId, mes, vuelveAlCalendario){
     }
 
     marcarServicio(p, partidaId, mes, Object.assign({ cuando, quien, nota, hechas, evidencias: evidenciasTmp, numeroSerie,
-      refaccion, refaccionCotizacionId: (cotOrigenExistente && cotOrigenExistente.id) || '', checklistRational: checklistTmp },
+      refaccion, refaccionCotizacionId: (cotOrigenExistente && cotOrigenExistente.id) || '', checklistRational: checklistTmp,
+      firmaTecnico: firmaTecnicoTmp, firmaCliente: firmaClienteTmp },
       motivo ? { motivo } : {}));
     if(!conCuenta) recordarCapturador(quien);
 
@@ -32897,6 +33061,163 @@ function modalCotizacion(id, origenReporte){
   }
 }
 
+/* ------------------- Modal: Reporte de servicio realizado (Cotizaciones) -------------------
+   Pedido de Victor (21-oct-2026): "en las cotizaciones realizadas permite
+   realizar un reporte de servicio realizado, donde pueda ingresar los datos
+   relevantes para que el cliente este seguro que el trabajo cotizado se
+   realizo" — evidencia antes/después/hallazgo con descripción, notas libres
+   y firmas de técnico/cliente (mismo pad de firma que la certificación
+   RATIONAL). A PROPÓSITO es su PROPIO modal, no un panel dentro de
+   modalCotizacion: se abre desde vistaCotizacion (solo lectura), nunca
+   anidado dentro de otro modal abierto — mismo motivo documentado junto a
+   activarPadFirma(). */
+function modalReporteServicioCotizacion(cotizacionId){
+  const c = cotizacionPorId(cotizacionId);
+  if(!c) return;
+  const cli = clientePorId(c.clienteId);
+  const s = sitioPorId(c.sitioId);
+
+  let itemsTmp = c.reporteServicio.items.map(x => Object.assign({}, x));
+  let firmaTecnicoTmp = c.reporteServicio.firmaTecnico;
+  let firmaClienteTmp = c.reporteServicio.firmaCliente;
+  let tipoParaSubir = 'despues';
+
+  const cuerpo =
+      '<div class="resumen" style="margin-bottom:18px">'
+    +   '<div class="r-fila"><span>Cotización</span><span>' + esc(c.folio || 'Sin folio')
+    +     (cli ? ' · ' + esc(cli.nombre) : '') + (s ? ' · ' + esc(s.nombre) : '') + '</span></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Fecha del servicio</label><input type="date" id="rsFecha" value="' + esc(c.reporteServicio.fecha) + '"></div>'
+    +   '<div class="campo"><label>Quién realizó el servicio</label><input type="text" id="rsQuien" value="' + esc(c.reporteServicio.quien) + '" placeholder="Nombre del técnico"></div>'
+    + '</div>'
+    + '<div class="campo"><label>Notas (opcional)</label><textarea id="rsNotas" placeholder="Qué se hizo, observaciones generales…">' + esc(c.reporteServicio.notas) + '</textarea></div>'
+    + '<div class="campo"><label>Evidencia (opcional)</label>'
+    +   '<div id="rsItemsWrap"></div>'
+    +   '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px">'
+    +     TIPO_ITEM_REPORTE_SERVICIO.map(t =>
+          '<button type="button" class="btn btn-suave btn-mini" data-agregar-item-reporte="' + t + '">'
+          + ICONO.camara + 'Agregar foto: ' + ETIQUETA_TIPO_ITEM_REPORTE_SERVICIO[t] + '</button>').join('')
+    +   '</div>'
+    +   '<input type="file" id="rsArchivo" accept="image/*" multiple style="display:none">'
+    + '</div>'
+    + '<div class="campo"><label>Firmas (opcional)</label>'
+    +   '<div class="firmas-grid"><div id="rsFirmaTecnicoWrap"></div><div id="rsFirmaClienteWrap"></div></div>'
+    +   '<div class="pista">Firma de quien dio el servicio y de quien lo recibe por parte del cliente — aparecen al final del reporte.</div>'
+    + '</div>';
+
+  abrirModal('Reporte de servicio realizado', cuerpo,
+      '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+    + '<button type="button" class="btn btn-primario" data-modal="guardar">Guardar reporte</button>');
+  $('modal').classList.add('ancho');
+
+  function pintarItemsReporte(){
+    $('rsItemsWrap').innerHTML = itemsTmp.length
+      ? '<div class="galeria-evidencia">' + itemsTmp.map(it =>
+          '<div class="foto-evidencia">'
+          +   '<img src="' + esc(it.dataUrl) + '" alt="Evidencia">'
+          +   '<select data-item-tipo="' + esc(it.id) + '">'
+          +     TIPO_ITEM_REPORTE_SERVICIO.map(t => '<option value="' + t + '"' + (t === it.tipo ? ' selected' : '') + '>'
+                + esc(ETIQUETA_TIPO_ITEM_REPORTE_SERVICIO[t]) + '</option>').join('')
+          +   '</select>'
+          +   '<input type="text" data-item-desc="' + esc(it.id) + '" value="' + esc(it.descripcion) + '" placeholder="Descripción (opcional)">'
+          +   '<button type="button" class="btn btn-peligro btn-mini" data-quitar-item="' + esc(it.id) + '">' + ICONO.basura + '</button>'
+          + '</div>'
+        ).join('') + '</div>'
+      : '<p class="pista">Sin fotos todavía.</p>';
+    $('rsItemsWrap').querySelectorAll('[data-item-tipo]').forEach(sel=>{
+      sel.addEventListener('change', ()=>{
+        const it = itemsTmp.find(x => x.id === sel.dataset.itemTipo);
+        if(it) it.tipo = sel.value;
+      });
+    });
+    $('rsItemsWrap').querySelectorAll('[data-item-desc]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const it = itemsTmp.find(x => x.id === inp.dataset.itemDesc);
+        if(it) it.descripcion = inp.value;
+      });
+    });
+    $('rsItemsWrap').querySelectorAll('[data-quitar-item]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        itemsTmp = itemsTmp.filter(x => x.id !== b.dataset.quitarItem);
+        pintarItemsReporte();
+      });
+    });
+  }
+  pintarItemsReporte();
+
+  $('rsItemsWrap').closest('.campo').querySelectorAll('[data-agregar-item-reporte]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      tipoParaSubir = b.dataset.agregarItemReporte;
+      $('rsArchivo').click();
+    });
+  });
+  $('rsArchivo').addEventListener('change', async ev=>{
+    const archivos = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if(!archivos.length) return;
+    for(const archivo of archivos){
+      try{
+        const img = await leerEvidencia(archivo);
+        const dataUrl = comprimirEvidencia(img);
+        itemsTmp.push(normalizarItemReporteServicio({ dataUrl, tipo: tipoParaSubir }));
+      }catch(e){ aviso(e.message, true); }
+    }
+    pintarItemsReporte();
+  });
+
+  function repintarFirmaTecnicoRs(){
+    pintarTarjetaFirma('rsFirmaTecnicoWrap', firmaTecnicoTmp, 'Firma del técnico', $('rsQuien').value, f=>{ firmaTecnicoTmp = f; repintarFirmaTecnicoRs(); });
+  }
+  function repintarFirmaClienteRs(){
+    pintarTarjetaFirma('rsFirmaClienteWrap', firmaClienteTmp, 'Firma del cliente', '', f=>{ firmaClienteTmp = f; repintarFirmaClienteRs(); });
+  }
+  repintarFirmaTecnicoRs();
+  repintarFirmaClienteRs();
+
+  cerrarModalActual = ()=>{
+    c.reporteServicio = normalizarReporteServicioCotizacion({
+      fecha: $('rsFecha').value, quien: $('rsQuien').value.trim(), notas: $('rsNotas').value.trim(),
+      items: itemsTmp, firmaTecnico: firmaTecnicoTmp, firmaCliente: firmaClienteTmp
+    });
+    guardarCotizacion(c, 'actualizó', 'reporte de servicio realizado de ' + (c.folio || 'sin folio'));
+    cerrarModal();
+    render();
+    aviso('Reporte de servicio guardado.');
+  };
+}
+
+/* Payload/apertura del reporte de servicio de Cotizaciones, mismo patrón que
+   armarPayload.../abrirDocumento... del resto de documentos de Forguard
+   (ver el comentario grande junto a armarPayloadCertificacionRational). */
+function armarPayloadReporteServicioCotizacion(c){
+  const cli = clientePorId(c.clienteId);
+  const s = sitioPorId(c.sitioId);
+  const r = c.reporteServicio;
+  return {
+    meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
+    contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: (sesion && sesion.correo) || '' },
+    folio: c.folio || '',
+    cliente: cli ? cli.nombre : '',
+    sitio: s ? s.nombre : '',
+    fecha: fechaDocumento(r.fecha || hoyISO()),
+    quien: r.quien || '',
+    notas: r.notas || '',
+    items: r.items.map(it => ({ dataUrl: it.dataUrl, etiqueta: ETIQUETA_TIPO_ITEM_REPORTE_SERVICIO[it.tipo], descripcion: it.descripcion })),
+    firmaTecnico: r.firmaTecnico ? { nombre: r.firmaTecnico.nombre, dataUrl: r.firmaTecnico.dataUrl, fechaTexto: fechaHora(r.firmaTecnico.fecha) } : null,
+    firmaCliente: r.firmaCliente ? { nombre: r.firmaCliente.nombre, dataUrl: r.firmaCliente.dataUrl, fechaTexto: fechaHora(r.firmaCliente.fecha) } : null
+  };
+}
+const LLAVE_DOC_REPORTE_SERVICIO_COTIZACION = 'forguard.documento.reporteServicioCotizacion';
+function abrirDocumentoReporteServicioCotizacion(cotizacionId){
+  const c = cotizacionPorId(cotizacionId);
+  if(!c || !reporteServicioTieneContenido(c.reporteServicio)) return;
+  try{
+    sessionStorage.setItem(LLAVE_DOC_REPORTE_SERVICIO_COTIZACION, JSON.stringify(armarPayloadReporteServicioCotizacion(c)));
+  }catch(e){ aviso('No se pudo preparar el documento: ' + e.message, true); return; }
+  window.open('docs/plantilla_reporte_servicio_cotizacion.html', '_blank');
+}
+
 /* ======================== Modal: Cotización de Forpass ========================
    Ver el comentario grande junto a normalizarCotizacionForpass() para el
    porqué de cada decisión de diseño. Mismo molde de trabajo que el resto de
@@ -34638,6 +34959,145 @@ function confirmarEscribiendoNombre(titulo, texto, nombreEsperado, textoBoton, a
   setTimeout(()=> $('confirmaEscritoInput').focus(), 60);
 }
 
+/* --------------------------- Pad de firma (inline, NO modal) ---------------------------
+   Reutilizable (21-oct-2026, pedido de Victor: "en todos nuestros reportes
+   emitidos... puedan incluirse las firmas del técnico y del cliente") — un
+   lienzo donde se firma con el dedo/mouse, más el nombre de quien firma. No
+   es una firma digital certificada: es una captura visual, igual que firmar
+   un papel y escanearlo, para dejar constancia dentro del propio documento.
+
+   A PROPÓSITO no es un modal nuevo (abrirModal/confirmar): todo lugar donde
+   hace falta capturar una firma es un botón DENTRO de un modal que ya está
+   abierto (registrar servicio de póliza, hallazgo, reporte de servicio de
+   cotización) — abrirModal() reemplaza #modalCuerpo entero, así que abrir
+   un modal de firma ahí ENCIMA borraría lo que se llevaba capturado en ese
+   formulario (mismo motivo ya documentado en este archivo para usar
+   window.confirm() en vez de confirmar() dentro de un modal abierto, ver
+   "Recalcular calendario" en modalPoliza y "Borrar renglón" en
+   modalCotizacion). En cambio, activarPadFirma() solo reemplaza el
+   contenido de UN contenedor pequeño que el que llama ya tiene en su propio
+   HTML (ver pintarFirmasRational() como ejemplo) — el resto del modal
+   sigue intacto.
+
+   firmaPadHTML(): el markup del pad (nombre + lienzo + Cancelar/Guardar).
+   activarPadFirma(contenedor, opts): engancha el dibujo y los botones,
+   TODO escaneado con contenedor.querySelector (nunca $() por id global),
+   para poder tener varios pads en la misma pantalla sin que se pisen los
+   ids. opts.alGuardar recibe { nombre, dataUrl, fecha } — dataUrl es un PNG
+   con fondo TRANSPARENTE (el lienzo nunca se rellena). opts.alCancelar se
+   llama si se cierra el pad sin guardar (para que quien llama regrese su
+   propio contenedor al estado de antes). */
+function firmaPadHTML(etiquetaNombre, nombreInicial){
+  return '<div class="campo"><label>' + esc(etiquetaNombre || 'Nombre de quien firma') + '</label>'
+    +   '<input type="text" class="js-firma-nombre" value="' + esc(nombreInicial || '') + '" placeholder="Nombre completo" autocomplete="off"></div>'
+    + '<div class="firma-lienzo-wrap"><canvas class="js-firma-lienzo"></canvas></div>'
+    + '<p class="pista">Firma con el dedo o el mouse dentro del recuadro.</p>'
+    + '<div class="firma-pad-botones">'
+    +   '<button type="button" class="btn btn-suave btn-mini js-firma-cancelar">Cancelar</button>'
+    +   '<button type="button" class="btn btn-suave btn-mini js-firma-limpiar">Limpiar</button>'
+    +   '<button type="button" class="btn btn-primario btn-mini js-firma-guardar">Guardar firma</button>'
+    + '</div>';
+}
+function activarPadFirma(contenedor, opts){
+  const alGuardar = opts && opts.alGuardar;
+  const alCancelar = opts && opts.alCancelar;
+  const lienzo = contenedor.querySelector('.js-firma-lienzo');
+  const nombreInput = contenedor.querySelector('.js-firma-nombre');
+  const ctx = lienzo.getContext('2d');
+  let hayTrazo = false;
+  let dibujando = false;
+
+  /* El lienzo interno se dimensiona en píxeles reales (devicePixelRatio)
+     para que la firma no salga borrosa al imprimirse en el documento final;
+     el timeout deja que el pad ya esté en el DOM con medidas reales antes
+     de leer getBoundingClientRect. */
+  function ajustarTamano(){
+    const rect = lienzo.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    lienzo.width = Math.round(rect.width * dpr);
+    lienzo.height = Math.round(rect.height * dpr);
+    ctx.scale(dpr, dpr);
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#13213E';
+  }
+  setTimeout(ajustarTamano, 30);
+
+  function puntoDesdeEvento(ev){
+    const rect = lienzo.getBoundingClientRect();
+    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+  }
+  lienzo.addEventListener('pointerdown', ev=>{
+    dibujando = true; hayTrazo = true;
+    const p = puntoDesdeEvento(ev);
+    ctx.beginPath(); ctx.moveTo(p.x, p.y);
+    lienzo.setPointerCapture(ev.pointerId);
+  });
+  lienzo.addEventListener('pointermove', ev=>{
+    if(!dibujando) return;
+    const p = puntoDesdeEvento(ev);
+    ctx.lineTo(p.x, p.y); ctx.stroke();
+  });
+  const terminarTrazo = ()=>{ dibujando = false; };
+  lienzo.addEventListener('pointerup', terminarTrazo);
+  lienzo.addEventListener('pointerleave', terminarTrazo);
+  lienzo.addEventListener('pointercancel', terminarTrazo);
+
+  contenedor.querySelector('.js-firma-limpiar').addEventListener('click', ()=>{
+    ctx.clearRect(0, 0, lienzo.width, lienzo.height);
+    hayTrazo = false;
+  });
+  contenedor.querySelector('.js-firma-cancelar').addEventListener('click', ()=>{
+    if(alCancelar) alCancelar();
+  });
+  contenedor.querySelector('.js-firma-guardar').addEventListener('click', ()=>{
+    const nombre = nombreInput.value.trim();
+    if(!nombre){ nombreInput.setAttribute('aria-invalid','true'); nombreInput.focus(); aviso('Falta el nombre de quien firma.', true); return; }
+    if(!hayTrazo){ aviso('Falta la firma: dibújala dentro del recuadro.', true); return; }
+    const dataUrl = lienzo.toDataURL('image/png');
+    if(alGuardar) alGuardar({ nombre, dataUrl, fecha: new Date().toISOString() });
+  });
+
+  setTimeout(()=> nombreInput.focus(), 60);
+}
+/* Tarjeta de firma reutilizable: pinta el estado "firmado" (miniatura +
+   nombre + Cambiar/Quitar) o un botón "Firmar" vacío, según `firma` (objeto
+   normalizarFirma o null). Quien llama es dueño de guardar el resultado (su
+   propia variable tmp) y de volver a pintar tras cada cambio — mismo
+   patrón que pintarEvidenciaRational()/pintarChecklistRational(). */
+function pintarTarjetaFirma(idContenedor, firma, etiqueta, nombreSugerido, alCambiar){
+  const cont = $(idContenedor);
+  if(!cont) return;
+  function mostrarPadFirma(){
+    cont.innerHTML = firmaPadHTML(etiqueta, (firma && firma.nombre) || nombreSugerido || '');
+    activarPadFirma(cont, {
+      alGuardar: f => alCambiar(f),
+      alCancelar: ()=> pintarTarjetaFirma(idContenedor, firma, etiqueta, nombreSugerido, alCambiar)
+    });
+  }
+  if(firma){
+    cont.innerHTML =
+        '<div class="firma-tarjeta">'
+      +   '<img class="firma-miniatura" src="' + esc(firma.dataUrl) + '" alt="Firma de ' + esc(firma.nombre) + '">'
+      +   '<div class="firma-tarjeta-nombre">' + esc(firma.nombre) + '</div>'
+      +   '<div class="firma-tarjeta-botones">'
+      +     '<button type="button" class="btn btn-suave btn-mini js-cambiar">Cambiar</button>'
+      +     '<button type="button" class="btn btn-suave btn-mini js-quitar">Quitar</button>'
+      +   '</div>'
+      + '</div>';
+    cont.querySelector('.js-cambiar').addEventListener('click', mostrarPadFirma);
+    cont.querySelector('.js-quitar').addEventListener('click', ()=> alCambiar(null));
+  }else{
+    cont.innerHTML =
+        '<div class="firma-tarjeta firma-tarjeta-vacia">'
+      +   '<div class="pista">' + esc(etiqueta) + ': sin firmar</div>'
+      +   '<button type="button" class="btn btn-suave btn-mini js-firmar">Firmar</button>'
+      + '</div>';
+    cont.querySelector('.js-firmar').addEventListener('click', mostrarPadFirma);
+  }
+}
+
 $('modalPie').addEventListener('click', ev=>{
   const b = ev.target.closest('[data-modal]');
   if(!b) return;
@@ -34723,6 +35183,13 @@ $('vista').addEventListener('click', ev=>{
        igual que imprimir-poliza. */
     else if(a === 'imprimir-cotizacion') abrirDocumentoCotizacion(estado.cotizacionId, estado.ladoCotizacion);
     else if(a === 'vista-previa-cotizacion') modalPreviaCotizacion(estado.cotizacionId, estado.ladoCotizacion);
+    /* Reporte de servicio realizado (21-oct-2026, pedido de Victor: "en las
+       cotizaciones realizadas permite realizar un reporte de servicio
+       realizado... para que el cliente este seguro que el trabajo cotizado
+       se realizo") — mismo criterio que editar-cotizacion: exige permiso de
+       captura, no de lectura. */
+    else if(a === 'reporte-servicio-cotizacion'){ if(exigirPermiso()) modalReporteServicioCotizacion(estado.cotizacionId); }
+    else if(a === 'exportar-reporte-servicio-cotizacion') abrirDocumentoReporteServicioCotizacion(estado.cotizacionId);
     else if(a === 'borrar-cotizacion'){
       if(!exigirAdmin('eliminar una cotización')) return;
       const cot = cotizacionPorId(estado.cotizacionId);
