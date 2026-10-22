@@ -94,6 +94,19 @@
      queda solo al final de una hoja — eso basta; el texto largo puede
      seguir su flujo normal y partirse entre hojas como cualquier párrafo. */
 
+  /* Firmas (21-oct-2026, pedido de Victor: "en los de certificación de
+     rational puedan incluirse las firmas del tecnico y del cliente") — dos
+     casillas lado a lado, cada una con la imagen de la firma, una línea y
+     el nombre/rol debajo (como firmar un papel). Si solo se firmó una, la
+     cuadrícula igual se parte en 2 columnas y la casilla vacía simplemente
+     no existe en el HTML (nunca una casilla en blanco de relleno). */
+  .firmas-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:6px;page-break-inside:avoid;}
+  .firma-casilla{text-align:center;}
+  .firma-casilla img{max-width:100%;max-height:70px;object-fit:contain;display:block;margin:0 auto;}
+  .firma-casilla .firma-linea{border-top:1px solid var(--rule-strong);margin-top:34px;padding-top:6px;}
+  .firma-casilla .firma-nombre{font-size:10px;font-weight:700;color:var(--text);}
+  .firma-casilla .firma-rol{font-size:8.5px;color:var(--muted);margin-top:2px;}
+
   .footwrap{margin-top:30px;padding-top:14px;border-top:1px solid var(--rule);}
   .foot{font-size:8px;color:var(--muted);line-height:1.5;}
   .foot .k{font-weight:700;color:#8A929D;}
@@ -256,6 +269,25 @@ if(!DOC){
       + '<div class="comentarios-texto">' + esc(DOC.refaccion) + '</div></div>'
     : '';
 
+  /* Firmas (21-oct-2026, pedido de Victor) — una casilla por cada una que
+     SÍ se firmó; se omite la sección entera si no se firmó ninguna, nunca
+     una casilla en blanco. */
+  const casillaFirma = (firma, rol) => firma
+    ? '<div class="firma-casilla">'
+      + '<img src="' + esc(firma.dataUrl) + '" alt="Firma de ' + esc(firma.nombre) + '">'
+      + '<div class="firma-linea"></div>'
+      + '<div class="firma-nombre">' + esc(firma.nombre) + '</div>'
+      + '<div class="firma-rol">' + esc(rol) + ' · ' + esc(firma.fechaTexto) + '</div>'
+      + '</div>'
+    : '';
+  const firmasHTML = (DOC.firmaTecnico || DOC.firmaCliente)
+    ? '<div class="seccion"><div class="seccion-tit">Firmas</div>'
+      + '<div class="firmas-grid">'
+      +   casillaFirma(DOC.firmaTecnico, 'Técnico')
+      +   casillaFirma(DOC.firmaCliente, 'Recibe de conformidad')
+      + '</div></div>'
+    : '';
+
   document.getElementById('doc').innerHTML =
       '<div class="doc">'
     +   '<div class="cab">'
@@ -285,6 +317,8 @@ if(!DOC){
     +     '<div class="seccion-tit">Evidencia fotográfica</div>'
     +     categoriasHTML
     +   '</div>'
+
+    +   firmasHTML
 
     +   '<div class="footwrap"><div class="foot">'
     +     '<span class="k">' + esc(DOC.contacto.telOficina || '') + '</span> · '
