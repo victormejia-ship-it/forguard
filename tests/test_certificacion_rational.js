@@ -30,7 +30,16 @@
    Pendiente para una entrega posterior (ya en el radar, no en esta prueba):
    el mismo checklist+evidencia reusado en Levantamientos (modalHallazgo,
    que ya tiene su propio campo `marca` estructurado) y un botón de exportar
-   PDF con un formato parecido al reporte de Euromex. */
+   PDF con un formato parecido al reporte de Euromex.
+
+   Actualización 24-oct-2026 (revisión general de la plataforma, pedido de
+   Victor: "analiza cada camino y cada punto vulnerable"): se agregaron
+   firmas de técnico/cliente a esta certificación el 21-oct-2026, pero
+   `datosClientePoliza()` no las redactaba — viajaban sin filtrar a
+   `polizas_cliente`, mismo riesgo de tamaño de documento (PNG en base64)
+   que ya tumbó POL-024 por exceder 1 MiB en Firestore. Se corrigió junto
+   con `checklistRational` en el mismo `Object.assign`; esta prueba ahora
+   también firma y confirma que la copia de cliente sale sin firmas. */
 const { chromium } = require('playwright');
 const path = require('path');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
@@ -136,15 +145,30 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Esa foto NO aparece en la galería general de "Fotos de evidencia"', await page.locator('#svFotosWrap .evidencia-foto').count() === 0);
 
   await page.fill('#svCuando', '2026-09-15');
+
+  // Firma del técnico (21-oct-2026): también debe quedar fuera del portal de clientes.
+  await page.click('#svFirmaTecnicoWrap .js-firmar');
+  await page.waitForTimeout(150);
+  await page.fill('#svFirmaTecnicoWrap .js-firma-nombre', 'Samuel Acosta');
+  await page.locator('#svFirmaTecnicoWrap .js-firma-lienzo').scrollIntoViewIfNeeded();
+  const cajaFirma = await page.locator('#svFirmaTecnicoWrap .js-firma-lienzo').boundingBox();
+  await page.mouse.move(cajaFirma.x + 20, cajaFirma.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(cajaFirma.x + 90, cajaFirma.y + 60);
+  await page.mouse.up();
+  await page.click('#svFirmaTecnicoWrap .js-firma-guardar');
+  await page.waitForTimeout(150);
+
   await page.click('[data-modal="guardar"]');
   await page.waitForTimeout(400);
 
   const guardado = await page.evaluate(() => {
     const det = datos.polizas.find(x=>x.id==='p1').hechos['x1']['9'];
-    return { marcados: Object.keys(det.checklistRational).length, categorias: det.evidencias.map(e => e.categoriaRational) };
+    return { marcados: Object.keys(det.checklistRational).length, categorias: det.evidencias.map(e => e.categoriaRational), firmaTecnico: det.firmaTecnico };
   });
   chkF('Se guardaron los 3 puntos marcados del checklist', guardado.marcados === 3);
   chkF('Se guardó la foto con su categoría ("placa")', guardado.categorias.includes('placa'));
+  chkF('Se guardó la firma del técnico en el registro real', guardado.firmaTecnico && guardado.firmaTecnico.nombre === 'Samuel Acosta');
 
   // --------- 3) Un equipo que NO es Rational: el modal se queda igual que siempre ---------
   await page.evaluate(() => modalServicioPoliza('p1', 'x2', 9, false));
@@ -152,15 +176,17 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('Un equipo de otra marca (True) NO muestra la sección de certificación', await page.locator('#svZonaRational').count() === 0);
   await page.click('[data-modal="cancelar"]');
 
-  // --------- 4) El checklist y la evidencia categorizada son control interno: no viajan al portal ---------
+  // --------- 4) El checklist, la evidencia categorizada y las firmas son control interno: no viajan al portal ---------
   const portal = await page.evaluate(() => {
     const p = datos.polizas.find(x=>x.id==='p1');
     const copia = datosClientePoliza(p);
     const det = copia.hechos['x1']['9'];
-    return { checklist: det.checklistRational, evidencias: det.evidencias.length };
+    return { checklist: det.checklistRational, evidencias: det.evidencias.length, firmaTecnico: det.firmaTecnico, firmaCliente: det.firmaCliente };
   });
   chkF('La copia del portal de clientes NO trae el checklist marcado', Object.keys(portal.checklist).length === 0);
   chkF('...ni la foto categorizada (es control interno para el certificador)', portal.evidencias === 0);
+  chkF('...ni la firma del técnico (son PNG base64, mismo riesgo de tamaño que POL-024)', portal.firmaTecnico === null);
+  chkF('...ni la firma del cliente', portal.firmaCliente === null);
 
   chkF('No hubo errores de página en todo el escenario', errores.length === 0);
   console.log('Errores capturados:', JSON.stringify(errores));
