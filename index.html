@@ -3727,8 +3727,14 @@ function datosClientePoliza(p){
          siempre. */
       const evidenciasLigeras = (porMes[mes].evidencias || [])
         .filter(e => e.dataUrl && e.dataUrl.startsWith('http') && !e.categoriaRational);
+      /* Firmas de la certificación RATIONAL (21-oct-2026): mismo criterio
+         exacto que checklistRational — control interno para el
+         certificador, nunca pensadas para el portal, y además son PNG en
+         base64 (nunca suben a Storage como las evidencias de arriba), así
+         que dejarlas pasar reproduce el mismo riesgo de tamaño de POL-024
+         documentado arriba, uno por cada mes de servicio con firma. */
       hechosLigeros[partidaId][mes] = Object.assign({}, porMes[mes],
-        { evidencias: evidenciasLigeras, checklistRational: {} });
+        { evidencias: evidenciasLigeras, checklistRational: {}, firmaTecnico: null, firmaCliente: null });
     });
   });
   return Object.assign({}, p, {
@@ -6137,6 +6143,12 @@ function normalizarCotizacion(q){
    certificación). */
 const TIPO_ITEM_REPORTE_SERVICIO = ['antes', 'despues', 'hallazgo'];
 const ETIQUETA_TIPO_ITEM_REPORTE_SERVICIO = { antes: 'Antes', despues: 'Después', hallazgo: 'Hallazgo' };
+/* Mismo tope que EVIDENCIA_MAX_POR_SERVICIO (ver arriba) — a diferencia de
+   esa evidencia, el reporte de servicio SÍ viaja completo al portal de
+   cliente (datosClienteCotizacion, es justo su propósito), así que sin
+   tope aquí se repite el mismo riesgo de tamaño que ya tumbó POL-024
+   (documento de Firestore por encima de 1 MiB). */
+const ITEMS_MAX_REPORTE_SERVICIO = 8;
 function normalizarItemReporteServicio(it){
   return {
     id: (it && it.id) || nuevoId(),
@@ -6150,7 +6162,7 @@ function normalizarReporteServicioCotizacion(r){
     fecha: /^\d{4}-\d{2}-\d{2}$/.test(r && r.fecha) ? r.fecha : hoyISO(),
     quien: (r && r.quien ? String(r.quien) : '').trim(),
     notas: (r && r.notas ? String(r.notas) : '').trim(),
-    items: (Array.isArray(r && r.items) ? r.items : []).map(normalizarItemReporteServicio).filter(it => it.dataUrl),
+    items: (Array.isArray(r && r.items) ? r.items : []).map(normalizarItemReporteServicio).filter(it => it.dataUrl).slice(0, ITEMS_MAX_REPORTE_SERVICIO),
     firmaTecnico: normalizarFirma(r && r.firmaTecnico),
     firmaCliente: normalizarFirma(r && r.firmaCliente)
   };
@@ -9000,6 +9012,24 @@ function conceptosOrdenadosPorProveedor(conceptos){
     if(!pb) return -1;
     return pa.localeCompare(pb, 'es', { sensitivity:'base' });
   });
+}
+/* Mismo criterio de "orden de despliegue, nunca de captura" que la función
+   de arriba, ahora para el concepto de cada renglón (26-oct-2026, pedido de
+   Victor con un ejemplo real de Pólizas: "el orden de los item en las
+   polizas no se ordenan de manera alfabetica... que todas las polizas
+   puedan ordenar alfabeticamente estos datos"). Se usa en la tabla "Equipos
+   cotizados" de vistaPoliza() (de solo lectura) — NO en modalPoliza(), que
+   es donde se capturan/editan los renglones y donde reordenar solo movería
+   filas debajo del cursor de quien está escribiendo.
+
+   Devuelve pares {item, i} con el índice ORIGINAL de cada renglón: varios
+   arreglos calculados aparte (ej. c.totales de calcularPoliza()) quedan en
+   el mismo orden que partidas, así que hace falta ese índice para seguir
+   leyendo el total correcto de cada renglón aunque se pinte en otra
+   posición de la tabla. */
+function conIndiceOrdenadosPorConcepto(lista){
+  return lista.map((item, i) => ({ item, i })).sort((a, b) =>
+    (a.item.concepto || '').localeCompare(b.item.concepto || '', 'es', { sensitivity:'base' }));
 }
 /* costo* = lo que factura el proveedor (como siempre); venta* = lo que se le
    cobra al cliente por esos mismos renglones (21-sep-2026). utilidad/margenPct
@@ -25550,7 +25580,11 @@ function vistaPoliza(){
      + '</div></div><div class="rodillo"><table class="tabla">'
      + '<thead><tr><th>#</th><th>Concepto</th><th>Marca</th><th>Cant.</th>'
      + '<th>P. unitario</th><th>Costo unit.</th><th>Serv./año</th><th>Meses</th><th>Total</th></tr></thead><tbody>'
-     + p.partidas.map((x,i)=>{
+     /* Orden alfabético de despliegue (ver conIndiceOrdenadosPorConcepto):
+        `i` es el índice ORIGINAL en p.partidas —para leer c.totales[i]
+        correcto— y `pos` es la posición ya ordenada, la que de verdad se
+        numera en la columna "#". */
+     + conIndiceOrdenadosPorConcepto(p.partidas).map(({item:x, i}, pos)=>{
          const fuera = serviciosFueraDeCalendario(p, x);
          const chip = (m, tono, aviso) => {
            const etiqueta = etiquetaMesServicio(p.fechaInicio, m);
@@ -25605,7 +25639,7 @@ function vistaPoliza(){
              + 'title="Actualiza este renglón al precio/costo de grupo vigente de ' + esc(cli.nombre) + '">Actualizar al de grupo</button>'
            : '';
          return '<tr>'
-           + '<td>' + (i+1) + '</td>'
+           + '<td>' + (pos+1) + '</td>'
            + '<td><b>' + esc(x.concepto) + '</b>'
            +   (descripcionDe(x) ? '<div class="pista">' + esc(descripcionDe(x)) + '</div>' : '')
            +   '<div style="margin-top:4px"><span class="insignia i-' + (x.alcance === 'cliente' ? 'alerta' : 'ok') + '">'
@@ -33156,7 +33190,12 @@ function modalReporteServicioCotizacion(cotizacionId){
     const archivos = Array.from(ev.target.files || []);
     ev.target.value = '';
     if(!archivos.length) return;
-    for(const archivo of archivos){
+    const cupo = ITEMS_MAX_REPORTE_SERVICIO - itemsTmp.length;
+    if(cupo <= 0){
+      aviso('Ya tienes ' + ITEMS_MAX_REPORTE_SERVICIO + ' fotos. Quita alguna para agregar otra.', true);
+      return;
+    }
+    for(const archivo of archivos.slice(0, cupo)){
       try{
         const img = await leerEvidencia(archivo);
         const dataUrl = comprimirEvidencia(img);
