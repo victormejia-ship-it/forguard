@@ -4652,6 +4652,34 @@ async function listarNubeSuave(coleccion, porPagina){
     return null;
   }
 }
+/* Igual que listarNubeSuave, pero SOLO absorbe fallas de RED (esFalloDeRed:
+   sin internet, o fetchConTimeout que agotó sus 20s) — un 403 de permisos de
+   verdad sigue tumbando el arranque como antes, porque ESE sí es un problema
+   real de la cuenta que vale la pena que el usuario vea (ver
+   manejarFalloDeArranque). Pensado para clientes/sitios/pólizas/cotizaciones/
+   reportes/levantamientos/activos/personal (26-oct-2026, reporte de Victor:
+   "cada que actualizo me aparece [Sin conexión]"): bajarDeLaNube() pide 25
+   colecciones EN PARALELO con Promise.all, y hasta ahora una sola de estas
+   8 (las únicas que todavía usaban listarNube a secas) con un timeout —muy
+   posible con páginas de 60 pólizas/reportes/etc. de por medio, y el límite
+   de conexiones simultáneas por dominio que impone el propio navegador—
+   tumbaba TODO el Promise.all y le enseñaba "Sin conexión" a alguien que sí
+   tenía internet, aunque las otras 24 peticiones hubieran contestado bien.
+   El resto del código YA sabía manejar null para estas colecciones (ver el
+   merge de más abajo, `cl === null ? datos.clientes : ...`, y
+   registrarVersiones, que ya ignora lo que no sea un arreglo) — lo único
+   que hacía falta ajustar era el veredicto de "vacía" (ver más abajo), para
+   que un null por timeout nunca se confunda con un "el servidor en verdad
+   no tiene nada" que dispararía subirTodo(). */
+async function listarNubeResiliente(coleccion, porPagina){
+  try{
+    return await listarNube(coleccion, porPagina);
+  }catch(e){
+    if(!esFalloDeRed(e)) throw e;
+    console.warn('Tiempo de espera agotado leyendo "' + coleccion + '"; se usa lo que ya había en local:', String(e.message || e));
+    return null;
+  }
+}
 /* Para el portal de clientes: trae SOLO los documentos donde `campo == valor`
    (p.ej. clienteId == el suyo). No sirve el "listar todo" de arriba — además
    de traer datos ajenos, las reglas de Firestore que comparan
@@ -5097,14 +5125,14 @@ async function bajarDeLaNube(soloColecciones){
      null de una vez, en vez de disparar la red y tirar la respuesta. */
   const p = (coleccion, hacer) => (!soloColecciones || soloColecciones.has(coleccion)) ? hacer() : Promise.resolve(null);
   const [cl, si, po, eq, sg, pr, co, rp, lv, im, se, ac, pe, np, pv, gp, rf, oc, vi, cr, pq, op, pm, cf, qfp] = await Promise.all([
-    p('clientes', () => listarNube('clientes')), p('sitios', () => listarNube('sitios')),
-    p('polizas', () => listarNube('polizas', 60)), p('catalogo', () => leerCatalogo()),
+    p('clientes', () => listarNubeResiliente('clientes')), p('sitios', () => listarNubeResiliente('sitios')),
+    p('polizas', () => listarNubeResiliente('polizas', 60)), p('catalogo', () => leerCatalogo()),
     p('segmentos', () => leerSegmentos()), p('parametros', () => leerParametros()),
-    p('cotizaciones', () => listarNube('cotizaciones')), p('reportes', () => listarNube('reportes', 60)),
-    p('levantamientos', () => listarNube('levantamientos', 60)),
+    p('cotizaciones', () => listarNubeResiliente('cotizaciones')), p('reportes', () => listarNubeResiliente('reportes', 60)),
+    p('levantamientos', () => listarNubeResiliente('levantamientos', 60)),
     p('proyectosImagen', () => listarNubeSuave('proyectosImagen', 60)),
     p('cotizaciones', () => listarNubeSuave('serviciosExtras', 60)),
-    p('activos', () => listarNube('activos', 60)), p('personal', () => listarNube('personal', 200)),
+    p('activos', () => listarNubeResiliente('activos', 60)), p('personal', () => listarNubeResiliente('personal', 200)),
     /* Solo esAdmin() puede leer 'nominaPersonal' (ver firestore.rules) — con
        listarNubeSuave en vez de listarNube a secas, un 403 aquí para
        cualquier otro rol no tumba el resto del login (mismo criterio que
@@ -5122,7 +5150,14 @@ async function bajarDeLaNube(soloColecciones){
     p('catalogoForpass', () => leerCatalogoForpass()),
     p('cotizacionesForpass', () => listarNubeSuave('cotizacionesForpass', 100))
   ]);
-  if(!soloColecciones && !cl.length && !si.length && !po.length
+  /* `cl && si && po` primero (26-oct-2026): con listarNubeResiliente, un
+     timeout de red en UNA sola de las tres devuelve null, no un arreglo
+     vacío — null significa "no se pudo confirmar", nunca "el servidor no
+     tiene nada". Sin este guardia, un simple timeout pasajero se leería
+     igual que un Firestore recién creado y vacío, y dispararía subirTodo()
+     por error, intentando resubir todo lo local encima de un servidor que
+     en realidad sí tenía datos y solo tardó en contestar. */
+  if(!soloColecciones && cl && si && po && !cl.length && !si.length && !po.length
      && (datos.clientes.length || datos.sitios.length || datos.polizas.length)) return 'vacia';
   /* La descarga tarda —cuatro lecturas paginadas— y el guardia de quien llama
      revisa la cola ANTES de arrancarla: una captura hecha DENTRO de esa ventana
