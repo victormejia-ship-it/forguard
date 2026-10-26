@@ -32315,6 +32315,15 @@ function modalPoliza(id, origenLevantamiento){
 
   pintarSitios();
   pintarChips();
+  /* Pedido de Victor (26-oct-2026, viendo una póliza real ya guardada con los
+     renglones en su orden de captura original): ordenarPartidasPorEquipo()
+     ya se llamaba al agregar un renglón desde el catálogo, pero nunca al
+     ABRIR el modal con una póliza ya existente (o venida de un Excel/
+     levantamiento/duplicado) — esos renglones se quedaban tal cual se habían
+     guardado la primera vez. Se ordena aquí, una sola vez al construir la
+     tabla, antes del primer pintarPartidas(); de ahí en adelante cada alta
+     nueva ya entra ordenada sola. */
+  ordenarPartidasPorEquipo();
   pintarPartidas();
 
   cerrarModalActual = ()=>{
