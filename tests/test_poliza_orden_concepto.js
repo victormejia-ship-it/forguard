@@ -19,10 +19,17 @@
    {item, i} con el índice ORIGINAL: la tabla se pinta en el orden nuevo,
    pero cada fila sigue leyendo su propio total por el índice de antes.
 
-   La tabla EDITABLE del modal (`modalPoliza`, donde se agregan/quitan
-   renglones) queda A PROPÓSITO fuera de este cambio: mismo motivo que
-   Proyecto de Imagen — no reacomodar filas debajo del cursor de quien
-   está capturando. */
+   La tabla EDITABLE del modal (`modalPoliza`) también ordena (26-oct-2026,
+   segundo reporte de Victor: una póliza YA GUARDADA se abría para editar y
+   los renglones seguían en su orden de captura original, no alfabético) —
+   usa la función `ordenarPartidasPorEquipo()` que ya existía y que antes
+   solo corría al agregar un renglón desde el catálogo, nunca al abrir el
+   modal con una póliza existente. El orden se recalcula únicamente dentro
+   de `pintarPartidas()` (abrir el modal, agregar, quitar, duplicar, mover
+   la fecha de inicio...) y NUNCA mientras se teclea un campo: escribir solo
+   dispara `refrescar(idx)` sobre esa fila, así que un renglón no brinca ni
+   pierde el foco a medio tecleo — mismo cuidado que ya tenía el resto de
+   esta tabla para no reacomodar filas debajo del cursor de quien captura. */
 const { chromium } = require('playwright');
 const { URL_BASE, OPCIONES_NAVEGADOR } = require('./lib/entorno');
 const chk = (label, cond) => { console.log((cond ? 'OK  ' : 'FAIL') + ' - ' + label); return cond; };
@@ -99,12 +106,37 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   chkF('"Cámara de refrigeración" imprime su propio total ($7,000 × 2 × 3 = $42,000)',
     filas.find(f => f.concepto === 'Cámara de refrigeración').total.includes('42,000'));
 
-  // --------- 4) La tabla EDITABLE del modal NO se reordena (orden de captura) ---------
+  // --------- 4) Al ABRIR el modal de una póliza YA EXISTENTE, también sale ordenada ---------
+  /* 26-oct-2026, Victor viendo una póliza real guardada con los renglones en
+     su orden de captura original dentro del modal de edición: ordenarPartidasPorEquipo()
+     ya corría al agregar un renglón desde el catálogo, pero nunca al abrir el
+     modal con una póliza existente — esos renglones se quedaban tal cual se
+     guardaron la primera vez. Ahora se ordena una vez al construir la tabla. */
   await page.evaluate(() => { modalPoliza('p1'); });
   await page.waitForTimeout(200);
   const conceptosModal = await page.$$eval('#listaPartidas input[data-campo="concepto"]', inputs => inputs.map(i => i.value));
-  chkF('La tabla EDITABLE del modal conserva el orden de captura (no se reordena mientras se edita)',
-    JSON.stringify(conceptosModal) === JSON.stringify(['Cámara de congelación', 'Cámara de refrigeración', 'Plancha industrial', 'Freidora', 'Sarteneta']));
+  chkF('Al abrir el modal de una póliza existente, la tabla EDITABLE ya sale ordenada alfabéticamente',
+    JSON.stringify(conceptosModal) === JSON.stringify(['Cámara de congelación', 'Cámara de refrigeración', 'Freidora', 'Plancha industrial', 'Sarteneta']));
+
+  // --------- 5) Mientras se teclea un concepto, el renglón NO brinca ni pierde el foco ---------
+  /* El reordenado solo corre en pintarPartidas() (abrir el modal, agregar desde
+     el catálogo, quitar, duplicar, mover la fecha de inicio...); teclear en un
+     campo dispara el listener "input", que SOLO llama refrescar(idx) sobre esa
+     fila — nunca pintarPartidas() — así que nada se reordena a medio tecleo. */
+  const tecleo = await page.evaluate(() => {
+    const inputs = Array.from(document.querySelectorAll('#listaPartidas input[data-campo="concepto"]'));
+    const campo = inputs.find(i => i.value === 'Freidora');
+    campo.focus();
+    campo.value = 'Ab';                      // la "A" la pondría primera en la lista si reordenara
+    campo.dispatchEvent(new Event('input', { bubbles: true }));
+    return {
+      sigueEnFoco: document.activeElement === campo,
+      ordenSinCambios: Array.from(document.querySelectorAll('#listaPartidas input[data-campo="concepto"]')).map(i => i.value)
+    };
+  });
+  chkF('El campo no pierde el foco a media captura', tecleo.sigueEnFoco === true);
+  chkF('La tabla no se reordena mientras se teclea (solo al cerrar la acción que dispara pintarPartidas)',
+    JSON.stringify(tecleo.ordenSinCambios) === JSON.stringify(['Cámara de congelación', 'Cámara de refrigeración', 'Ab', 'Plancha industrial', 'Sarteneta']));
 
   chkF('No hubo errores de página en todo el escenario', errores.length === 0);
   console.log('Errores capturados:', JSON.stringify(errores));
