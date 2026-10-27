@@ -466,6 +466,18 @@ button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
 .grid-sitios{grid-template-columns:repeat(auto-fill,minmax(360px,1fr));}
 @media (max-width:700px){ .grid, .grid-sitios{grid-template-columns:1fr;} }
 
+/* Encabezado de cada grupo en el modo "Por cliente" de Pólizas (27-oct-2026,
+   pedido de Victor: "una opcion de apilar por cliente"). Mismo tratamiento
+   tipográfico que un h2 de sección, pero más discreto: aquí se repite una
+   vez por cliente, no una sola vez por pantalla. */
+.cabecera-grupo-cliente{
+  display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
+  font-size:14px; font-weight:700; color:var(--navy-texto);
+  margin:26px 0 10px; padding-bottom:8px; border-bottom:1px solid var(--line);
+}
+.cabecera-grupo-cliente:first-child{margin-top:0;}
+.cabecera-grupo-cliente .pista{font-weight:400;}
+
 .tarjeta{
   background:var(--superficie); border:1px solid var(--line); border-radius:15px; padding:18px 18px 16px;
   position:relative; transition:transform .15s var(--ease), box-shadow .15s var(--ease), border-color .15s var(--ease);
@@ -1906,11 +1918,25 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
      que se pinte el <body>, para que quien ya eligió oscuro (o lo trae por
      preferencia del sistema) no vea un destello de la página en claro. La
      lógica completa (botón, ícono, sincronizar con Firestore) vive más
-     abajo, en el script principal — esto es solo el primer trazo. -->
+     abajo, en el script principal — esto es solo el primer trazo.
+
+     27-oct-2026: la llave de localStorage es POR CUENTA ('forguard.tema.'
+     + uid), no una sola compartida por todo el navegador — ver el
+     comentario grande junto a uidTema()/llaveTemaDe() más abajo (reporte de
+     Victor: el tema de una cuenta se le pegaba a cualquier otra que
+     iniciara sesión en el mismo equipo). Aquí no existe todavía la sesión
+     restaurada (eso lo hace cargarSesion() ya entrado el script principal),
+     así que se lee a mano el mismo localStorage donde guardarSesion()
+     guarda la sesión completa, solo para sacar el uid de quien sea que haya
+     iniciado sesión aquí por última vez. Sin ningún uid recordado (primera
+     visita de verdad, nadie ha entrado nunca en este navegador) se usa la
+     llave genérica de siempre. -->
 <script>
 (function(){
   try{
-    var t = localStorage.getItem('forguard.tema');
+    var uid = null;
+    try{ uid = (JSON.parse(localStorage.getItem('forguard_forpass_sesion_v1') || '{}') || {}).uid || null; }catch(e){}
+    var t = localStorage.getItem(uid ? 'forguard.tema.' + uid : 'forguard.tema');
     if(!t) t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
     document.documentElement.setAttribute('data-theme', t);
   }catch(e){}
@@ -2373,13 +2399,43 @@ const HAY_NUBE = !!(CONFIG_NUBE.apiKey && CONFIG_NUBE.projectId);
    la app corre por variables CSS (:root / [data-theme="dark"], arriba del
    todo del <style>), así que esta función nunca necesita saber nada de
    componentes ni de vistas — ningún margin/padding/tamaño/layout se tocó
-   para este pedido, solo color/fondo/borde/sombra, como se pidió. */
+   para este pedido, solo color/fondo/borde/sombra, como se pidió.
+
+   Corrección (27-oct-2026, reporte de Victor: "si yo coloco en negro le
+   aparece a todos en negro... que este sea conforme al usuario lo quiera"):
+   el paso 1 ("lo que esta persona ya eligió EN ESTE navegador") vivía bajo
+   UNA SOLA llave de localStorage para TODO el navegador, sin importar quién
+   tuviera la sesión abierta. En una computadora compartida entre varias
+   cuentas eso significa que, en cuanto una persona tocaba el botón de tema,
+   esa elección se quedaba puesta para CUALQUIER otra cuenta que después
+   iniciara sesión ahí — porque el paso 2 (su propio perfil) solo se aplica
+   "si este navegador todavía no tiene ninguna preferencia propia", y una
+   vez que alguien tocó el botón, el navegador ya "tenía una". El tema SÍ
+   era por cuenta desde el principio del lado del servidor (`/usuarios/
+   {uid}.tema`); el hueco estaba nada más en la copia local, compartida por
+   error entre todas las cuentas del mismo navegador. Ahora la copia local
+   también se guarda por cuenta (`forguard.tema.<uid>`), así que cada quien
+   ve y controla su propio tema sin pisarle el de nadie más en el mismo
+   equipo — ver uidTema()/llaveTemaDe() abajo. */
 const TEMA_LLAVE = 'forguard.tema';
 function temaSistema(){
   return (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
 }
+/* uid de la sesión activa si ya se conoce; si no (este código corre ANTES de
+   cargarSesion() en el arranque), el de la última sesión que haya quedado
+   guardada en este navegador — mismo LLAVE_SESION que usa cargarSesion(),
+   leído aquí a mano porque esta función se define antes de que exista esa
+   constante más abajo en el archivo. null = nadie ha iniciado sesión nunca
+   en este navegador (pantalla de acceso, primera visita). */
+function uidTema(){
+  if(typeof sesion !== 'undefined' && sesion && sesion.uid) return sesion.uid;
+  try{ return (JSON.parse(localStorage.getItem('forguard_forpass_sesion_v1') || '{}') || {}).uid || null; }catch(e){ return null; }
+}
+/* Con uid: llave propia de esa cuenta en este navegador. Sin uid (nadie ha
+   iniciado sesión aquí todavía): la llave genérica de siempre. */
+function llaveTemaDe(uid){ return uid ? TEMA_LLAVE + '.' + uid : TEMA_LLAVE; }
 function temaGuardado(){
-  try{ return localStorage.getItem(TEMA_LLAVE); }catch(e){ return null; }
+  try{ return localStorage.getItem(llaveTemaDe(uidTema())); }catch(e){ return null; }
 }
 const ICONO_TEMA_SOL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="iconoTema"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
 const ICONO_TEMA_LUNA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="iconoTema"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
@@ -2395,7 +2451,7 @@ function alternarTema(){
   const actual = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   const nuevo = actual === 'dark' ? 'light' : 'dark';
   aplicarTema(nuevo);
-  try{ localStorage.setItem(TEMA_LLAVE, nuevo); }catch(e){}
+  try{ localStorage.setItem(llaveTemaDe(uidTema()), nuevo); }catch(e){}
   /* PATCH acotado a SOLO `tema` (igual que el de `ultimoAcceso` en
      cargarPerfil()), nunca por escribirNube(): esa función siempre estampa
      `actualizadoEn` de más, y la regla de Firestore para esta cuenta propia
@@ -4447,13 +4503,16 @@ async function cargarPerfil(){
   /* Modo oscuro entre dispositivos (05-oct-2026): si esta persona YA eligió
      un tema en otro navegador/celular (quedó guardado en su perfil al
      alternarTema()), y este navegador todavía no tiene ninguna preferencia
-     propia, se adopta la de su perfil — de ahí en adelante manda la copia
-     local de este navegador, igual que cualquier otro dispositivo. Si ya
-     había algo en localStorage, se respeta tal cual (no se pisa lo que la
-     persona ya eligió aquí mismo). */
+     propia DE ESTA CUENTA, se adopta la de su perfil — de ahí en adelante
+     manda la copia local de este navegador, igual que cualquier otro
+     dispositivo. Si ya había algo guardado aquí mismo para esta cuenta, se
+     respeta tal cual (no se pisa lo que la persona ya eligió). "Propia DE
+     ESTA CUENTA" desde el 27-oct-2026: temaGuardado() ahora mira la llave
+     por uid, así que la preferencia de OTRA cuenta que haya usado este
+     mismo navegador antes ya no cuenta como "ya tenía algo". */
   if((p.tema === 'dark' || p.tema === 'light') && !temaGuardado()){
     aplicarTema(p.tema);
-    try{ localStorage.setItem(TEMA_LLAVE, p.tema); }catch(e){}
+    try{ localStorage.setItem(llaveTemaDe(sesion.uid), p.tema); }catch(e){}
   }
   /* Deja constancia del acceso, sin frenar el arranque si falla. */
   pedirNube('/usuarios/' + encodeURIComponent(sesion.uid) + '?updateMask.fieldPaths=ultimoAcceso', {
@@ -13773,6 +13832,21 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                     preferencia de pantalla, no dato — por eso vive aquí y no en
                     `datos`, y se reinicia como `busca` o `filtro`. Cada módulo
                     guarda la suya para que cambiar una no cambie las otras. */
+                 /* Buscador de la LISTA de pólizas, aparte del `busca` genérico
+                    (27-oct-2026, pedido de Victor: "cada que entramos a una
+                    poliza y queremos regresar... se eliminan las busquedas").
+                    `busca` es compartido por casi toda la app —Catálogo,
+                    Clientes, Cotizaciones, el buscador de EQUIPOS dentro del
+                    detalle de una póliza (ver vistaPoliza, #buscaEquipo),
+                    etc.— y cada módulo lo limpia al entrar/salir para que la
+                    búsqueda de uno no filtre la lista de otro por accidente;
+                    por eso entrarPoliza()/irAPolizas() tenían que vaciarlo al
+                    ir y venir del detalle, y de paso se perdía lo que ya
+                    traías escrito en la LISTA. Con su propia llave, la lista
+                    de pólizas ya no depende de ese reinicio compartido: se
+                    queda puesta aunque entres a ver una póliza y regreses
+                    —igual que estado.vistaPolizas, que ya era sticky así. */
+                 buscaPolizas:'',
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
                  vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaProveedores:'tarjetas',
                  vistaGastosProveedor:'tarjetas', vistaRefacciones:'tarjetas',
@@ -14427,7 +14501,7 @@ function irAlSitioEnForpass(sitioId){
 function irAPolizasDe(texto){
   estado.modulo = 'polizas'; guardarModulo();
   estado.vista = 'polizas'; estado.polizaId = null;
-  estado.filtro = 'todos'; estado.busca = texto || '';
+  estado.filtro = 'todos'; estado.buscaPolizas = texto || '';
   animarTarjetas = true;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -14487,7 +14561,12 @@ const ICONO = {
   medidor:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0-9 9c0 2.6 1 5 2.7 6.8h12.6A9 9 0 0 0 21 12a9 9 0 0 0-9-9z"/><path d="M12 12l4.2-4.2"/><path d="M8 14.5a4.5 4.5 0 0 1 7.4-3.4"/></svg>',
   dinero:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 9v.01M18 15v.01"/></svg>',
   flechaIzquierda:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
-  flechaDerecha:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+  flechaDerecha:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+  /* "Apilar" (27-oct-2026, modo "Por cliente" de Pólizas): tres capas, el
+     ícono convencional de agrupar/apilar — distinto de "tarjetas" (rejilla
+     2×2) y de "tabla" (renglones), para que los tres botones del mismo
+     grupo se distingan de un vistazo. */
+  capas:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 21 7 12 12 3 7 12 2"/><polyline points="3 12 12 17 21 12"/><polyline points="3 17 12 22 21 17"/></svg>'
 };
 
 /* Code128 (subconjunto B), para el código interno de cada equipo — la app no
@@ -18263,17 +18342,28 @@ function vistaPolizas(){
   }
 
   h += '<div class="barra-busca">'
-     +   '<input type="search" id="buscaPoliza" placeholder="Buscar por sitio, cliente o folio…" value="' + esc(estado.busca) + '">'
+     +   '<input type="search" id="buscaPoliza" placeholder="Buscar por sitio, cliente o folio…" value="' + esc(estado.buscaPolizas) + '">'
      +   '<select id="filtroPoliza">'
      +     '<option value="todos">Todas</option>'
      +     '<option value="activas">Solo activas</option>'
      +     '<option value="calle">Solo en la calle</option>'
      +     '<option value="pendientes">Con servicios pendientes</option>'
      +   '</select>'
-     +   controlAlternaVista('vistaPolizas')
+     /* Tres modos, no dos (mismo criterio que vistaProyectosImagen: el
+        "vista-lista" genérico ya acepta cualquier valor en data-modo, ver
+        su manejador). "Por cliente" (27-oct-2026, pedido de Victor: "una
+        opcion de apilar por cliente") agrupa las MISMAS tarjetas bajo un
+        encabezado por cliente — la vista de tarjetas de siempre, que
+        Victor pidió dejar intacta ("actualmente esta perfecta esta
+        vista"), sigue siendo el modo por omisión. */
+     +   '<div class="alterna-vista" role="group" aria-label="Cómo ver la lista">'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaPolizas" data-modo="tarjetas" aria-pressed="' + (estado.vistaPolizas !== 'tabla' && estado.vistaPolizas !== 'clientes') + '" title="Ver como tarjetas">' + ICONO.tarjetas + '</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaPolizas" data-modo="tabla" aria-pressed="' + (estado.vistaPolizas === 'tabla') + '" title="Ver como tabla">' + ICONO.tabla + '</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaPolizas" data-modo="clientes" aria-pressed="' + (estado.vistaPolizas === 'clientes') + '" title="Apilar por cliente">' + ICONO.capas + '</button>'
+     +   '</div>'
      + '</div>';
 
-  const q = estado.busca.trim().toLowerCase();
+  const q = estado.buscaPolizas.trim().toLowerCase();
   const lista = datos.polizas.filter(p=>{
     if(q && !tituloPoliza(p).toLowerCase().includes(q) && !p.folio.toLowerCase().includes(q)) return false;
     const c = calcularPoliza(p);
@@ -18296,8 +18386,18 @@ function vistaPolizas(){
   }
 
   if(estado.vistaPolizas === 'tabla') return h + tablaPolizas(lista);
+  if(estado.vistaPolizas === 'clientes') return h + agrupadasPorClientePolizas(lista);
 
-  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + lista.map((p,i)=>{
+  return h + tarjetasPolizas(lista);
+}
+
+/* Las mismas tarjetas de siempre, factorizadas (27-oct-2026, pedido de
+   Victor: "una opcion de apilar por cliente") para poder reusarlas tanto en
+   el grid plano de siempre como, agrupadas, en el nuevo modo "Por cliente"
+   (ver agrupadasPorClientePolizas) — la tarjeta en sí no cambia ni un pixel
+   en ninguno de los dos casos. */
+function tarjetasPolizas(sublista){
+  return '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + sublista.map((p,i)=>{
     const c = calcularPoliza(p);
     const cli = clientePorId(p.clienteId);
 
@@ -18393,8 +18493,38 @@ function vistaPolizas(){
          +   '</div>'
          + '</div>';
   }).join('') + '</div>';
+}
 
-  return h;
+/* Modo "Por cliente" (27-oct-2026, pedido de Victor: "una opcion de apilar
+   por cliente"): agrupa las MISMAS tarjetas de tarjetasPolizas() bajo un
+   encabezado por cliente, en vez del grid plano. Orden alfabético por
+   nombre de cliente (mismo criterio ya usado en Equipos cotizados/Proyecto
+   de Imagen esta semana); las pólizas sin cliente ligado —dato huérfano
+   raro, pero posible tras borrar un cliente— se agrupan al final bajo "Sin
+   cliente ligado" en vez de perderse o reventar el ordenamiento. */
+function agrupadasPorClientePolizas(lista){
+  const grupos = new Map();
+  lista.forEach(p => {
+    const cli = clientePorId(p.clienteId);
+    const clave = cli ? cli.id : '';
+    if(!grupos.has(clave)) grupos.set(clave, { nombre: cli ? cli.nombre : 'Sin cliente ligado', sinCliente: !cli, polizas: [] });
+    grupos.get(clave).polizas.push(p);
+  });
+  const ordenados = [...grupos.values()].sort((a, b) => {
+    if(a.sinCliente !== b.sinCliente) return a.sinCliente ? 1 : -1;
+    return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
+  });
+  /* El "al año" del encabezado suma solo pólizas ACTIVAS (mismo criterio que
+     el KPI "Pólizas activas" de arriba de esta misma pantalla): una
+     cotización todavía sin confirmar no es ingreso, y sumarla ahí
+     confundiría el total del cliente con dinero que no está garantizado. */
+  return ordenados.map(g => {
+    const anual = g.polizas.reduce((t, p) => { const c = calcularPoliza(p); return t + (c.activa ? c.precioAnual : 0); }, 0);
+    return '<div class="cabecera-grupo-cliente">' + esc(g.nombre)
+      + '<span class="pista"> · ' + numero(g.polizas.length) + ' ' + plural(g.polizas.length, 'póliza', 'pólizas')
+      + (anual ? ' · ' + dinero(anual) + ' al año' : '') + '</span></div>'
+      + tarjetasPolizas(g.polizas);
+  }).join('');
 }
 
 /* ------------------------- Cotizaciones de servicio ------------------------- */
@@ -26907,7 +27037,7 @@ function render(){
   }
   const bp = $('buscaPoliza');
   if(bp){
-    bp.addEventListener('input', ()=>{ estado.busca = bp.value; renderConservandoFoco(bp, 'buscaPoliza'); });
+    bp.addEventListener('input', ()=>{ estado.buscaPolizas = bp.value; renderConservandoFoco(bp, 'buscaPoliza'); });
     const fp = $('filtroPoliza');
     fp.value = estado.filtro;
     fp.addEventListener('change', ()=>{ estado.filtro = fp.value; render(); });
@@ -38846,6 +38976,29 @@ if(!HAY_NUBE){
   });
 }
 }   /* cierra el if(!arrancarFormularioPublicoReportesSiAplica()) de arriba */
+
+/* En móvil, no dejar el teclado abierto solo porque la página cargó con un
+   buscador como foco heredado (27-oct-2026, pedido de Victor: "en
+   dispositivos moviles no abras en automatico el teclado donde existan
+   buscadores porque es molesto para cuando se carga la pagina"). Ningún
+   buscador de la app llama a su propio .focus() al cargar una vista —cada
+   uno solo se enfoca cuando la propia persona le da clic—, así que esto es
+   el NAVEGADOR restaurando el foco de una visita anterior: Safari/Chrome en
+   iOS/Android pueden reenfocar el último campo activo al reabrir la
+   pestaña desde el caché de retroceso (bfcache, evento "pageshow" con
+   persisted:true) o al reabrir la PWA desde la pantalla de inicio donde se
+   había quedado. Se le quita el foco a cualquier <input type="search"> que
+   así haya quedado enfocado, solo en pantallas angostas (mismo punto de
+   quiebre que ya usa el resto de la app para móvil, @media max-width:700px)
+   — en escritorio un foco heredado ahí no dispara ningún teclado, así que
+   no hay nada que corregir. */
+function quitarFocoBuscadorMovil(){
+  if(window.innerWidth > 700) return;
+  const activo = document.activeElement;
+  if(activo && activo.tagName === 'INPUT' && activo.type === 'search') activo.blur();
+}
+quitarFocoBuscadorMovil();
+window.addEventListener('pageshow', quitarFocoBuscadorMovil);
 
 /* Habilita "Agregar a pantalla de inicio" en Android/Chrome y da algo de
    resiliencia en datos móviles inestables (ver sw.js: red primero, caché
