@@ -456,10 +456,38 @@
 </head>
 <body>
 <!-- La barra de la herramienta: un botón y una sola pista. Se quita del papel
-     (@media print) y del DOM cuando no hay datos que imprimir. -->
+     (@media print) y del DOM cuando no hay datos que imprimir.
+
+     27-oct-2026, Victor mandó un PDF real de esta plantilla ("Lego Empaque
+     C") con la portada cortada a la mitad, una hoja completamente en
+     blanco justo después, y las hojas siguientes encogidas y centradas con
+     un marco enorme de blanco alrededor ("esta desfasando las medidas del
+     archivo y se estan saltando paginas"). Se reconstruyó esa misma póliza
+     a escala real (70 renglones, descripciones largas, calendario
+     completo) con Playwright y se exportó dos veces — respetando el
+     @page{size:letter;margin:0} de este archivo, y también simulando que
+     el navegador ignora el @page y usa Carta con sus propios márgenes/
+     encabezados — y en NINGUNA de las dos salió una sola hoja en blanco ni
+     contenido encogido: el armado y la paginación (ver partirEnHojas(),
+     evitarTraslapeConPie(), verificarRenglonesImpresos()) arman las 8.5×11in
+     de cada hoja íntegras.
+
+     El síntoma SÍ calza exacto con el cuadro de impresión del navegador en
+     un "Tamaño de papel" o "Escala" distinto de Carta/100% (ej. A4, o
+     "Ajustar al papel"): el navegador entonces encoge y centra el contenido
+     de 8.5×11in dentro de OTRA hoja física, y el sobrante de cada página
+     puede acabar aterrizando como una hoja casi vacía en medio del PDF. Ya
+     se había visto una variante de este mismo problema con el selector de
+     "Márgenes" (ver el comentario de @media print en
+     plantilla_certificacion_rational.html, 21-oct-2026): el cuadro de
+     diálogo de impresión del navegador/SO recuerda la última elección de
+     una impresión ANTERIOR —de este documento o de cualquier otro—, sin
+     importar lo que declare el @page de la página. Por eso la pista ahora
+     nombra los tres selectores completos (Papel/Escala/Márgenes), no solo
+     el destino. -->
 <div class="aviso-impresion" id="avisoImpresion">
   <button type="button" onclick="window.print()">Guardar como PDF</button>
-  <span class="pista">si sale una impresora, cambia el destino a «Guardar como PDF»</span>
+  <span class="pista">si sale una impresora, cambia el destino a «Guardar como PDF» — en «Más configuraciones»: Papel «Carta», Escala «Predeterminado» (100%), Márgenes «Ninguno»</span>
 </div>
 <div id="doc"></div>
 

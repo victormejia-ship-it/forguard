@@ -38,9 +38,40 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   const page = await context.newPage();
   const errores = [];
   page.on('pageerror', e => errores.push('PAGEERROR: ' + e.message));
-  await page.route('**identitytoolkit.googleapis.com/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
-  await page.route('**securetoken.googleapis.com/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
-  await page.route('**firestore.googleapis.com/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+  /* page.route() NO intercepta de forma confiable firestore.googleapis.com
+     en este sandbox (mismo hallazgo ya documentado en
+     test_arranque_resiliente_una_coleccion.js): las peticiones reales salen
+     por un proxy de red que Playwright no puede interceptar a ese nivel, y
+     llegan de VERDAD al proyecto de producción, con un idToken falso —
+     confirmado aquí con un 401 real de "forguard-soft-services" para el GET
+     de /usuarios/{uid}. Ese 401 encadenaba un renovarToken() con una
+     respuesta de refresh vacía (mockeada, sin id_token real), que dejaba
+     sesion.idToken en undefined y terminaba en un cierre de sesión de
+     verdad —mostrarAcceso() reabría la pantalla de acceso justo encima de
+     #btnTema— en alrededor de 2 de cada 3 corridas: la prueba flakeaba
+     porque unas veces el clic alcanzaba a correr antes de esa carrera y
+     otras no. Se sustituye window.fetch DENTRO de la página
+     (page.addInitScript, antes de que cargue index.html) en vez de
+     page.route(): así nunca sale una sola petición real por la red. */
+  await page.addInitScript(() => {
+    const fetchReal = window.fetch.bind(window);
+    window.fetch = (url, opciones) => {
+      const u = String(url);
+      if(/identitytoolkit\.googleapis\.com|securetoken\.googleapis\.com/.test(u)){
+        return Promise.resolve(new Response('{}', { status:200, headers:{'Content-Type':'application/json'} }));
+      }
+      if(/firestore\.googleapis\.com/.test(u)){
+        const metodo = (opciones && opciones.method) || 'GET';
+        if(metodo === 'GET' && /\/documents\/usuarios\//.test(u)){
+          return Promise.resolve(new Response(JSON.stringify({
+            fields: { activo: { booleanValue: true }, rol: { stringValue: 'tecnico' } }
+          }), { status:200, headers:{'Content-Type':'application/json'} }));
+        }
+        return Promise.resolve(new Response('{}', { status:200, headers:{'Content-Type':'application/json'} }));
+      }
+      return fetchReal(url, opciones);
+    };
+  });
   await page.goto(URL_BASE + '/index.html');
   await page.waitForTimeout(400);
 
