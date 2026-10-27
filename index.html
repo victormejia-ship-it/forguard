@@ -466,6 +466,18 @@ button.kpi{font-family:inherit; text-align:left; width:100%; cursor:pointer;}
 .grid-sitios{grid-template-columns:repeat(auto-fill,minmax(360px,1fr));}
 @media (max-width:700px){ .grid, .grid-sitios{grid-template-columns:1fr;} }
 
+/* Encabezado de cada grupo en el modo "Por cliente" de Pólizas (27-oct-2026,
+   pedido de Victor: "una opcion de apilar por cliente"). Mismo tratamiento
+   tipográfico que un h2 de sección, pero más discreto: aquí se repite una
+   vez por cliente, no una sola vez por pantalla. */
+.cabecera-grupo-cliente{
+  display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
+  font-size:14px; font-weight:700; color:var(--navy-texto);
+  margin:26px 0 10px; padding-bottom:8px; border-bottom:1px solid var(--line);
+}
+.cabecera-grupo-cliente:first-child{margin-top:0;}
+.cabecera-grupo-cliente .pista{font-weight:400;}
+
 .tarjeta{
   background:var(--superficie); border:1px solid var(--line); border-radius:15px; padding:18px 18px 16px;
   position:relative; transition:transform .15s var(--ease), box-shadow .15s var(--ease), border-color .15s var(--ease);
@@ -13820,6 +13832,21 @@ const estado = { modulo:'resultados', vista:'resultados', clienteId:null, poliza
                     preferencia de pantalla, no dato — por eso vive aquí y no en
                     `datos`, y se reinicia como `busca` o `filtro`. Cada módulo
                     guarda la suya para que cambiar una no cambie las otras. */
+                 /* Buscador de la LISTA de pólizas, aparte del `busca` genérico
+                    (27-oct-2026, pedido de Victor: "cada que entramos a una
+                    poliza y queremos regresar... se eliminan las busquedas").
+                    `busca` es compartido por casi toda la app —Catálogo,
+                    Clientes, Cotizaciones, el buscador de EQUIPOS dentro del
+                    detalle de una póliza (ver vistaPoliza, #buscaEquipo),
+                    etc.— y cada módulo lo limpia al entrar/salir para que la
+                    búsqueda de uno no filtre la lista de otro por accidente;
+                    por eso entrarPoliza()/irAPolizas() tenían que vaciarlo al
+                    ir y venir del detalle, y de paso se perdía lo que ya
+                    traías escrito en la LISTA. Con su propia llave, la lista
+                    de pólizas ya no depende de ese reinicio compartido: se
+                    queda puesta aunque entres a ver una póliza y regreses
+                    —igual que estado.vistaPolizas, que ya era sticky así. */
+                 buscaPolizas:'',
                  vistaForpass:'tarjetas', vistaPolizas:'tarjetas', vistaCotizaciones:'tarjetas', vistaReportes:'tarjetas',
                  vistaLevantamientos:'tarjetas', vistaProyectosImagen:'tarjetas', vistaProveedores:'tarjetas',
                  vistaGastosProveedor:'tarjetas', vistaRefacciones:'tarjetas',
@@ -14474,7 +14501,7 @@ function irAlSitioEnForpass(sitioId){
 function irAPolizasDe(texto){
   estado.modulo = 'polizas'; guardarModulo();
   estado.vista = 'polizas'; estado.polizaId = null;
-  estado.filtro = 'todos'; estado.busca = texto || '';
+  estado.filtro = 'todos'; estado.buscaPolizas = texto || '';
   animarTarjetas = true;
   render();
   window.scrollTo({ top:0, behavior:'smooth' });
@@ -14534,7 +14561,12 @@ const ICONO = {
   medidor:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0-9 9c0 2.6 1 5 2.7 6.8h12.6A9 9 0 0 0 21 12a9 9 0 0 0-9-9z"/><path d="M12 12l4.2-4.2"/><path d="M8 14.5a4.5 4.5 0 0 1 7.4-3.4"/></svg>',
   dinero:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 9v.01M18 15v.01"/></svg>',
   flechaIzquierda:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
-  flechaDerecha:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>'
+  flechaDerecha:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+  /* "Apilar" (27-oct-2026, modo "Por cliente" de Pólizas): tres capas, el
+     ícono convencional de agrupar/apilar — distinto de "tarjetas" (rejilla
+     2×2) y de "tabla" (renglones), para que los tres botones del mismo
+     grupo se distingan de un vistazo. */
+  capas:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 21 7 12 12 3 7 12 2"/><polyline points="3 12 12 17 21 12"/><polyline points="3 17 12 22 21 17"/></svg>'
 };
 
 /* Code128 (subconjunto B), para el código interno de cada equipo — la app no
@@ -18310,17 +18342,28 @@ function vistaPolizas(){
   }
 
   h += '<div class="barra-busca">'
-     +   '<input type="search" id="buscaPoliza" placeholder="Buscar por sitio, cliente o folio…" value="' + esc(estado.busca) + '">'
+     +   '<input type="search" id="buscaPoliza" placeholder="Buscar por sitio, cliente o folio…" value="' + esc(estado.buscaPolizas) + '">'
      +   '<select id="filtroPoliza">'
      +     '<option value="todos">Todas</option>'
      +     '<option value="activas">Solo activas</option>'
      +     '<option value="calle">Solo en la calle</option>'
      +     '<option value="pendientes">Con servicios pendientes</option>'
      +   '</select>'
-     +   controlAlternaVista('vistaPolizas')
+     /* Tres modos, no dos (mismo criterio que vistaProyectosImagen: el
+        "vista-lista" genérico ya acepta cualquier valor en data-modo, ver
+        su manejador). "Por cliente" (27-oct-2026, pedido de Victor: "una
+        opcion de apilar por cliente") agrupa las MISMAS tarjetas bajo un
+        encabezado por cliente — la vista de tarjetas de siempre, que
+        Victor pidió dejar intacta ("actualmente esta perfecta esta
+        vista"), sigue siendo el modo por omisión. */
+     +   '<div class="alterna-vista" role="group" aria-label="Cómo ver la lista">'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaPolizas" data-modo="tarjetas" aria-pressed="' + (estado.vistaPolizas !== 'tabla' && estado.vistaPolizas !== 'clientes') + '" title="Ver como tarjetas">' + ICONO.tarjetas + '</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaPolizas" data-modo="tabla" aria-pressed="' + (estado.vistaPolizas === 'tabla') + '" title="Ver como tabla">' + ICONO.tabla + '</button>'
+     +     '<button type="button" data-accion="vista-lista" data-campo="vistaPolizas" data-modo="clientes" aria-pressed="' + (estado.vistaPolizas === 'clientes') + '" title="Apilar por cliente">' + ICONO.capas + '</button>'
+     +   '</div>'
      + '</div>';
 
-  const q = estado.busca.trim().toLowerCase();
+  const q = estado.buscaPolizas.trim().toLowerCase();
   const lista = datos.polizas.filter(p=>{
     if(q && !tituloPoliza(p).toLowerCase().includes(q) && !p.folio.toLowerCase().includes(q)) return false;
     const c = calcularPoliza(p);
@@ -18343,8 +18386,18 @@ function vistaPolizas(){
   }
 
   if(estado.vistaPolizas === 'tabla') return h + tablaPolizas(lista);
+  if(estado.vistaPolizas === 'clientes') return h + agrupadasPorClientePolizas(lista);
 
-  h += '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + lista.map((p,i)=>{
+  return h + tarjetasPolizas(lista);
+}
+
+/* Las mismas tarjetas de siempre, factorizadas (27-oct-2026, pedido de
+   Victor: "una opcion de apilar por cliente") para poder reusarlas tanto en
+   el grid plano de siempre como, agrupadas, en el nuevo modo "Por cliente"
+   (ver agrupadasPorClientePolizas) — la tarjeta en sí no cambia ni un pixel
+   en ninguno de los dos casos. */
+function tarjetasPolizas(sublista){
+  return '<div class="grid' + (animarTarjetas ? '' : ' sin-entrada') + '">' + sublista.map((p,i)=>{
     const c = calcularPoliza(p);
     const cli = clientePorId(p.clienteId);
 
@@ -18440,8 +18493,38 @@ function vistaPolizas(){
          +   '</div>'
          + '</div>';
   }).join('') + '</div>';
+}
 
-  return h;
+/* Modo "Por cliente" (27-oct-2026, pedido de Victor: "una opcion de apilar
+   por cliente"): agrupa las MISMAS tarjetas de tarjetasPolizas() bajo un
+   encabezado por cliente, en vez del grid plano. Orden alfabético por
+   nombre de cliente (mismo criterio ya usado en Equipos cotizados/Proyecto
+   de Imagen esta semana); las pólizas sin cliente ligado —dato huérfano
+   raro, pero posible tras borrar un cliente— se agrupan al final bajo "Sin
+   cliente ligado" en vez de perderse o reventar el ordenamiento. */
+function agrupadasPorClientePolizas(lista){
+  const grupos = new Map();
+  lista.forEach(p => {
+    const cli = clientePorId(p.clienteId);
+    const clave = cli ? cli.id : '';
+    if(!grupos.has(clave)) grupos.set(clave, { nombre: cli ? cli.nombre : 'Sin cliente ligado', sinCliente: !cli, polizas: [] });
+    grupos.get(clave).polizas.push(p);
+  });
+  const ordenados = [...grupos.values()].sort((a, b) => {
+    if(a.sinCliente !== b.sinCliente) return a.sinCliente ? 1 : -1;
+    return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
+  });
+  /* El "al año" del encabezado suma solo pólizas ACTIVAS (mismo criterio que
+     el KPI "Pólizas activas" de arriba de esta misma pantalla): una
+     cotización todavía sin confirmar no es ingreso, y sumarla ahí
+     confundiría el total del cliente con dinero que no está garantizado. */
+  return ordenados.map(g => {
+    const anual = g.polizas.reduce((t, p) => { const c = calcularPoliza(p); return t + (c.activa ? c.precioAnual : 0); }, 0);
+    return '<div class="cabecera-grupo-cliente">' + esc(g.nombre)
+      + '<span class="pista"> · ' + numero(g.polizas.length) + ' ' + plural(g.polizas.length, 'póliza', 'pólizas')
+      + (anual ? ' · ' + dinero(anual) + ' al año' : '') + '</span></div>'
+      + tarjetasPolizas(g.polizas);
+  }).join('');
 }
 
 /* ------------------------- Cotizaciones de servicio ------------------------- */
@@ -26954,7 +27037,7 @@ function render(){
   }
   const bp = $('buscaPoliza');
   if(bp){
-    bp.addEventListener('input', ()=>{ estado.busca = bp.value; renderConservandoFoco(bp, 'buscaPoliza'); });
+    bp.addEventListener('input', ()=>{ estado.buscaPolizas = bp.value; renderConservandoFoco(bp, 'buscaPoliza'); });
     const fp = $('filtroPoliza');
     fp.value = estado.filtro;
     fp.addEventListener('change', ()=>{ estado.filtro = fp.value; render(); });
@@ -38893,6 +38976,29 @@ if(!HAY_NUBE){
   });
 }
 }   /* cierra el if(!arrancarFormularioPublicoReportesSiAplica()) de arriba */
+
+/* En móvil, no dejar el teclado abierto solo porque la página cargó con un
+   buscador como foco heredado (27-oct-2026, pedido de Victor: "en
+   dispositivos moviles no abras en automatico el teclado donde existan
+   buscadores porque es molesto para cuando se carga la pagina"). Ningún
+   buscador de la app llama a su propio .focus() al cargar una vista —cada
+   uno solo se enfoca cuando la propia persona le da clic—, así que esto es
+   el NAVEGADOR restaurando el foco de una visita anterior: Safari/Chrome en
+   iOS/Android pueden reenfocar el último campo activo al reabrir la
+   pestaña desde el caché de retroceso (bfcache, evento "pageshow" con
+   persisted:true) o al reabrir la PWA desde la pantalla de inicio donde se
+   había quedado. Se le quita el foco a cualquier <input type="search"> que
+   así haya quedado enfocado, solo en pantallas angostas (mismo punto de
+   quiebre que ya usa el resto de la app para móvil, @media max-width:700px)
+   — en escritorio un foco heredado ahí no dispara ningún teclado, así que
+   no hay nada que corregir. */
+function quitarFocoBuscadorMovil(){
+  if(window.innerWidth > 700) return;
+  const activo = document.activeElement;
+  if(activo && activo.tagName === 'INPUT' && activo.type === 'search') activo.blur();
+}
+quitarFocoBuscadorMovil();
+window.addEventListener('pageshow', quitarFocoBuscadorMovil);
 
 /* Habilita "Agregar a pantalla de inicio" en Android/Chrome y da algo de
    resiliencia en datos móviles inestables (ver sw.js: red primero, caché
