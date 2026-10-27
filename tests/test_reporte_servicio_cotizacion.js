@@ -68,7 +68,12 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.evaluate(() => { estado.vista='cotizacion'; estado.cotizacionId='q2'; render(); });
   await page.waitForTimeout(150);
   chkF('Cotización realizada: SÍ aparece el bloque de reporte de servicio', await page.locator('text=Reporte de servicio realizado').count() === 1);
-  chkF('Sin reporte capturado: muestra el aviso de "todavía no"', await page.locator('text=Todavía no se ha capturado el reporte').count() === 1);
+  /* Acotado al bloque de ESTE reporte (27-oct-2026: el nuevo "Reporte de
+     cierre de servicio" agregó su propio aviso "Todavía no se ha
+     capturado el reporte de cierre...", que con un `text=` sin acotar
+     también hace match por ser el mismo prefijo). */
+  const bloqueReporteSimple = page.locator('.bloque', { has: page.locator('h3', { hasText: 'Reporte de servicio realizado' }) });
+  chkF('Sin reporte capturado: muestra el aviso de "todavía no"', await bloqueReporteSimple.locator('text=Todavía no se ha capturado el reporte').count() === 1);
   chkF('Sin reporte capturado: el botón dice "Crear reporte de servicio"', await page.locator('[data-accion="reporte-servicio-cotizacion"]').textContent().then(t => t.includes('Crear reporte de servicio')));
 
   // --------- 3) Abrir el modal y capturar todo ---------
@@ -134,7 +139,7 @@ const chkF = (label, cond) => { if(!chk(label, cond)) fallas++; };
   await page.waitForTimeout(300);
 
   // --------- 4) El resumen en vistaCotizacion refleja lo guardado ---------
-  chkF('Tras guardar: ya NO muestra el aviso de "todavía no"', await page.locator('text=Todavía no se ha capturado el reporte').count() === 0);
+  chkF('Tras guardar: ya NO muestra el aviso de "todavía no"', await bloqueReporteSimple.locator('text=Todavía no se ha capturado el reporte').count() === 0);
   chkF('Tras guardar: el resumen muestra 2 fotos', await page.locator('text=2 fotos').count() === 1);
   chkF('Tras guardar: el resumen muestra las 2 firmas', await page.locator('text=Técnico y Cliente').count() === 1);
   chkF('Tras guardar: el botón ahora dice "Editar reporte"', await page.locator('[data-accion="reporte-servicio-cotizacion"]').textContent().then(t => t.includes('Editar reporte')));

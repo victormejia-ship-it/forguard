@@ -6226,6 +6226,13 @@ function normalizarCotizacion(q){
        checkeo "si existe" en cada pantalla — vacío = nada capturado
        todavía. */
     reporteServicio: normalizarReporteServicioCotizacion(q && q.reporteServicio),
+    /* Reporte de CIERRE (27-oct-2026, pedido de Victor con una plantilla de
+       Word adjunta): mucho más completo que reporteServicio de arriba —
+       equipos atendidos, checklist, mediciones, hallazgos, refacciones,
+       conformidad y evidencia agrupada por equipo. Pedido explícito de
+       Victor: dejar los DOS reportes ("deja los dos por el momento"), este
+       no sustituye al simple. Ver normalizarReporteCierreCotizacion. */
+    reporteCierre: normalizarReporteCierreCotizacion(q && q.reporteCierre),
     partidas
   };
 }
@@ -6265,6 +6272,182 @@ function normalizarReporteServicioCotizacion(r){
    puros guiones. */
 function reporteServicioTieneContenido(r){
   return !!(r && (r.items.length || r.notas || r.firmaTecnico || r.firmaCliente));
+}
+
+/* ===================== Reporte de CIERRE de servicio (Cotizaciones) =====================
+   27-oct-2026, pedido de Victor con una plantilla de Word adjunta
+   (Plantilla_Reporte_Servicio_Forguard.docx): "cuando tengamos una
+   cotización podamos cerrarla e ingresar los reportes, analice las
+   imagenes y pueda emitir un reporte de cierre, para que se pueda generar
+   el reporte en representacion impresa como este formato". Tres
+   aclaraciones que Victor confirmó al preguntarle:
+     1) Se deja APARTE del "Reporte de servicio" simple de arriba (fotos +
+        notas + firma) — "deja los dos por el momento". Ninguno sustituye
+        al otro; cada cotización puede tener los dos, cada uno con su
+        propio botón de exportar.
+     2) "Cerrar la cotización" usa la etapa "Servicios Realizados"
+        (estatus 'realizado'/'realizado_comedor') que YA EXISTÍA en el
+        tablero de 13 etapas — no se inventó un estatus nuevo. Este
+        reporte se ofrece justo ahí, igual que el reporte simple.
+     3) "Analizar las imágenes" se resolvió organizándolas como en la
+        plantilla de Word —agrupadas por equipo, con su pie de foto—, SIN
+        ninguna inteligencia artificial de por medio: Victor lo confirmó
+        explícitamente al preguntarle, para no meter una dependencia
+        externa que nunca es 100% exacta.
+
+   La estructura de abajo calca sección por sección la plantilla de Word
+   que mandó Victor: Equipos atendidos, Checklist de inspección,
+   Mediciones (opcional), Hallazgos y recomendaciones, Refacciones,
+   Conformidad (firmas) y evidencia fotográfica agrupada por equipo, más
+   hallazgos adicionales y un anexo de órdenes de servicio firmadas. */
+
+const TIPOS_SERVICIO_REPORTE_CIERRE = ['preventivo', 'correctivo', 'instalacion', 'diagnostico', 'emergencia'];
+const ETIQUETA_TIPO_SERVICIO_REPORTE_CIERRE = {
+  preventivo: 'Preventivo', correctivo: 'Correctivo', instalacion: 'Instalación',
+  diagnostico: 'Diagnóstico', emergencia: 'Emergencia'
+};
+
+/* Mismos cuatro estatus, en el mismo orden, que trae la tabla "Estatus de
+   equipos" de la plantilla de Word. */
+const ESTATUS_EQUIPO_REPORTE_CIERRE = ['operativo', 'seguimiento', 'refaccion_pendiente', 'fuera_servicio'];
+const ETIQUETA_ESTATUS_EQUIPO_REPORTE_CIERRE = {
+  operativo: 'Operativo', seguimiento: 'Seguimiento',
+  refaccion_pendiente: 'Refacción pendiente', fuera_servicio: 'Fuera de servicio'
+};
+const TONO_ESTATUS_EQUIPO_REPORTE_CIERRE = {
+  operativo: 'ok', seguimiento: 'info', refaccion_pendiente: 'alerta', fuera_servicio: 'error'
+};
+
+const PRIORIDADES_HALLAZGO_CIERRE = ['alta', 'media', 'baja'];
+const ETIQUETA_PRIORIDAD_HALLAZGO_CIERRE = { alta: 'Alta', media: 'Media', baja: 'Baja' };
+const TONO_PRIORIDAD_HALLAZGO_CIERRE = { alta: 'error', media: 'alerta', baja: 'neutro' };
+
+const ESTATUS_REFACCION_CIERRE = ['instalada', 'solicitada'];
+const ETIQUETA_ESTATUS_REFACCION_CIERRE = { instalada: 'Instalada', solicitada: 'Solicitada' };
+
+/* Topes de fotos — mismo motivo que ITEMS_MAX_REPORTE_SERVICIO (evitar el
+   límite de 1 MiB por documento de Firestore que ya tumbó POL-024), pero
+   más generosos porque aquí las fotos se suben a Storage (ver
+   subirEvidenciaStorage) y el documento solo guarda la URL, no el base64
+   completo — el tope es contra una captura descontrolada, no contra el
+   tamaño del documento. */
+const FOTOS_MAX_POR_GRUPO_CIERRE = 12;
+const GRUPOS_FOTOS_MAX_CIERRE = 12;
+const FOTOS_MAX_HALLAZGOS_ADICIONALES_CIERRE = 12;
+const FOTOS_MAX_ORDENES_SERVICIO_CIERRE = 16;
+const EQUIPOS_MAX_REPORTE_CIERRE = 60;
+const CHECKLIST_GRUPOS_MAX_CIERRE = 30;
+const MEDICIONES_MAX_CIERRE = 30;
+const HALLAZGOS_MAX_CIERRE = 30;
+const REFACCIONES_MAX_CIERRE = 30;
+
+function normalizarEquipoReporteCierre(e){
+  return {
+    id: (e && e.id) || nuevoId(),
+    folio: (e && e.folio ? String(e.folio) : '').trim(),
+    fecha: (e && e.fecha ? String(e.fecha) : '').trim(),
+    equipo: (e && e.equipo ? String(e.equipo) : '').trim(),
+    marca: (e && e.marca ? String(e.marca) : '').trim(),
+    modelo: (e && e.modelo ? String(e.modelo) : '').trim(),
+    serie: (e && e.serie ? String(e.serie) : '').trim(),
+    estatus: ESTATUS_EQUIPO_REPORTE_CIERRE.includes(e && e.estatus) ? e.estatus : 'operativo'
+  };
+}
+function normalizarChecklistItemCierre(it){
+  return {
+    id: (it && it.id) || nuevoId(),
+    texto: (it && it.texto ? String(it.texto) : '').trim(),
+    hecho: !!(it && it.hecho)
+  };
+}
+/* Un ÍTEM sin texto capturado no cuenta ni para el conteo "X de Y" ni para
+   el documento — mismo criterio que "un renglón sin concepto se descarga
+   solo" en otras capturas (ver normalizarPoliza). */
+function normalizarChecklistGrupoCierre(g){
+  return {
+    id: (g && g.id) || nuevoId(),
+    nombre: (g && g.nombre ? String(g.nombre) : '').trim(),
+    folios: (g && g.folios ? String(g.folios) : '').trim(),
+    items: (Array.isArray(g && g.items) ? g.items : []).map(normalizarChecklistItemCierre).filter(it => it.texto)
+  };
+}
+function normalizarMedicionCierre(m){
+  return {
+    id: (m && m.id) || nuevoId(),
+    equipo: (m && m.equipo ? String(m.equipo) : '').trim(),
+    lectura: (m && m.lectura ? String(m.lectura) : '').trim(),
+    referenciaPlaca: (m && m.referenciaPlaca ? String(m.referenciaPlaca) : '').trim(),
+    interpretacion: (m && m.interpretacion ? String(m.interpretacion) : '').trim()
+  };
+}
+function normalizarHallazgoCierre(h){
+  return {
+    id: (h && h.id) || nuevoId(),
+    prioridad: PRIORIDADES_HALLAZGO_CIERRE.includes(h && h.prioridad) ? h.prioridad : 'media',
+    hallazgo: (h && h.hallazgo ? String(h.hallazgo) : '').trim(),
+    recomendacion: (h && h.recomendacion ? String(h.recomendacion) : '').trim()
+  };
+}
+function normalizarRefaccionCierre(r){
+  return {
+    id: (r && r.id) || nuevoId(),
+    estatus: ESTATUS_REFACCION_CIERRE.includes(r && r.estatus) ? r.estatus : 'instalada',
+    cantidad: Math.max(1, parseInt(r && r.cantidad, 10) || 1),
+    descripcion: (r && r.descripcion ? String(r.descripcion) : '').trim(),
+    equipoFolio: (r && r.equipoFolio ? String(r.equipoFolio) : '').trim()
+  };
+}
+function normalizarFotoCierre(f){
+  return {
+    id: (f && f.id) || nuevoId(),
+    dataUrl: (f && f.dataUrl) ? String(f.dataUrl) : '',
+    etiqueta: (f && f.etiqueta ? String(f.etiqueta) : '').trim()
+  };
+}
+/* Un grupo SIN NOMBRE pero con fotos no se descarta (puede ser "Hallazgos
+   varios" sin que a alguien se le ocurriera nombrarlo todavía) — solo se
+   filtran las fotos sin dataUrl (una subida que falló a medias). */
+function normalizarGrupoFotosCierre(g){
+  return {
+    id: (g && g.id) || nuevoId(),
+    nombre: (g && g.nombre ? String(g.nombre) : '').trim(),
+    fotos: (Array.isArray(g && g.fotos) ? g.fotos : []).map(normalizarFotoCierre).filter(f => f.dataUrl).slice(0, FOTOS_MAX_POR_GRUPO_CIERRE)
+  };
+}
+function normalizarReporteCierreCotizacion(r){
+  return {
+    tipoServicio: TIPOS_SERVICIO_REPORTE_CIERRE.includes(r && r.tipoServicio) ? r.tipoServicio : 'preventivo',
+    /* Sugerido en el modal (ver sugerirIdReporteCierre), pero editable a
+       mano — la plantilla real pide abreviaturas de cliente/sitio que
+       ningún algoritmo adivina mejor que quien captura. */
+    idReporte: (r && r.idReporte ? String(r.idReporte) : '').trim(),
+    tipoInstalacion: (r && r.tipoInstalacion ? String(r.tipoInstalacion) : '').trim(),
+    fechasTexto: (r && r.fechasTexto ? String(r.fechasTexto) : '').trim(),
+    foliosTexto: (r && r.foliosTexto ? String(r.foliosTexto) : '').trim(),
+    tecnicosTexto: (r && r.tecnicosTexto ? String(r.tecnicosTexto) : '').trim(),
+    capturoTexto: (r && r.capturoTexto ? String(r.capturoTexto) : '').trim(),
+    resumenQueSeHizo: (r && r.resumenQueSeHizo ? String(r.resumenQueSeHizo) : '').trim(),
+    resumenEstadoCierre: (r && r.resumenEstadoCierre ? String(r.resumenEstadoCierre) : '').trim(),
+    equipos: (Array.isArray(r && r.equipos) ? r.equipos : []).map(normalizarEquipoReporteCierre).slice(0, EQUIPOS_MAX_REPORTE_CIERRE),
+    checklist: (Array.isArray(r && r.checklist) ? r.checklist : []).map(normalizarChecklistGrupoCierre).slice(0, CHECKLIST_GRUPOS_MAX_CIERRE),
+    mediciones: (Array.isArray(r && r.mediciones) ? r.mediciones : []).map(normalizarMedicionCierre).slice(0, MEDICIONES_MAX_CIERRE),
+    instrumentoMediciones: (r && r.instrumentoMediciones ? String(r.instrumentoMediciones) : '').trim(),
+    hallazgos: (Array.isArray(r && r.hallazgos) ? r.hallazgos : []).map(normalizarHallazgoCierre).slice(0, HALLAZGOS_MAX_CIERRE),
+    refacciones: (Array.isArray(r && r.refacciones) ? r.refacciones : []).map(normalizarRefaccionCierre).slice(0, REFACCIONES_MAX_CIERRE),
+    firmaTecnico: normalizarFirma(r && r.firmaTecnico),
+    firmaCliente: normalizarFirma(r && r.firmaCliente),
+    fotosGrupos: (Array.isArray(r && r.fotosGrupos) ? r.fotosGrupos : []).map(normalizarGrupoFotosCierre).slice(0, GRUPOS_FOTOS_MAX_CIERRE),
+    fotosHallazgosAdicionales: (Array.isArray(r && r.fotosHallazgosAdicionales) ? r.fotosHallazgosAdicionales : []).map(normalizarFotoCierre).filter(f => f.dataUrl).slice(0, FOTOS_MAX_HALLAZGOS_ADICIONALES_CIERRE),
+    fotosOrdenesServicio: (Array.isArray(r && r.fotosOrdenesServicio) ? r.fotosOrdenesServicio : []).map(normalizarFotoCierre).filter(f => f.dataUrl).slice(0, FOTOS_MAX_ORDENES_SERVICIO_CIERRE)
+  };
+}
+/* Hay algo que mostrar/exportar — nunca un documento vacío. A diferencia de
+   reporteServicioTieneContenido (que basta con una foto o una firma), aquí
+   se exige algo del CUERPO del reporte (equipos o hallazgos), porque un
+   reporte de cierre que solo trajera, por ejemplo, una firma sin ningún
+   equipo listado no sería un cierre de nada. */
+function reporteCierreTieneContenido(r){
+  return !!(r && (r.equipos.length || r.hallazgos.length || r.resumenQueSeHizo || r.resumenEstadoCierre));
 }
 
 function cotizacionPorId(id){ return datos.cotizaciones.find(q => q.id === id); }
@@ -16721,7 +16904,7 @@ const TEMAS_AYUDA = [
     resumen:'Lo que vive en el encabezado, junto a tu nombre: tu perfil, la campanita de avisos, tu libreta de pendientes y la verificación en dos pasos.',
     contenido:
       guiaSeccion('Lo básico', guiaPasos([
-        'El <b>ícono de sol/luna</b>, junto a tu nombre, alterna entre modo claro y modo oscuro (05-oct-2026). Sin tocarlo, la app sigue sola la preferencia de tu sistema operativo; en cuanto lo usas una vez, esa elección se guarda en este navegador y gana siempre, sin importar lo que diga tu sistema. Con sesión iniciada, también se guarda en tu cuenta — así que si entras desde otro celular o computadora, se te presenta tal cual lo dejaste la última vez.',
+        'El <b>ícono de sol/luna</b>, junto a tu nombre, alterna entre modo claro y modo oscuro (05-oct-2026). Sin tocarlo, la app sigue sola la preferencia de tu sistema operativo; en cuanto lo usas una vez, esa elección se guarda en este navegador y gana siempre, sin importar lo que diga tu sistema. Con sesión iniciada, también se guarda en tu cuenta — así que si entras desde otro celular o computadora, se te presenta tal cual lo dejaste la última vez. (27-oct-2026) Es por CUENTA, no por equipo: en una computadora que comparten varias personas, cada quien ve y controla su propio tema sin pisarle el de nadie más al iniciar sesión ahí.',
         '<b>Mi cuenta</b> (icono junto a tu nombre): ve tu correo y tu permiso, cambia tu nombre/teléfono/foto, y cambia tu contraseña cuando quieras.',
         'La <b>campanita de notificaciones</b> es tu buzón por cuenta: asignaciones de reportes, resueltos y comentarios nuevos. El número rojo cuenta los que no has visto; haz clic en un aviso para marcarlo como leído y saltar directo a su reporte, o usa "Marcar todas leídas".',
         '<b>Mis pendientes</b> (icono junto a la campanita) es tu propia libreta de recordatorios de texto libre — nada que ver con Visitas ni con ningún módulo de trabajo, es para cualquier cosa suelta que quieras anotar. Escribe el texto, opcionalmente ponle una <b>fecha de entrega</b>, y da "Agregar".',
@@ -17082,6 +17265,8 @@ const TEMAS_AYUDA = [
         '<b>Imprimir calendario</b> (junto a Imprimir): abre solo la portada y la hoja del calendario de mantenimientos, sin la tabla de equipos, descripción de trabajos ni consideraciones — para cuando el técnico solo necesita el calendario en papel, sin las demás hojas. Sale en hoja horizontal (mejor visibilidad de las 12 columnas de mes) y con su propia portada, dejando bien claro que es SOLO el calendario, no el contrato completo.'
       ]))
       + guiaSeccion('Uso intermedio', guiaPasos([
+        '(27-oct-2026) Junto a los botones de ver como tarjetas/tabla hay un tercer modo, <b>Apilar por cliente</b>: agrupa las mismas tarjetas bajo un encabezado por cliente (orden alfabético, con el total anual de sus pólizas activas) — el modo tarjetas de siempre sigue siendo el que arranca por omisión. El buscador de la lista ya no se borra al entrar a ver una póliza y regresar: se queda tal cual lo dejaste.',
+        'La tabla "Equipos cotizados" de cada póliza (tanto en pantalla como en el PDF) se ordena sola alfabéticamente por concepto — no importa en qué orden se capturaron los equipos al cotizar; el orden de captura en sí nunca se reescribe, solo cambia cómo se pinta.',
         'La <b>Agenda</b> agrupa TODOS los contratos por mes → sitio → equipo, con bloques de Atrasados / Toca ahora / Parciales / Programados — para no tener que revisar contrato por contrato.',
         'Un Admin define <b>Precios de grupo</b> por cliente (precio y costo especiales para ciertos equipos), activables con la casilla "Usar precios de grupo" al armar una póliza nueva de ese cliente; si un renglón viejo se desalinea, aparece <b>Actualizar al de grupo</b>.',
         'La <b>Lista de precios</b> es el catálogo compartido de equipos: costo de insumos + mano de obra, margen calculado en vivo, servicios/año, categoría (decide el mes de arranque) y peso (usado en el % de funcionamiento de Levantamientos). Botones "Sugerir categorías" (clasifica solo por nombre) e "Importar costos" (carga la hoja de costos compartida de un jalón).',
@@ -17154,6 +17339,12 @@ const TEMAS_AYUDA = [
             'Una vez que la cotización llega a <b>Realizado</b> o <b>Realizado/Cargo a Comedor</b> en el tablero de 13 etapas, aparece un bloque para capturar el <b>reporte de servicio</b>: evidencia fotográfica (Antes/Después/Hallazgo, cada una con su descripción), notas generales, y las firmas de quien hizo el trabajo y de quien lo recibe por parte del cliente — para que el cliente tenga constancia de que el trabajo cotizado de verdad se hizo.',
             'Las firmas se capturan dibujando con el dedo o el mouse, directo en la pantalla — no es una firma digital certificada, es el equivalente a firmar un papel.',
             '"Exportar PDF" genera un documento aparte (no el de la cotización) con todo lo capturado; se omite cualquier sección vacía (sin notas, sin firmas) en vez de imprimir un hueco en blanco.'
+          ])
+        + guiaTip('Reporte de CIERRE de servicio (27-oct-2026, pedido de Victor con una plantilla de Word)', [
+            'Aparte del "Reporte de servicio realizado" de arriba —que se queda igual, para capturas rápidas— este es el reporte completo que se entrega al cliente al cerrar un servicio con varios equipos: un bloque propio, en la misma cotización "Realizado"/"Realizado/Cargo a Comedor", calcado sección por sección de la plantilla de Word oficial de Forguard.',
+            'Captura, en este orden: datos generales (tipo de servicio, ID del reporte con un botón "Sugerir", fechas, folios, técnicos), un resumen en dos párrafos (qué se hizo / estado al cierre), la tabla de <b>Equipos atendidos</b> con su estatus al cierre (Operativo/Seguimiento/Refacción pendiente/Fuera de servicio), un <b>checklist de inspección</b> por grupo de equipos con sus actividades marcadas, <b>mediciones</b> (opcional, bórralas todas si no aplica), <b>hallazgos y recomendaciones</b> por prioridad (Alta/Media/Baja), <b>refacciones</b> instaladas o solicitadas, las firmas de <b>Conformidad</b>, y evidencia fotográfica <b>agrupada por equipo</b> (placa → antes → después) más dos galerías aparte para hallazgos fuera de alcance y el anexo de órdenes de servicio firmadas.',
+            'El tablero arma solo, al exportar: el <b>título</b> del reporte ("[Tipo de servicio] · N equipos de [tipo de instalación] · Cliente Sitio"), las cinco <b>casillas de indicadores</b> de la portada (equipos atendidos, operativos, en seguimiento, refacción pendiente, hallazgos de alta prioridad), el conteo "X de Y puntos realizados" de cada grupo del checklist, y el orden de impresión de hallazgos (Alta → Media → Baja) y refacciones (instaladas antes que solicitadas) — nunca se captura ese orden a mano.',
+            'Las fotos no se analizan con inteligencia artificial: se organizan tal cual se agrupan y se etiquetan en la captura (pedido explícito de Victor, para no depender de un servicio externo que nunca es 100% exacto).'
           ])) },
 
   { id:'activos', titulo:'Activos',
@@ -18883,6 +19074,32 @@ function vistaCotizacion(){
             : '<p class="pista">Todavía no se ha capturado el reporte de este servicio.</p>'
               + (puedeEditar()
                   ? '<button type="button" class="btn btn-suave btn-mini" data-accion="reporte-servicio-cotizacion" style="margin-top:8px">' + ICONO.camara + 'Crear reporte de servicio</button>'
+                  : ''))
+       + '</div>';
+
+    /* Reporte de CIERRE (27-oct-2026, pedido de Victor con una plantilla de
+       Word adjunta) — aparte del reporte simple de arriba, no lo
+       reemplaza ("deja los dos por el momento"). Mismo candado de estatus:
+       solo tiene sentido con el trabajo ya realizado. */
+    const hayReporteCierre = reporteCierreTieneContenido(cot.reporteCierre);
+    h += '<div class="bloque"><div class="bloque-cabeza"><div><h3>Reporte de cierre de servicio</h3>'
+       +   '<p>Equipos atendidos, checklist, hallazgos, refacciones y conformidad — el reporte completo que se entrega al cliente al cerrar el servicio.</p></div></div>'
+       +   (hayReporteCierre
+            ? '<div class="resumen-datos">'
+              +   '<div><div class="d-label">Equipos</div><div class="d-valor chico">' + cot.reporteCierre.equipos.length + '</div></div>'
+              +   '<div><div class="d-label">Hallazgos</div><div class="d-valor chico">' + cot.reporteCierre.hallazgos.length + '</div></div>'
+              +   '<div><div class="d-label">Refacciones</div><div class="d-valor chico">' + cot.reporteCierre.refacciones.length + '</div></div>'
+              +   '<div><div class="d-label">Firmas</div><div class="d-valor chico">'
+              +     ([cot.reporteCierre.firmaTecnico ? 'Técnico' : '', cot.reporteCierre.firmaCliente ? 'Cliente' : ''].filter(Boolean).join(' y ') || 'Sin firmar')
+              +   '</div></div>'
+              + '</div>'
+              + '<div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">'
+              +   '<button type="button" class="btn btn-suave btn-mini" data-accion="exportar-reporte-cierre-cotizacion">' + ICONO.imprimir + 'Exportar PDF</button>'
+              +   (puedeEditar() ? '<button type="button" class="btn btn-suave btn-mini" data-accion="reporte-cierre-cotizacion">' + ICONO.lapiz + 'Editar reporte</button>' : '')
+              + '</div>'
+            : '<p class="pista">Todavía no se ha capturado el reporte de cierre de este servicio.</p>'
+              + (puedeEditar()
+                  ? '<button type="button" class="btn btn-suave btn-mini" data-accion="reporte-cierre-cotizacion" style="margin-top:8px">' + ICONO.documento + 'Crear reporte de cierre</button>'
                   : ''))
        + '</div>';
   }
@@ -33431,6 +33648,598 @@ function abrirDocumentoReporteServicioCotizacion(cotizacionId){
   window.open('docs/plantilla_reporte_servicio_cotizacion.html', '_blank');
 }
 
+/* ======================== Modal: Reporte de CIERRE de servicio ========================
+   Ver el comentario grande junto a normalizarReporteCierreCotizacion() para
+   el porqué de cada decisión. Mismo molde de trabajo que modalOrdenCompra()
+   (copias "Tmp", pintarX() que repinta SOLO al agregar/quitar un renglón,
+   listeners delegados colgados una sola vez): aquí hay siete listas
+   independientes (equipos, checklist —con sus propios items anidados—,
+   mediciones, hallazgos, refacciones, y dos tipos de fotos sueltas más las
+   fotos agrupadas por equipo), así que cada una se repinta y escucha por
+   separado, sin compartir código entre ellas más allá de los mismos
+   helpers de evidencia/firma que ya usa el resto de la app. */
+
+/* "FG-CLIENTESITIO-AAMM", como pide la plantilla de Word — un PUNTO DE
+   PARTIDA editable, nunca forzado: la plantilla real pide "cliente
+   abreviado" a criterio de quien captura (ej. "MLMXCD09" para "Mercado
+   Libre MXCD09"), algo que ningún algoritmo adivina mejor que una persona.
+   Se ofrece con un botón "Sugerir", no se autogenera solo. */
+function sugerirIdReporteCierre(cli, s){
+  const siglas = txt => String(txt || '').normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,10);
+  const hoy = new Date();
+  const aamm = String(hoy.getFullYear()).slice(2) + String(hoy.getMonth() + 1).padStart(2, '0');
+  const base = siglas(cli ? cli.nombre : '') + siglas(s ? s.nombre : '');
+  return 'FG-' + (base || 'CLIENTE') + '-' + aamm;
+}
+
+function modalReporteCierreCotizacion(cotizacionId){
+  const c = cotizacionPorId(cotizacionId);
+  if(!c) return;
+  const cli = clientePorId(c.clienteId);
+  const s = sitioPorId(c.sitioId);
+  const r = c.reporteCierre;
+
+  let equiposTmp = r.equipos.map(x => Object.assign({}, x));
+  let checklistTmp = r.checklist.map(g => Object.assign({}, g, { items: g.items.map(it => Object.assign({}, it)) }));
+  let medicionesTmp = r.mediciones.map(x => Object.assign({}, x));
+  let hallazgosTmp = r.hallazgos.map(x => Object.assign({}, x));
+  let refaccionesTmp = r.refacciones.map(x => Object.assign({}, x));
+  let fotosGruposTmp = r.fotosGrupos.map(g => Object.assign({}, g, { fotos: g.fotos.map(f => Object.assign({}, f)) }));
+  let fotosHallazgosAdicionalesTmp = r.fotosHallazgosAdicionales.map(x => Object.assign({}, x));
+  let fotosOrdenesServicioTmp = r.fotosOrdenesServicio.map(x => Object.assign({}, x));
+  let firmaTecnicoTmp = r.firmaTecnico;
+  let firmaClienteTmp = r.firmaCliente;
+  /* A qué lista cae la próxima foto que se suba por #rcArchivoFoto —un solo
+     <input type="file"> compartido por TODOS los botones "Agregar foto" de
+     este modal, igual que tipoParaSubir en modalReporteServicioCotizacion. */
+  let objetivoFotoActual = null;
+
+  const cuerpo =
+      '<div class="resumen" style="margin-bottom:18px">'
+    +   '<div class="r-fila"><span>Cotización</span><span>' + esc(c.folio || 'Sin folio')
+    +     (cli ? ' · ' + esc(cli.nombre) : '') + (s ? ' · ' + esc(s.nombre) : '') + '</span></div>'
+    + '</div>'
+
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Tipo de servicio</label><select id="rcTipoServicio">'
+    +     TIPOS_SERVICIO_REPORTE_CIERRE.map(t => '<option value="' + t + '"' + (t === r.tipoServicio ? ' selected' : '') + '>' + esc(ETIQUETA_TIPO_SERVICIO_REPORTE_CIERRE[t]) + '</option>').join('')
+    +   '</select></div>'
+    +   '<div class="campo"><label>Tipo de instalación</label><input type="text" id="rcTipoInstalacion" placeholder="Ej. cocina industrial" value="' + esc(r.tipoInstalacion) + '"></div>'
+    + '</div>'
+    + '<div class="campo"><label>ID del reporte</label>'
+    +   '<div style="display:flex; gap:8px"><input type="text" id="rcIdReporte" placeholder="FG-CLIENTESITIO-AAMM" style="flex:1" value="' + esc(r.idReporte) + '">'
+    +     '<button type="button" class="btn btn-suave btn-mini" id="btnSugerirIdCierre">Sugerir</button></div></div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Fechas</label><input type="text" id="rcFechasTexto" placeholder="Ej. 20 y 21 de octubre 2026" value="' + esc(r.fechasTexto) + '"></div>'
+    +   '<div class="campo"><label>Folios</label><input type="text" id="rcFoliosTexto" placeholder="Ej. MEX 1006 – MEX 1018" value="' + esc(r.foliosTexto) + '"></div>'
+    + '</div>'
+    + '<div class="fila2">'
+    +   '<div class="campo"><label>Técnicos</label><input type="text" id="rcTecnicosTexto" placeholder="Nombre(s) del técnico" value="' + esc(r.tecnicosTexto) + '"></div>'
+    +   '<div class="campo"><label>Capturó</label><input type="text" id="rcCapturoTexto" value="' + esc(r.capturoTexto || nombreDe(sesion)) + '"></div>'
+    + '</div>'
+
+    + '<div class="campo"><label>Resumen · Qué se hizo (máx. ~90 palabras)</label>'
+    +   '<textarea id="rcResumenQueSeHizo" placeholder="Equipos atendidos, sistema en el que se enfocó el servicio y refacciones instaladas.">' + esc(r.resumenQueSeHizo) + '</textarea></div>'
+    + '<div class="campo"><label>Resumen · Estado al cierre</label>'
+    +   '<textarea id="rcResumenEstadoCierre" placeholder="Qué equipos operan, cuáles quedan pendientes, y lo que el cliente debe atender primero.">' + esc(r.resumenEstadoCierre) + '</textarea></div>'
+
+    + '<div class="campo"><label>Equipos atendidos</label>'
+    +   '<div id="rcEquiposWrap"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarEquipoRC" style="margin-top:8px">' + ICONO.mas + 'Agregar equipo</button>'
+    + '</div>'
+
+    + '<div class="campo"><label>Checklist de inspección (opcional)</label>'
+    +   '<div id="rcChecklistWrap"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarGrupoChecklistRC" style="margin-top:8px">' + ICONO.mas + 'Agregar grupo de equipos</button>'
+    + '</div>'
+
+    + '<div class="campo"><label>Mediciones (opcional — bórralas todas si no aplica)</label>'
+    +   '<div id="rcMedicionesWrap"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarMedicionRC" style="margin-top:8px">' + ICONO.mas + 'Agregar medición</button>'
+    +   '<input type="text" id="rcInstrumentoMediciones" placeholder="Instrumento usado y cómo se tomó la lectura (opcional)" style="margin-top:8px" value="' + esc(r.instrumentoMediciones) + '">'
+    + '</div>'
+
+    + '<div class="campo"><label>Hallazgos y recomendaciones (opcional)</label>'
+    +   '<div id="rcHallazgosWrap"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarHallazgoRC" style="margin-top:8px">' + ICONO.mas + 'Agregar hallazgo</button>'
+    + '</div>'
+
+    + '<div class="campo"><label>Refacciones (opcional)</label>'
+    +   '<div id="rcRefaccionesWrap"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarRefaccionRC" style="margin-top:8px">' + ICONO.mas + 'Agregar refacción</button>'
+    + '</div>'
+
+    + '<div class="campo"><label>Evidencia fotográfica agrupada por equipo (opcional)</label>'
+    +   '<div id="rcFotosGruposWrap"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" id="btnAgregarGrupoFotosRC" style="margin-top:8px">' + ICONO.mas + 'Agregar grupo de fotos</button>'
+    + '</div>'
+
+    + '<div class="campo"><label>Hallazgos adicionales — fotos fuera del alcance del servicio (opcional)</label>'
+    +   '<div id="rcFotosHallazgosWrap"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" data-agregar-foto-suelta-rc="hallazgo" style="margin-top:8px">' + ICONO.camara + 'Agregar foto</button>'
+    + '</div>'
+
+    + '<div class="campo"><label>Anexo · Órdenes de servicio firmadas (opcional)</label>'
+    +   '<div id="rcFotosOrdenesWrap"></div>'
+    +   '<button type="button" class="btn btn-suave btn-mini" data-agregar-foto-suelta-rc="anexo" style="margin-top:8px">' + ICONO.camara + 'Agregar foto</button>'
+    + '</div>'
+    +   '<input type="file" id="rcArchivoFoto" accept="image/*" multiple style="display:none">'
+
+    + '<div class="campo"><label>Conformidad (opcional)</label>'
+    +   '<div class="firmas-grid"><div id="rcFirmaTecnicoWrap"></div><div id="rcFirmaClienteWrap"></div></div>'
+    +   '<div class="pista">Quien entrega por Forguard y quien recibe de conformidad por parte del cliente.</div>'
+    + '</div>';
+
+  abrirModal('Reporte de cierre de servicio', cuerpo,
+      '<button type="button" class="btn btn-suave" data-modal="cancelar">Cancelar</button>'
+    + '<button type="button" class="btn btn-primario" data-modal="guardar">Guardar reporte</button>');
+  $('modal').classList.add('enorme');
+
+  $('btnSugerirIdCierre').addEventListener('click', ()=>{ $('rcIdReporte').value = sugerirIdReporteCierre(cli, s); });
+
+  /* ---- Equipos atendidos: tabla plana, mismo molde que pintarRenglones() de modalOrdenCompra ---- */
+  function pintarEquiposRC(){
+    const filas = equiposTmp.map((x,i)=>
+        '<tr data-idx="' + i + '">'
+      + '<td class="mini"><input type="text" data-campo="folio" value="' + esc(x.folio) + '" placeholder="MEX 0000"></td>'
+      + '<td class="mini"><input type="text" data-campo="fecha" value="' + esc(x.fecha) + '" placeholder="00 mes"></td>'
+      + '<td><input type="text" data-campo="equipo" value="' + esc(x.equipo) + '" placeholder="Equipo"></td>'
+      + '<td class="mini"><input type="text" data-campo="marca" value="' + esc(x.marca) + '" placeholder="—"></td>'
+      + '<td class="mini"><input type="text" data-campo="modelo" value="' + esc(x.modelo) + '" placeholder="—"></td>'
+      + '<td class="mini"><input type="text" data-campo="serie" value="' + esc(x.serie) + '" placeholder="—"></td>'
+      + '<td><select data-campo="estatus">' + ESTATUS_EQUIPO_REPORTE_CIERRE.map(es => '<option value="' + es + '"' + (es === x.estatus ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_EQUIPO_REPORTE_CIERRE[es]) + '</option>').join('') + '</select></td>'
+      + '<td class="acc"><button type="button" class="icono-mini" data-quitar-equipo-rc="' + i + '" data-tip="Borrar">' + ICONO.basura + '</button></td>'
+      + '</tr>').join('');
+    $('rcEquiposWrap').innerHTML = equiposTmp.length
+      ? '<div class="rodillo"><table class="tabla-renglones">'
+        + '<thead><tr><th>Folio</th><th>Fecha</th><th>Equipo</th><th>Marca</th><th>Modelo</th><th>Serie</th><th>Estatus al cierre</th><th></th></tr></thead>'
+        + '<tbody>' + filas + '</tbody></table></div>'
+      : '<div class="pista">Todavía no hay equipos. Agrega el primero.</div>';
+  }
+  $('rcEquiposWrap').addEventListener('input', ev=>{
+    const campo = ev.target.closest('[data-campo]');
+    if(!campo) return;
+    equiposTmp[+campo.closest('[data-idx]').dataset.idx][campo.dataset.campo] = campo.value;
+  });
+  $('rcEquiposWrap').addEventListener('click', ev=>{
+    const quitar = ev.target.closest('[data-quitar-equipo-rc]');
+    if(!quitar) return;
+    equiposTmp.splice(+quitar.dataset.quitarEquipoRc, 1);
+    pintarEquiposRC();
+  });
+  $('btnAgregarEquipoRC').addEventListener('click', ()=>{
+    equiposTmp.push(normalizarEquipoReporteCierre({}));
+    pintarEquiposRC();
+    const fila = $('rcEquiposWrap').querySelector('tr[data-idx="' + (equiposTmp.length-1) + '"]');
+    const campo = fila && fila.querySelector('[data-campo="folio"]');
+    if(campo) campo.focus();
+  });
+
+  /* ---- Checklist: grupos anidando items — data-g/data-i son IDs, no
+     índices, para no desalinearse si un grupo de en medio se borra. ---- */
+  function pintarChecklistRC(){
+    $('rcChecklistWrap').innerHTML = checklistTmp.length
+      ? checklistTmp.map(g =>
+          '<div class="bloque" style="margin-top:10px; padding:12px" data-g="' + esc(g.id) + '">'
+          + '<div class="fila2">'
+          +   '<input type="text" data-campo-grupo="nombre" placeholder="Grupo de equipos (ej. Barras calientes #1 a #4)" value="' + esc(g.nombre) + '">'
+          +   '<input type="text" data-campo-grupo="folios" placeholder="Folios (ej. MEX 1006 · 1007)" value="' + esc(g.folios) + '">'
+          + '</div>'
+          + '<div style="margin-top:8px">' + g.items.map(it =>
+              '<div style="display:flex; gap:8px; align-items:center; margin-top:4px" data-i="' + esc(it.id) + '">'
+              + '<input type="checkbox" data-campo-item="hecho"' + (it.hecho ? ' checked' : '') + '>'
+              + '<input type="text" data-campo-item="texto" style="flex:1" placeholder="Actividad realizada (ej. Revisión de…)" value="' + esc(it.texto) + '">'
+              + '<button type="button" class="icono-mini" data-quitar-item-checklist-rc data-tip="Borrar">' + ICONO.basura + '</button>'
+              + '</div>'
+            ).join('') + '</div>'
+          + '<button type="button" class="btn btn-suave btn-mini" data-agregar-item-checklist-rc style="margin-top:8px">' + ICONO.mas + 'Agregar actividad</button>'
+          + '<button type="button" class="btn btn-peligro btn-mini" data-quitar-grupo-checklist-rc style="margin-top:8px; margin-left:8px">' + ICONO.basura + 'Quitar grupo</button>'
+          + '</div>'
+        ).join('')
+      : '<div class="pista">Sin checklist capturado todavía.</div>';
+  }
+  function grupoChecklistDe(nodo){ return checklistTmp.find(g => g.id === nodo.closest('[data-g]').dataset.g); }
+  $('rcChecklistWrap').addEventListener('input', ev=>{
+    const g = ev.target.closest('[data-g]') && grupoChecklistDe(ev.target);
+    if(!g) return;
+    const campoGrupo = ev.target.closest('[data-campo-grupo]');
+    if(campoGrupo){ g[campoGrupo.dataset.campoGrupo] = campoGrupo.value; return; }
+    const campoItem = ev.target.closest('[data-campo-item]');
+    if(campoItem){
+      const it = g.items.find(x => x.id === campoItem.closest('[data-i]').dataset.i);
+      if(!it) return;
+      if(campoItem.dataset.campoItem === 'hecho') it.hecho = campoItem.checked;
+      else it.texto = campoItem.value;
+    }
+  });
+  $('rcChecklistWrap').addEventListener('click', ev=>{
+    if(ev.target.closest('[data-quitar-grupo-checklist-rc]')){
+      checklistTmp = checklistTmp.filter(g => g.id !== ev.target.closest('[data-g]').dataset.g);
+      pintarChecklistRC();
+      return;
+    }
+    if(ev.target.closest('[data-agregar-item-checklist-rc]')){
+      grupoChecklistDe(ev.target).items.push(normalizarChecklistItemCierre({}));
+      pintarChecklistRC();
+      return;
+    }
+    if(ev.target.closest('[data-quitar-item-checklist-rc]')){
+      const g = grupoChecklistDe(ev.target);
+      g.items = g.items.filter(it => it.id !== ev.target.closest('[data-i]').dataset.i);
+      pintarChecklistRC();
+    }
+  });
+  $('btnAgregarGrupoChecklistRC').addEventListener('click', ()=>{
+    /* normalizarChecklistGrupoCierre() descarta los items sin texto (ver su
+       comentario), así que sembrar uno en blanco aquí no serviría de nada:
+       el grupo nace vacío y cada actividad se agrega con su propio botón. */
+    checklistTmp.push(normalizarChecklistGrupoCierre({}));
+    pintarChecklistRC();
+  });
+
+  /* ---- Mediciones / Hallazgos / Refacciones: tres tablas planas, mismo
+     molde exacto que Equipos (arriba). ---- */
+  function pintarMedicionesRC(){
+    const filas = medicionesTmp.map((x,i)=>
+        '<tr data-idx="' + i + '">'
+      + '<td><input type="text" data-campo="equipo" value="' + esc(x.equipo) + '" placeholder="Equipo"></td>'
+      + '<td class="mini"><input type="text" data-campo="lectura" value="' + esc(x.lectura) + '" placeholder="Ej. 13.37 A"></td>'
+      + '<td class="mini"><input type="text" data-campo="referenciaPlaca" value="' + esc(x.referenciaPlaca) + '" placeholder="Dato de placa"></td>'
+      + '<td><input type="text" data-campo="interpretacion" value="' + esc(x.interpretacion) + '" placeholder="Qué significa la lectura"></td>'
+      + '<td class="acc"><button type="button" class="icono-mini" data-quitar-medicion-rc="' + i + '" data-tip="Borrar">' + ICONO.basura + '</button></td>'
+      + '</tr>').join('');
+    $('rcMedicionesWrap').innerHTML = medicionesTmp.length
+      ? '<div class="rodillo"><table class="tabla-renglones">'
+        + '<thead><tr><th>Equipo</th><th>Lectura</th><th>Ref. de placa</th><th>Interpretación</th><th></th></tr></thead>'
+        + '<tbody>' + filas + '</tbody></table></div>'
+      : '<div class="pista">Sin mediciones capturadas.</div>';
+  }
+  $('rcMedicionesWrap').addEventListener('input', ev=>{
+    const campo = ev.target.closest('[data-campo]');
+    if(!campo) return;
+    medicionesTmp[+campo.closest('[data-idx]').dataset.idx][campo.dataset.campo] = campo.value;
+  });
+  $('rcMedicionesWrap').addEventListener('click', ev=>{
+    const quitar = ev.target.closest('[data-quitar-medicion-rc]');
+    if(!quitar) return;
+    medicionesTmp.splice(+quitar.dataset.quitarMedicionRc, 1);
+    pintarMedicionesRC();
+  });
+  $('btnAgregarMedicionRC').addEventListener('click', ()=>{ medicionesTmp.push(normalizarMedicionCierre({})); pintarMedicionesRC(); });
+
+  function pintarHallazgosRC(){
+    const filas = hallazgosTmp.map((x,i)=>
+        '<tr data-idx="' + i + '">'
+      + '<td class="mini"><select data-campo="prioridad">' + PRIORIDADES_HALLAZGO_CIERRE.map(p => '<option value="' + p + '"' + (p === x.prioridad ? ' selected' : '') + '>' + esc(ETIQUETA_PRIORIDAD_HALLAZGO_CIERRE[p]) + '</option>').join('') + '</select></td>'
+      + '<td><input type="text" data-campo="hallazgo" value="' + esc(x.hallazgo) + '" placeholder="Qué se encontró y dónde (folio o S/N)"></td>'
+      + '<td><input type="text" data-campo="recomendacion" value="' + esc(x.recomendacion) + '" placeholder="Acción concreta y quién la realiza"></td>'
+      + '<td class="acc"><button type="button" class="icono-mini" data-quitar-hallazgo-rc="' + i + '" data-tip="Borrar">' + ICONO.basura + '</button></td>'
+      + '</tr>').join('');
+    $('rcHallazgosWrap').innerHTML = hallazgosTmp.length
+      ? '<div class="rodillo"><table class="tabla-renglones">'
+        + '<thead><tr><th>Prioridad</th><th>Hallazgo</th><th>Recomendación</th><th></th></tr></thead>'
+        + '<tbody>' + filas + '</tbody></table></div>'
+      : '<div class="pista">Sin hallazgos capturados.</div>';
+  }
+  $('rcHallazgosWrap').addEventListener('input', ev=>{
+    const campo = ev.target.closest('[data-campo]');
+    if(!campo) return;
+    hallazgosTmp[+campo.closest('[data-idx]').dataset.idx][campo.dataset.campo] = campo.value;
+  });
+  $('rcHallazgosWrap').addEventListener('click', ev=>{
+    const quitar = ev.target.closest('[data-quitar-hallazgo-rc]');
+    if(!quitar) return;
+    hallazgosTmp.splice(+quitar.dataset.quitarHallazgoRc, 1);
+    pintarHallazgosRC();
+  });
+  $('btnAgregarHallazgoRC').addEventListener('click', ()=>{ hallazgosTmp.push(normalizarHallazgoCierre({})); pintarHallazgosRC(); });
+
+  function pintarRefaccionesRC(){
+    const filas = refaccionesTmp.map((x,i)=>
+        '<tr data-idx="' + i + '">'
+      + '<td class="mini"><select data-campo="estatus">' + ESTATUS_REFACCION_CIERRE.map(es => '<option value="' + es + '"' + (es === x.estatus ? ' selected' : '') + '>' + esc(ETIQUETA_ESTATUS_REFACCION_CIERRE[es]) + '</option>').join('') + '</select></td>'
+      + '<td class="mini"><input type="number" min="1" step="1" data-campo="cantidad" value="' + x.cantidad + '"></td>'
+      + '<td><input type="text" data-campo="descripcion" value="' + esc(x.descripcion) + '" placeholder="Refacción"></td>'
+      + '<td class="mini"><input type="text" data-campo="equipoFolio" value="' + esc(x.equipoFolio) + '" placeholder="Equipo · MEX ####"></td>'
+      + '<td class="acc"><button type="button" class="icono-mini" data-quitar-refaccion-rc="' + i + '" data-tip="Borrar">' + ICONO.basura + '</button></td>'
+      + '</tr>').join('');
+    $('rcRefaccionesWrap').innerHTML = refaccionesTmp.length
+      ? '<div class="rodillo"><table class="tabla-renglones">'
+        + '<thead><tr><th>Estatus</th><th>Cant.</th><th>Descripción</th><th>Equipo · Folio</th><th></th></tr></thead>'
+        + '<tbody>' + filas + '</tbody></table></div>'
+      : '<div class="pista">Sin refacciones capturadas.</div>';
+  }
+  $('rcRefaccionesWrap').addEventListener('input', ev=>{
+    const campo = ev.target.closest('[data-campo]');
+    if(!campo) return;
+    const x = refaccionesTmp[+campo.closest('[data-idx]').dataset.idx];
+    if(campo.dataset.campo === 'cantidad') x.cantidad = Math.max(1, parseInt(campo.value, 10) || 1);
+    else x[campo.dataset.campo] = campo.value;
+  });
+  $('rcRefaccionesWrap').addEventListener('click', ev=>{
+    const quitar = ev.target.closest('[data-quitar-refaccion-rc]');
+    if(!quitar) return;
+    refaccionesTmp.splice(+quitar.dataset.quitarRefaccionRc, 1);
+    pintarRefaccionesRC();
+  });
+  $('btnAgregarRefaccionRC').addEventListener('click', ()=>{ refaccionesTmp.push(normalizarRefaccionCierre({})); pintarRefaccionesRC(); });
+
+  /* ---- Fotos agrupadas por equipo: grupos (por id) con su propia galería ---- */
+  function pintarFotosGruposRC(){
+    $('rcFotosGruposWrap').innerHTML = fotosGruposTmp.length
+      ? fotosGruposTmp.map(g =>
+          '<div class="bloque" style="margin-top:10px; padding:12px" data-g="' + esc(g.id) + '">'
+          + '<input type="text" data-campo-grupo-foto="nombre" placeholder="Nombre del grupo (ej. Barra caliente #3)" value="' + esc(g.nombre) + '">'
+          + (g.fotos.length
+              ? '<div class="galeria-evidencia" style="margin-top:8px">' + g.fotos.map(f =>
+                  '<div class="foto-evidencia" data-f="' + esc(f.id) + '">'
+                  +   '<img src="' + esc(f.dataUrl) + '" alt="Evidencia">'
+                  +   '<input type="text" data-campo-foto-grupo="etiqueta" value="' + esc(f.etiqueta) + '" placeholder="Elemento · detalle · antes/después">'
+                  +   '<button type="button" class="btn btn-peligro btn-mini" data-quitar-foto-grupo-rc>' + ICONO.basura + '</button>'
+                  + '</div>'
+                ).join('') + '</div>'
+              : '<p class="pista" style="margin-top:8px">Sin fotos en este grupo todavía.</p>')
+          + '<div style="margin-top:8px; display:flex; gap:8px">'
+          +   '<button type="button" class="btn btn-suave btn-mini" data-agregar-foto-grupo-rc>' + ICONO.camara + 'Agregar foto</button>'
+          +   '<button type="button" class="btn btn-peligro btn-mini" data-quitar-grupo-fotos-rc>' + ICONO.basura + 'Quitar grupo</button>'
+          + '</div>'
+          + '</div>'
+        ).join('')
+      : '<div class="pista">Sin grupos de fotos todavía.</div>';
+  }
+  function grupoFotosDe(nodo){ return fotosGruposTmp.find(g => g.id === nodo.closest('[data-g]').dataset.g); }
+  $('rcFotosGruposWrap').addEventListener('input', ev=>{
+    const campoGrupo = ev.target.closest('[data-campo-grupo-foto]');
+    if(campoGrupo){ grupoFotosDe(campoGrupo).nombre = campoGrupo.value; return; }
+    const campoFoto = ev.target.closest('[data-campo-foto-grupo]');
+    if(campoFoto){
+      const g = grupoFotosDe(campoFoto);
+      const f = g.fotos.find(x => x.id === campoFoto.closest('[data-f]').dataset.f);
+      if(f) f.etiqueta = campoFoto.value;
+    }
+  });
+  $('rcFotosGruposWrap').addEventListener('click', ev=>{
+    if(ev.target.closest('[data-quitar-grupo-fotos-rc]')){
+      fotosGruposTmp = fotosGruposTmp.filter(g => g.id !== ev.target.closest('[data-g]').dataset.g);
+      pintarFotosGruposRC();
+      return;
+    }
+    if(ev.target.closest('[data-agregar-foto-grupo-rc]')){
+      objetivoFotoActual = { tipo:'grupo', grupoId: ev.target.closest('[data-g]').dataset.g };
+      $('rcArchivoFoto').click();
+      return;
+    }
+    if(ev.target.closest('[data-quitar-foto-grupo-rc]')){
+      const g = grupoFotosDe(ev.target);
+      g.fotos = g.fotos.filter(f => f.id !== ev.target.closest('[data-f]').dataset.f);
+      pintarFotosGruposRC();
+    }
+  });
+  $('btnAgregarGrupoFotosRC').addEventListener('click', ()=>{
+    if(fotosGruposTmp.length >= GRUPOS_FOTOS_MAX_CIERRE){ aviso('Ya tienes ' + GRUPOS_FOTOS_MAX_CIERRE + ' grupos de fotos.', true); return; }
+    fotosGruposTmp.push(normalizarGrupoFotosCierre({}));
+    pintarFotosGruposRC();
+  });
+
+  /* ---- Fotos sueltas (hallazgos adicionales / anexo de órdenes): mismo
+     molde que rsItemsWrap en modalReporteServicioCotizacion, uno por lista. ---- */
+  function pintarFotosSueltaRC(contId, lista, repintar){
+    $(contId).innerHTML = lista.length
+      ? '<div class="galeria-evidencia">' + lista.map(f =>
+          '<div class="foto-evidencia" data-f="' + esc(f.id) + '">'
+          +   '<img src="' + esc(f.dataUrl) + '" alt="Evidencia">'
+          +   '<input type="text" data-campo-foto-suelta="etiqueta" value="' + esc(f.etiqueta) + '" placeholder="Descripción / folio">'
+          +   '<button type="button" class="btn btn-peligro btn-mini" data-quitar-foto-suelta-rc>' + ICONO.basura + '</button>'
+          + '</div>'
+        ).join('') + '</div>'
+      : '<p class="pista">Sin fotos todavía.</p>';
+  }
+  function pintarFotosHallazgosRC(){ pintarFotosSueltaRC('rcFotosHallazgosWrap', fotosHallazgosAdicionalesTmp); }
+  function pintarFotosOrdenesRC(){ pintarFotosSueltaRC('rcFotosOrdenesWrap', fotosOrdenesServicioTmp); }
+  pintarFotosHallazgosRC();
+  pintarFotosOrdenesRC();
+  $('rcFotosHallazgosWrap').addEventListener('input', ev=>{
+    const campo = ev.target.closest('[data-campo-foto-suelta]');
+    if(!campo) return;
+    const f = fotosHallazgosAdicionalesTmp.find(x => x.id === campo.closest('[data-f]').dataset.f);
+    if(f) f.etiqueta = campo.value;
+  });
+  $('rcFotosHallazgosWrap').addEventListener('click', ev=>{
+    const quitar = ev.target.closest('[data-quitar-foto-suelta-rc]');
+    if(!quitar) return;
+    fotosHallazgosAdicionalesTmp = fotosHallazgosAdicionalesTmp.filter(f => f.id !== quitar.closest('[data-f]').dataset.f);
+    pintarFotosHallazgosRC();
+  });
+  $('rcFotosOrdenesWrap').addEventListener('input', ev=>{
+    const campo = ev.target.closest('[data-campo-foto-suelta]');
+    if(!campo) return;
+    const f = fotosOrdenesServicioTmp.find(x => x.id === campo.closest('[data-f]').dataset.f);
+    if(f) f.etiqueta = campo.value;
+  });
+  $('rcFotosOrdenesWrap').addEventListener('click', ev=>{
+    const quitar = ev.target.closest('[data-quitar-foto-suelta-rc]');
+    if(!quitar) return;
+    fotosOrdenesServicioTmp = fotosOrdenesServicioTmp.filter(f => f.id !== quitar.closest('[data-f]').dataset.f);
+    pintarFotosOrdenesRC();
+  });
+  $('modalCuerpo').querySelectorAll('[data-agregar-foto-suelta-rc]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      objetivoFotoActual = { tipo: b.dataset.agregarFotoSueltaRc };
+      $('rcArchivoFoto').click();
+    });
+  });
+
+  /* ---- El <input type="file"> compartido: decide dónde cae cada foto
+     subida según objetivoFotoActual, con el mismo tope por lista que ya
+     usa el "Reporte de servicio" simple (ver ITEMS_MAX_REPORTE_SERVICIO). ---- */
+  $('rcArchivoFoto').addEventListener('change', async ev=>{
+    const archivos = Array.from(ev.target.files || []);
+    ev.target.value = '';
+    if(!archivos.length || !objetivoFotoActual) return;
+    const objetivo = objetivoFotoActual;
+    let lista, tope, repintar;
+    if(objetivo.tipo === 'grupo'){
+      const g = fotosGruposTmp.find(x => x.id === objetivo.grupoId);
+      if(!g) return;
+      lista = g.fotos; tope = FOTOS_MAX_POR_GRUPO_CIERRE; repintar = pintarFotosGruposRC;
+    }else if(objetivo.tipo === 'hallazgo'){
+      lista = fotosHallazgosAdicionalesTmp; tope = FOTOS_MAX_HALLAZGOS_ADICIONALES_CIERRE; repintar = pintarFotosHallazgosRC;
+    }else{
+      lista = fotosOrdenesServicioTmp; tope = FOTOS_MAX_ORDENES_SERVICIO_CIERRE; repintar = pintarFotosOrdenesRC;
+    }
+    const cupo = tope - lista.length;
+    if(cupo <= 0){ aviso('Ya tienes ' + tope + ' fotos en esta lista. Quita alguna para agregar otra.', true); return; }
+    for(const archivo of archivos.slice(0, cupo)){
+      try{
+        const img = await leerEvidencia(archivo);
+        const dataUrl = comprimirEvidencia(img);
+        const foto = normalizarFotoCierre({ dataUrl });
+        if(objetivo.tipo === 'grupo') fotosGruposTmp.find(x => x.id === objetivo.grupoId).fotos.push(foto);
+        else lista.push(foto);
+      }catch(e){ aviso(e.message, true); }
+    }
+    repintar();
+  });
+
+  function repintarFirmaTecnicoRC(){
+    pintarTarjetaFirma('rcFirmaTecnicoWrap', firmaTecnicoTmp, 'Firma del técnico', $('rcTecnicosTexto').value, f=>{ firmaTecnicoTmp = f; repintarFirmaTecnicoRC(); });
+  }
+  function repintarFirmaClienteRC(){
+    pintarTarjetaFirma('rcFirmaClienteWrap', firmaClienteTmp, 'Firma del cliente', '', f=>{ firmaClienteTmp = f; repintarFirmaClienteRC(); });
+  }
+  repintarFirmaTecnicoRC();
+  repintarFirmaClienteRC();
+
+  pintarEquiposRC();
+  pintarChecklistRC();
+  pintarMedicionesRC();
+  pintarHallazgosRC();
+  pintarRefaccionesRC();
+  pintarFotosGruposRC();
+
+  cerrarModalActual = ()=>{
+    /* Las fotos nuevas (todavía en base64) se suben a Storage justo aquí,
+       al guardar de verdad — mismo criterio que ya usan reportes/pólizas/
+       proyectos de imagen (ver subirEvidenciaStorage): este reporte puede
+       traer muchas más fotos que el "Reporte de servicio" simple (varios
+       equipos × varias fotos cada uno), y guardarlas embebidas correría el
+       mismo riesgo que ya tumbó POL-024 (1 MiB por documento de Firestore). */
+    const pendientes = [];
+    fotosGruposTmp.forEach(g => g.fotos.forEach(f => { if(f.dataUrl.startsWith('data:')) pendientes.push(f); }));
+    fotosHallazgosAdicionalesTmp.forEach(f => { if(f.dataUrl.startsWith('data:')) pendientes.push(f); });
+    fotosOrdenesServicioTmp.forEach(f => { if(f.dataUrl.startsWith('data:')) pendientes.push(f); });
+
+    const guardarYa = async ()=>{
+      const btnGuardar = $('modalPie') && $('modalPie').querySelector('[data-modal="guardar"]');
+      if(pendientes.length){
+        if(btnGuardar){ btnGuardar.disabled = true; btnGuardar.textContent = 'Subiendo fotos…'; }
+        try{
+          for(const f of pendientes) f.dataUrl = await subirEvidenciaStorage(f.dataUrl, 'evidencias/reporteCierre/' + c.id, f.id);
+        }catch(err){
+          if(btnGuardar){ btnGuardar.disabled = false; btnGuardar.textContent = 'Guardar reporte'; }
+          aviso('No se pudieron subir las fotos: ' + err.message, true);
+          return;
+        }
+      }
+      c.reporteCierre = normalizarReporteCierreCotizacion({
+        tipoServicio: $('rcTipoServicio').value, idReporte: $('rcIdReporte').value, tipoInstalacion: $('rcTipoInstalacion').value,
+        fechasTexto: $('rcFechasTexto').value, foliosTexto: $('rcFoliosTexto').value,
+        tecnicosTexto: $('rcTecnicosTexto').value, capturoTexto: $('rcCapturoTexto').value,
+        resumenQueSeHizo: $('rcResumenQueSeHizo').value, resumenEstadoCierre: $('rcResumenEstadoCierre').value,
+        equipos: equiposTmp, checklist: checklistTmp, mediciones: medicionesTmp,
+        instrumentoMediciones: $('rcInstrumentoMediciones').value, hallazgos: hallazgosTmp, refacciones: refaccionesTmp,
+        firmaTecnico: firmaTecnicoTmp, firmaCliente: firmaClienteTmp,
+        fotosGrupos: fotosGruposTmp, fotosHallazgosAdicionales: fotosHallazgosAdicionalesTmp, fotosOrdenesServicio: fotosOrdenesServicioTmp
+      });
+      guardarCotizacion(c, 'actualizó', 'reporte de cierre de ' + (c.folio || 'sin folio'));
+      cerrarModal();
+      render();
+      aviso('Reporte de cierre guardado.');
+    };
+    guardarYa();
+  };
+}
+
+/* Payload/apertura del reporte de cierre, mismo patrón que
+   armarPayloadReporteServicioCotizacion de arriba — el tablero calcula
+   TODO (KPIs, orden de hallazgos, conteos del checklist) y la plantilla
+   solo formatea y concatena. */
+function armarPayloadReporteCierreCotizacion(c){
+  const cli = clientePorId(c.clienteId);
+  const s = sitioPorId(c.sitioId);
+  const r = c.reporteCierre;
+
+  const kpis = {
+    equiposAtendidos: r.equipos.length,
+    operativos: r.equipos.filter(e => e.estatus === 'operativo').length,
+    enSeguimiento: r.equipos.filter(e => e.estatus === 'seguimiento').length,
+    refaccionPendiente: r.equipos.filter(e => e.estatus === 'refaccion_pendiente').length,
+    hallazgosAltaPrioridad: r.hallazgos.filter(h => h.prioridad === 'alta').length
+  };
+
+  /* Título sugerido ("[Tipo] · [N] equipos de [tipo de instalación] ·
+     [Cliente] [Sitio]"), igual que pide la plantilla de Word — se CALCULA
+     aquí, nunca se le pide a quien captura que lo redacte a mano. */
+  const titulo = [
+    ETIQUETA_TIPO_SERVICIO_REPORTE_CIERRE[r.tipoServicio],
+    r.equipos.length ? r.equipos.length + ' ' + plural(r.equipos.length, 'equipo', 'equipos') + (r.tipoInstalacion ? ' de ' + r.tipoInstalacion : '') : '',
+    [cli ? cli.nombre : '', s ? s.nombre : ''].filter(Boolean).join(' ')
+  ].filter(Boolean).join(' · ');
+
+  const ordenPrioridad = { alta: 0, media: 1, baja: 2 };
+  const hallazgosOrdenados = r.hallazgos.slice().sort((a,b) => ordenPrioridad[a.prioridad] - ordenPrioridad[b.prioridad]);
+  const ordenRefaccion = { instalada: 0, solicitada: 1 };
+  const refaccionesOrdenadas = r.refacciones.slice().sort((a,b) => ordenRefaccion[a.estatus] - ordenRefaccion[b.estatus]);
+
+  return {
+    meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
+    contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice(), correo: (sesion && sesion.correo) || '' },
+    folio: c.folio || '',
+    cliente: cli ? cli.nombre : '',
+    sitio: s ? s.nombre : '',
+    tipoServicioEtiqueta: ETIQUETA_TIPO_SERVICIO_REPORTE_CIERRE[r.tipoServicio],
+    idReporte: r.idReporte || '',
+    titulo,
+    fechasTexto: r.fechasTexto || '',
+    foliosTexto: r.foliosTexto || '',
+    tecnicosTexto: r.tecnicosTexto || '',
+    capturoTexto: r.capturoTexto || '',
+    kpis,
+    resumenQueSeHizo: r.resumenQueSeHizo || '',
+    resumenEstadoCierre: r.resumenEstadoCierre || '',
+    equipos: r.equipos.map(e => ({ folio: e.folio, fecha: e.fecha, equipo: e.equipo, marca: e.marca, modelo: e.modelo, serie: e.serie, estatus: e.estatus })),
+    checklist: r.checklist.filter(g => g.items.length).map(g => ({
+      nombre: g.nombre, folios: g.folios,
+      items: g.items.map(it => ({ texto: it.texto, hecho: it.hecho })),
+      hechos: g.items.filter(it => it.hecho).length
+    })),
+    mediciones: r.mediciones.map(m => ({ equipo: m.equipo, lectura: m.lectura, referenciaPlaca: m.referenciaPlaca, interpretacion: m.interpretacion })),
+    instrumentoMediciones: r.instrumentoMediciones || '',
+    hallazgos: hallazgosOrdenados.map(h => ({ prioridad: h.prioridad, hallazgo: h.hallazgo, recomendacion: h.recomendacion })),
+    refacciones: refaccionesOrdenadas.map(rf => ({ estatus: rf.estatus, cantidad: rf.cantidad, descripcion: rf.descripcion, equipoFolio: rf.equipoFolio })),
+    firmaTecnico: r.firmaTecnico ? { nombre: r.firmaTecnico.nombre, dataUrl: r.firmaTecnico.dataUrl, fechaTexto: fechaHora(r.firmaTecnico.fecha) } : null,
+    firmaCliente: r.firmaCliente ? { nombre: r.firmaCliente.nombre, dataUrl: r.firmaCliente.dataUrl, fechaTexto: fechaHora(r.firmaCliente.fecha) } : null,
+    /* Pie de foto YA armado aquí ("Elemento · detalle" capturado + el
+       nombre del grupo), igual que pide la plantilla de Word — la
+       plantilla de impresión solo lo imprime, no lo arma. */
+    fotosGrupos: r.fotosGrupos.filter(g => g.fotos.length).map(g => ({
+      nombre: g.nombre, fotos: g.fotos.map(f => ({ dataUrl: f.dataUrl, etiqueta: f.etiqueta }))
+    })),
+    fotosHallazgosAdicionales: r.fotosHallazgosAdicionales.map(f => ({ dataUrl: f.dataUrl, etiqueta: f.etiqueta })),
+    fotosOrdenesServicio: r.fotosOrdenesServicio.map(f => ({ dataUrl: f.dataUrl, etiqueta: f.etiqueta }))
+  };
+}
+const LLAVE_DOC_REPORTE_CIERRE_COTIZACION = 'forguard.documento.reporteCierreCotizacion';
+function abrirDocumentoReporteCierreCotizacion(cotizacionId){
+  const c = cotizacionPorId(cotizacionId);
+  if(!c || !reporteCierreTieneContenido(c.reporteCierre)) return;
+  try{
+    sessionStorage.setItem(LLAVE_DOC_REPORTE_CIERRE_COTIZACION, JSON.stringify(armarPayloadReporteCierreCotizacion(c)));
+  }catch(e){ aviso('No se pudo preparar el documento: ' + e.message, true); return; }
+  window.open('docs/plantilla_reporte_cierre_cotizacion.html', '_blank');
+}
+
 /* ======================== Modal: Cotización de Forpass ========================
    Ver el comentario grande junto a normalizarCotizacionForpass() para el
    porqué de cada decisión de diseño. Mismo molde de trabajo que el resto de
@@ -35403,6 +36212,8 @@ $('vista').addEventListener('click', ev=>{
        captura, no de lectura. */
     else if(a === 'reporte-servicio-cotizacion'){ if(exigirPermiso()) modalReporteServicioCotizacion(estado.cotizacionId); }
     else if(a === 'exportar-reporte-servicio-cotizacion') abrirDocumentoReporteServicioCotizacion(estado.cotizacionId);
+    else if(a === 'reporte-cierre-cotizacion'){ if(exigirPermiso()) modalReporteCierreCotizacion(estado.cotizacionId); }
+    else if(a === 'exportar-reporte-cierre-cotizacion') abrirDocumentoReporteCierreCotizacion(estado.cotizacionId);
     else if(a === 'borrar-cotizacion'){
       if(!exigirAdmin('eliminar una cotización')) return;
       const cot = cotizacionPorId(estado.cotizacionId);
