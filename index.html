@@ -17564,11 +17564,40 @@ const TEMAS_AYUDA = [
 
 function temaAyudaPorId(id){ return TEMAS_AYUDA.find(t => t.id === id); }
 
+/* Manual de uso / guía descargable (27-oct-2026, pedido de Victor: "revisa
+   que todo esté reflejado también en el manual o guía descargable") — NO es
+   un documento aparte que se redacta a mano y se desactualiza: es un export
+   en PDF de los mismos TEMAS_AYUDA de arriba, resolviendo el contenido
+   (función o string) una sola vez aquí. Una sola fuente de verdad, dos
+   formas de leerla. */
+function armarPayloadManualAyuda(){
+  return {
+    meta: { generado: new Date().toISOString(), origen: 'control-forpass', version: 1 },
+    contacto: { telOficina: TEL_OFICINA, oficinas: OFICINAS.slice() },
+    generadoTexto: 'Generado el ' + fechaHora(new Date().toISOString(), true),
+    temas: TEMAS_AYUDA.map(t => ({
+      id: t.id,
+      titulo: t.titulo,
+      resumen: t.resumen,
+      contenidoHTML: typeof t.contenido === 'function' ? t.contenido() : t.contenido
+    }))
+  };
+}
+const LLAVE_DOC_MANUAL_AYUDA = 'forguard.documento.manualAyuda';
+function abrirDocumentoManualAyuda(){
+  try{
+    sessionStorage.setItem(LLAVE_DOC_MANUAL_AYUDA, JSON.stringify(armarPayloadManualAyuda()));
+  }catch(e){ aviso('No se pudo preparar el documento: ' + e.message, true); return; }
+  window.open('docs/plantilla_manual_ayuda.html', '_blank');
+}
+
 function vistaAyuda(){
   let h = '';
   h += '<div class="titulo-zona"><div>'
      +   '<h2>Ayuda</h2>'
      +   '<p>Guía de uso paso a paso de cada módulo — para sacarle todo el jugo a la herramienta.</p>'
+     + '</div><div class="acciones">'
+     +   '<button type="button" class="btn btn-suave" data-accion="exportar-manual-ayuda">' + ICONO.documento + 'Descargar guía completa</button>'
      + '</div></div>';
 
   h += '<div class="barra-busca">'
@@ -36214,6 +36243,7 @@ $('vista').addEventListener('click', ev=>{
     else if(a === 'exportar-reporte-servicio-cotizacion') abrirDocumentoReporteServicioCotizacion(estado.cotizacionId);
     else if(a === 'reporte-cierre-cotizacion'){ if(exigirPermiso()) modalReporteCierreCotizacion(estado.cotizacionId); }
     else if(a === 'exportar-reporte-cierre-cotizacion') abrirDocumentoReporteCierreCotizacion(estado.cotizacionId);
+    else if(a === 'exportar-manual-ayuda') abrirDocumentoManualAyuda();
     else if(a === 'borrar-cotizacion'){
       if(!exigirAdmin('eliminar una cotización')) return;
       const cot = cotizacionPorId(estado.cotizacionId);
