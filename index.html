@@ -1906,11 +1906,25 @@ table.tabla th.th-orden .flecha-orden{color:var(--accent);}
      que se pinte el <body>, para que quien ya eligió oscuro (o lo trae por
      preferencia del sistema) no vea un destello de la página en claro. La
      lógica completa (botón, ícono, sincronizar con Firestore) vive más
-     abajo, en el script principal — esto es solo el primer trazo. -->
+     abajo, en el script principal — esto es solo el primer trazo.
+
+     27-oct-2026: la llave de localStorage es POR CUENTA ('forguard.tema.'
+     + uid), no una sola compartida por todo el navegador — ver el
+     comentario grande junto a uidTema()/llaveTemaDe() más abajo (reporte de
+     Victor: el tema de una cuenta se le pegaba a cualquier otra que
+     iniciara sesión en el mismo equipo). Aquí no existe todavía la sesión
+     restaurada (eso lo hace cargarSesion() ya entrado el script principal),
+     así que se lee a mano el mismo localStorage donde guardarSesion()
+     guarda la sesión completa, solo para sacar el uid de quien sea que haya
+     iniciado sesión aquí por última vez. Sin ningún uid recordado (primera
+     visita de verdad, nadie ha entrado nunca en este navegador) se usa la
+     llave genérica de siempre. -->
 <script>
 (function(){
   try{
-    var t = localStorage.getItem('forguard.tema');
+    var uid = null;
+    try{ uid = (JSON.parse(localStorage.getItem('forguard_forpass_sesion_v1') || '{}') || {}).uid || null; }catch(e){}
+    var t = localStorage.getItem(uid ? 'forguard.tema.' + uid : 'forguard.tema');
     if(!t) t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
     document.documentElement.setAttribute('data-theme', t);
   }catch(e){}
@@ -2373,13 +2387,43 @@ const HAY_NUBE = !!(CONFIG_NUBE.apiKey && CONFIG_NUBE.projectId);
    la app corre por variables CSS (:root / [data-theme="dark"], arriba del
    todo del <style>), así que esta función nunca necesita saber nada de
    componentes ni de vistas — ningún margin/padding/tamaño/layout se tocó
-   para este pedido, solo color/fondo/borde/sombra, como se pidió. */
+   para este pedido, solo color/fondo/borde/sombra, como se pidió.
+
+   Corrección (27-oct-2026, reporte de Victor: "si yo coloco en negro le
+   aparece a todos en negro... que este sea conforme al usuario lo quiera"):
+   el paso 1 ("lo que esta persona ya eligió EN ESTE navegador") vivía bajo
+   UNA SOLA llave de localStorage para TODO el navegador, sin importar quién
+   tuviera la sesión abierta. En una computadora compartida entre varias
+   cuentas eso significa que, en cuanto una persona tocaba el botón de tema,
+   esa elección se quedaba puesta para CUALQUIER otra cuenta que después
+   iniciara sesión ahí — porque el paso 2 (su propio perfil) solo se aplica
+   "si este navegador todavía no tiene ninguna preferencia propia", y una
+   vez que alguien tocó el botón, el navegador ya "tenía una". El tema SÍ
+   era por cuenta desde el principio del lado del servidor (`/usuarios/
+   {uid}.tema`); el hueco estaba nada más en la copia local, compartida por
+   error entre todas las cuentas del mismo navegador. Ahora la copia local
+   también se guarda por cuenta (`forguard.tema.<uid>`), así que cada quien
+   ve y controla su propio tema sin pisarle el de nadie más en el mismo
+   equipo — ver uidTema()/llaveTemaDe() abajo. */
 const TEMA_LLAVE = 'forguard.tema';
 function temaSistema(){
   return (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
 }
+/* uid de la sesión activa si ya se conoce; si no (este código corre ANTES de
+   cargarSesion() en el arranque), el de la última sesión que haya quedado
+   guardada en este navegador — mismo LLAVE_SESION que usa cargarSesion(),
+   leído aquí a mano porque esta función se define antes de que exista esa
+   constante más abajo en el archivo. null = nadie ha iniciado sesión nunca
+   en este navegador (pantalla de acceso, primera visita). */
+function uidTema(){
+  if(typeof sesion !== 'undefined' && sesion && sesion.uid) return sesion.uid;
+  try{ return (JSON.parse(localStorage.getItem('forguard_forpass_sesion_v1') || '{}') || {}).uid || null; }catch(e){ return null; }
+}
+/* Con uid: llave propia de esa cuenta en este navegador. Sin uid (nadie ha
+   iniciado sesión aquí todavía): la llave genérica de siempre. */
+function llaveTemaDe(uid){ return uid ? TEMA_LLAVE + '.' + uid : TEMA_LLAVE; }
 function temaGuardado(){
-  try{ return localStorage.getItem(TEMA_LLAVE); }catch(e){ return null; }
+  try{ return localStorage.getItem(llaveTemaDe(uidTema())); }catch(e){ return null; }
 }
 const ICONO_TEMA_SOL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="iconoTema"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
 const ICONO_TEMA_LUNA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="iconoTema"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
@@ -2395,7 +2439,7 @@ function alternarTema(){
   const actual = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   const nuevo = actual === 'dark' ? 'light' : 'dark';
   aplicarTema(nuevo);
-  try{ localStorage.setItem(TEMA_LLAVE, nuevo); }catch(e){}
+  try{ localStorage.setItem(llaveTemaDe(uidTema()), nuevo); }catch(e){}
   /* PATCH acotado a SOLO `tema` (igual que el de `ultimoAcceso` en
      cargarPerfil()), nunca por escribirNube(): esa función siempre estampa
      `actualizadoEn` de más, y la regla de Firestore para esta cuenta propia
@@ -4447,13 +4491,16 @@ async function cargarPerfil(){
   /* Modo oscuro entre dispositivos (05-oct-2026): si esta persona YA eligió
      un tema en otro navegador/celular (quedó guardado en su perfil al
      alternarTema()), y este navegador todavía no tiene ninguna preferencia
-     propia, se adopta la de su perfil — de ahí en adelante manda la copia
-     local de este navegador, igual que cualquier otro dispositivo. Si ya
-     había algo en localStorage, se respeta tal cual (no se pisa lo que la
-     persona ya eligió aquí mismo). */
+     propia DE ESTA CUENTA, se adopta la de su perfil — de ahí en adelante
+     manda la copia local de este navegador, igual que cualquier otro
+     dispositivo. Si ya había algo guardado aquí mismo para esta cuenta, se
+     respeta tal cual (no se pisa lo que la persona ya eligió). "Propia DE
+     ESTA CUENTA" desde el 27-oct-2026: temaGuardado() ahora mira la llave
+     por uid, así que la preferencia de OTRA cuenta que haya usado este
+     mismo navegador antes ya no cuenta como "ya tenía algo". */
   if((p.tema === 'dark' || p.tema === 'light') && !temaGuardado()){
     aplicarTema(p.tema);
-    try{ localStorage.setItem(TEMA_LLAVE, p.tema); }catch(e){}
+    try{ localStorage.setItem(llaveTemaDe(sesion.uid), p.tema); }catch(e){}
   }
   /* Deja constancia del acceso, sin frenar el arranque si falla. */
   pedirNube('/usuarios/' + encodeURIComponent(sesion.uid) + '?updateMask.fieldPaths=ultimoAcceso', {
