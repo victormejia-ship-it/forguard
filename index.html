@@ -39844,9 +39844,40 @@ window.addEventListener('pageshow', quitarFocoBuscadorMovil);
 /* Habilita "Agregar a pantalla de inicio" en Android/Chrome y da algo de
    resiliencia en datos móviles inestables (ver sw.js: red primero, caché
    solo de respaldo). Ruta relativa para que funcione igual en
-   /desktop-tutorial/ que en un dominio propio el día que se configure. */
+   /desktop-tutorial/ que en un dominio propio el día que se configure.
+
+   28-oct-2026 (Victor: varias computadoras se quedaron viendo una versión
+   de semanas atrás, sin que Ctrl+Shift+R lo arreglara): antes de este
+   cambio, nadie escuchaba cuándo un service worker NUEVO tomaba el control
+   de la pestaña — una pestaña dejada abierta (o una PWA instalada, que casi
+   nunca se cierra del todo) podía seguir corriendo el JS viejo por días o
+   semanas, aunque el service worker nuevo ya se hubiera descargado e
+   instalado de fondo. Ahora, en cuanto el navegador avisa que cambió quién
+   controla la página ("controllerchange", disparado por clients.claim() en
+   sw.js), se recarga sola una sola vez — con una bandera para no entrar en
+   bucle si el evento se dispara más de una vez. Además se llama
+   registration.update() al entrar, para no depender solo de que el
+   navegador decida por su cuenta cuándo re-revisar sw.js (puede tardar
+   hasta 24 horas en revisarlo solo). */
 if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+  /* Si YA había un controller antes de registrar, este load no es la
+     primera visita — es una pestaña reabierta con un service worker previo
+     ya al mando. Sin este guardado, la PRIMERA vez que cualquier visitante
+     nuevo instala el service worker también dispararía "controllerchange"
+     (pasar de "sin controller" a "con controller" cuenta como cambio) y se
+     recargaría solo sin necesidad, justo cuando apenas terminó de cargar. */
+  const yaTeniaControlador = !!navigator.serviceWorker.controller;
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').then(registro => {
+      registro.update().catch(()=>{});
+    }).catch(()=>{});
+  });
+  let yaRecargando = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if(!yaTeniaControlador || yaRecargando) return;
+    yaRecargando = true;
+    location.reload();
+  });
 }
 </script>
 
